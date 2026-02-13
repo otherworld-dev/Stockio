@@ -31,6 +31,7 @@ src/stockio/
 
 deploy/
 ├── setup.sh              # One-command LXC container setup
+├── update.sh             # Deploy new code to an existing install
 ├── stockio-web.service   # systemd unit for the web dashboard
 └── stockio-bot.service   # systemd unit for the trading bot
 ```
@@ -118,6 +119,17 @@ sudo journalctl -u stockio-web -f      # Follow web logs
 ```
 
 The web dashboard is available at `http://<container-ip>:5000` and lets you start/stop the bot, view portfolio status, see live trade signals, and review trade history.
+
+### Updating
+
+After pulling new code into your local repo, deploy it to the container:
+
+```bash
+# From the repo root
+sudo bash deploy/update.sh
+```
+
+This copies the updated source, installs any new dependencies, and restarts the services. Your `.env` config and database are preserved.
 
 ## Testing
 
