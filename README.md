@@ -93,10 +93,20 @@ sudo bash deploy/setup.sh
 
 This will:
 - Install Python and dependencies
-- Create a `stockio` service user
+- Create a `stockio` service user and add your user to its group
 - Install the app to `/opt/stockio`
 - Set up two systemd services (web dashboard + trading bot)
 - Start the web dashboard on port 5000
+
+**Log out and back in** after setup so the group membership takes effect, then train the model and start trading:
+
+```bash
+# Train the ML model (run as your own user)
+stockio train --period 2y
+
+# Start the trading bot
+sudo systemctl start stockio-bot
+```
 
 ```bash
 # Manage the services
@@ -104,13 +114,10 @@ sudo systemctl start stockio-bot       # Start trading
 sudo systemctl stop stockio-bot        # Stop trading
 sudo systemctl status stockio-web      # Check web status
 sudo journalctl -u stockio-bot -f      # Follow bot logs
-
-# The setup script adds your user to the stockio group automatically.
-# If you still get permission errors, log out and back in, or run:
-newgrp stockio
+sudo journalctl -u stockio-web -f      # Follow web logs
 ```
 
-The web dashboard lets you start/stop the bot, view portfolio status, see live trade signals, and review trade history — all from your browser.
+The web dashboard is available at `http://<container-ip>:5000` and lets you start/stop the bot, view portfolio status, see live trade signals, and review trade history.
 
 ## Testing
 
