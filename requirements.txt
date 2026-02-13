@@ -11,7 +11,8 @@ ta>=0.11.0
 feedparser>=6.0.0
 requests>=2.31.0
 transformers>=4.35.0
-torch>=2.1.0
+# NOTE: torch is installed separately as CPU-only to reduce download size
+# (see deploy/setup.sh). Only add torch here if you need GPU support.
 
 # Storage
 # (sqlite3 is in the Python standard library)

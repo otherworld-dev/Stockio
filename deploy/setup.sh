@@ -43,7 +43,10 @@ fi
 echo "[4/7] Setting up Python environment..."
 python3 -m venv "$APP_DIR/.venv"
 "$APP_DIR/.venv/bin/pip" install --upgrade pip setuptools wheel -q
-"$APP_DIR/.venv/bin/pip" install -r "$APP_DIR/requirements.txt" -q
+echo "    Installing PyTorch (CPU-only, ~200MB)..."
+"$APP_DIR/.venv/bin/pip" install torch --index-url https://download.pytorch.org/whl/cpu
+echo "    Installing remaining dependencies..."
+"$APP_DIR/.venv/bin/pip" install -r "$APP_DIR/requirements.txt"
 
 # 6. Set permissions
 echo "[5/7] Setting permissions..."
