@@ -28,6 +28,7 @@ class Position:
     shares: float
     avg_cost: float  # average cost per share (GBP)
     opened_at: str
+    direction: str = "long"  # "long" or "short"
 
 
 @dataclass
@@ -55,7 +56,8 @@ def _init_db(conn: sqlite3.Connection) -> None:
             ticker    TEXT PRIMARY KEY,
             shares    REAL NOT NULL DEFAULT 0,
             avg_cost  REAL NOT NULL DEFAULT 0,
-            opened_at TEXT NOT NULL
+            opened_at TEXT NOT NULL,
+            direction TEXT NOT NULL DEFAULT 'long'
         );
 
         CREATE TABLE IF NOT EXISTS trades (
@@ -92,6 +94,12 @@ def _init_db(conn: sqlite3.Connection) -> None:
         );
         """
     )
+    # Add direction column if it doesn't exist (migration for existing DBs)
+    try:
+        conn.execute("SELECT direction FROM portfolio LIMIT 0")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE portfolio ADD COLUMN direction TEXT NOT NULL DEFAULT 'long'")
+
     # Seed initial cash balance if not yet set
     row = conn.execute("SELECT value FROM account WHERE key = 'cash'").fetchone()
     if row is None:
@@ -147,7 +155,8 @@ def get_initial_budget() -> float:
 def get_positions() -> list[Position]:
     with _get_conn() as conn:
         rows = conn.execute(
-            "SELECT ticker, shares, avg_cost, opened_at FROM portfolio WHERE shares > 0"
+            "SELECT ticker, shares, avg_cost, opened_at, direction "
+            "FROM portfolio WHERE shares > 0"
         ).fetchall()
         return [
             Position(
@@ -155,6 +164,7 @@ def get_positions() -> list[Position]:
                 shares=r["shares"],
                 avg_cost=r["avg_cost"],
                 opened_at=r["opened_at"],
+                direction=r["direction"],
             )
             for r in rows
         ]
@@ -163,7 +173,8 @@ def get_positions() -> list[Position]:
 def get_position(ticker: str) -> Position | None:
     with _get_conn() as conn:
         row = conn.execute(
-            "SELECT ticker, shares, avg_cost, opened_at FROM portfolio WHERE ticker = ?",
+            "SELECT ticker, shares, avg_cost, opened_at, direction "
+            "FROM portfolio WHERE ticker = ?",
             (ticker,),
         ).fetchone()
         if row and row["shares"] > 0:
@@ -172,6 +183,7 @@ def get_position(ticker: str) -> Position | None:
                 shares=row["shares"],
                 avg_cost=row["avg_cost"],
                 opened_at=row["opened_at"],
+                direction=row["direction"],
             )
         return None
 
@@ -267,6 +279,113 @@ def record_sell(ticker: str, shares: float, price: float, reason: str = "") -> T
 
     return TradeRecord(
         id=None, ticker=ticker, side="SELL", shares=shares,
+        price=price, total=total, timestamp=now, reason=reason,
+    )
+
+
+def record_short(ticker: str, shares: float, price: float, reason: str = "") -> TradeRecord:
+    """Open a short position — borrow shares and sell them at *price*.
+
+    Cash increases by the sale proceeds.  The position is recorded with
+    direction='short' and avg_cost = the entry price.  We need enough
+    free margin (cash) to cover potential losses.
+    """
+    total = shares * price
+    now = dt.datetime.utcnow().isoformat()
+
+    with _get_conn() as conn:
+        cash = float(conn.execute(
+            "SELECT value FROM account WHERE key = 'cash'"
+        ).fetchone()["value"])
+
+        # Credit proceeds to cash
+        new_cash = cash + total
+        conn.execute("UPDATE account SET value = ? WHERE key = 'cash'", (str(new_cash),))
+
+        # Record or add to short position
+        existing = conn.execute(
+            "SELECT shares, avg_cost, direction FROM portfolio WHERE ticker = ?",
+            (ticker,),
+        ).fetchone()
+
+        if existing and existing["shares"] > 0 and existing["direction"] == "short":
+            old_shares = existing["shares"]
+            old_cost = existing["avg_cost"]
+            new_shares = old_shares + shares
+            new_avg = ((old_shares * old_cost) + (shares * price)) / new_shares
+            conn.execute(
+                "UPDATE portfolio SET shares = ?, avg_cost = ? WHERE ticker = ?",
+                (new_shares, new_avg, ticker),
+            )
+        else:
+            conn.execute(
+                "INSERT OR REPLACE INTO portfolio "
+                "(ticker, shares, avg_cost, opened_at, direction) "
+                "VALUES (?, ?, ?, ?, 'short')",
+                (ticker, shares, price, now),
+            )
+
+        conn.execute(
+            "INSERT INTO trades (ticker, side, shares, price, total, timestamp, reason) "
+            "VALUES (?, 'SHORT', ?, ?, ?, ?, ?)",
+            (ticker, shares, price, total, now, reason),
+        )
+
+    log.info("SHORT %s x%.4f @ £%.2f = £%.2f  (cash: £%.2f → £%.2f)",
+             ticker, shares, price, total, cash, new_cash)
+
+    return TradeRecord(
+        id=None, ticker=ticker, side="SHORT", shares=shares,
+        price=price, total=total, timestamp=now, reason=reason,
+    )
+
+
+def record_cover(ticker: str, shares: float, price: float, reason: str = "") -> TradeRecord:
+    """Close (cover) a short position — buy back *shares* at *price*.
+
+    Cash decreases by the purchase cost.  P&L = (entry_price - cover_price) * shares.
+    """
+    pos = get_position(ticker)
+    if pos is None or pos.direction != "short" or pos.shares < shares:
+        avail = pos.shares if pos and pos.direction == "short" else 0
+        raise ValueError(
+            f"Cannot cover {shares} shares of {ticker} — only {avail} shorted"
+        )
+
+    total = shares * price
+    cash = get_cash()
+    if total > cash:
+        raise ValueError(
+            f"Insufficient cash to cover: need £{total:.2f} but only £{cash:.2f} available"
+        )
+
+    now = dt.datetime.utcnow().isoformat()
+
+    with _get_conn() as conn:
+        new_cash = cash - total
+        conn.execute("UPDATE account SET value = ? WHERE key = 'cash'", (str(new_cash),))
+
+        new_shares = pos.shares - shares
+        if new_shares < 1e-9:
+            conn.execute("DELETE FROM portfolio WHERE ticker = ?", (ticker,))
+        else:
+            conn.execute(
+                "UPDATE portfolio SET shares = ? WHERE ticker = ?",
+                (new_shares, ticker),
+            )
+
+        conn.execute(
+            "INSERT INTO trades (ticker, side, shares, price, total, timestamp, reason) "
+            "VALUES (?, 'COVER', ?, ?, ?, ?, ?)",
+            (ticker, shares, price, total, now, reason),
+        )
+
+    pnl = (pos.avg_cost - price) * shares
+    log.info("COVER %s x%.4f @ £%.2f = £%.2f  P&L: £%.2f  (cash: £%.2f → £%.2f)",
+             ticker, shares, price, total, pnl, cash, new_cash)
+
+    return TradeRecord(
+        id=None, ticker=ticker, side="COVER", shares=shares,
         price=price, total=total, timestamp=now, reason=reason,
     )
 
@@ -370,31 +489,84 @@ def check_position_limit(ticker: str, buy_total: float) -> bool:
     """Return True if buying *buy_total* GBP of *ticker* is within risk limits."""
     cash = get_cash()
     positions = get_positions()
-    portfolio_value = cash + sum(p.shares * p.avg_cost for p in positions)
+    long_value = sum(p.shares * p.avg_cost for p in positions if p.direction == "long")
+    portfolio_value = cash + long_value
     max_allowed = portfolio_value * (config.MAX_POSITION_PCT / 100.0)
 
     current_value = 0.0
     pos = get_position(ticker)
-    if pos:
+    if pos and pos.direction == "long":
         current_value = pos.shares * pos.avg_cost
 
     return (current_value + buy_total) <= max_allowed
 
 
+def check_short_limit(ticker: str, short_total: float) -> bool:
+    """Return True if shorting *short_total* GBP of *ticker* is within risk limits.
+
+    Enforces two caps:
+      1. Single-position limit: MAX_SHORT_POSITION_PCT of portfolio
+      2. Total short exposure: MAX_TOTAL_SHORT_PCT of portfolio
+    """
+    cash = get_cash()
+    positions = get_positions()
+    long_value = sum(p.shares * p.avg_cost for p in positions if p.direction == "long")
+    portfolio_value = cash + long_value
+    if portfolio_value <= 0:
+        return False
+
+    # Single position limit
+    max_single = portfolio_value * (config.MAX_SHORT_POSITION_PCT / 100.0)
+    current_short = 0.0
+    pos = get_position(ticker)
+    if pos and pos.direction == "short":
+        current_short = pos.shares * pos.avg_cost
+    if (current_short + short_total) > max_single:
+        return False
+
+    # Total short exposure limit
+    total_short = sum(
+        p.shares * p.avg_cost for p in positions if p.direction == "short"
+    )
+    max_total = portfolio_value * (config.MAX_TOTAL_SHORT_PCT / 100.0)
+    if (total_short + short_total) > max_total:
+        return False
+
+    return True
+
+
 def check_stop_loss(ticker: str, current_price: float) -> bool:
-    """Return True if the position should be sold (stop-loss triggered)."""
+    """Return True if the position should be exited (stop-loss triggered).
+
+    For long positions: price dropped below entry by STOP_LOSS_PCT.
+    For short positions: price rose above entry by SHORT_STOP_LOSS_PCT.
+    """
     pos = get_position(ticker)
     if pos is None:
         return False
+    if pos.direction == "short":
+        # Short: we lose when price goes UP
+        loss_pct = ((current_price - pos.avg_cost) / pos.avg_cost) * 100
+        return loss_pct >= config.SHORT_STOP_LOSS_PCT
+    # Long: we lose when price goes DOWN
     loss_pct = ((pos.avg_cost - current_price) / pos.avg_cost) * 100
     return loss_pct >= config.STOP_LOSS_PCT
 
 
 def check_take_profit(ticker: str, current_price: float) -> bool:
-    """Return True if the position should be sold (take-profit triggered)."""
+    """Return True if the position should be exited (take-profit triggered).
+
+    For long positions: price rose above entry by TAKE_PROFIT_PCT.
+    For short positions: price dropped below entry by SHORT_TAKE_PROFIT_PCT.
+    """
     pos = get_position(ticker)
     if pos is None:
         return False
+    if pos.direction == "short":
+        # Short: we profit when price goes DOWN
+        gain_pct = ((pos.avg_cost - current_price) / pos.avg_cost) * 100
+        return gain_pct >= config.SHORT_TAKE_PROFIT_PCT
+    # Long: we profit when price goes UP
     gain_pct = ((current_price - pos.avg_cost) / pos.avg_cost) * 100
     return gain_pct >= config.TAKE_PROFIT_PCT
 
@@ -405,19 +577,37 @@ def check_take_profit(ticker: str, current_price: float) -> bool:
 
 
 def portfolio_summary(current_prices: dict[str, float]) -> dict:
-    """Return a summary of the current portfolio state."""
+    """Return a summary of the current portfolio state.
+
+    For **long** positions the market value is ``shares * price``.
+    For **short** positions the *liability* is ``shares * price`` and the
+    unrealised P&L is ``(avg_cost - price) * shares`` (profit when price
+    drops below entry).  Total portfolio value = cash + long_value - short_liability.
+    """
     cash = get_cash()
     initial = get_initial_budget()
     positions = get_positions()
 
     holdings = []
-    holdings_value = 0.0
+    long_value = 0.0
+    short_liability = 0.0
+
     for pos in positions:
         price = current_prices.get(pos.ticker, pos.avg_cost)
-        market_val = pos.shares * price
-        pnl = (price - pos.avg_cost) * pos.shares
-        pnl_pct = ((price - pos.avg_cost) / pos.avg_cost * 100) if pos.avg_cost else 0
-        holdings_value += market_val
+
+        if pos.direction == "short":
+            # Short: liability = what it'd cost to buy back
+            liability = pos.shares * price
+            short_liability += liability
+            pnl = (pos.avg_cost - price) * pos.shares
+            pnl_pct = ((pos.avg_cost - price) / pos.avg_cost * 100) if pos.avg_cost else 0
+            market_val = -liability  # negative to show it's a liability
+        else:
+            market_val = pos.shares * price
+            long_value += market_val
+            pnl = (price - pos.avg_cost) * pos.shares
+            pnl_pct = ((price - pos.avg_cost) / pos.avg_cost * 100) if pos.avg_cost else 0
+
         holdings.append({
             "ticker": pos.ticker,
             "shares": pos.shares,
@@ -426,8 +616,10 @@ def portfolio_summary(current_prices: dict[str, float]) -> dict:
             "market_value": round(market_val, 2),
             "pnl": round(pnl, 2),
             "pnl_pct": round(pnl_pct, 2),
+            "direction": pos.direction,
         })
 
+    holdings_value = long_value - short_liability
     total_value = cash + holdings_value
     total_pnl = total_value - initial
     total_pnl_pct = (total_pnl / initial * 100) if initial else 0

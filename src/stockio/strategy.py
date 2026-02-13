@@ -40,6 +40,8 @@ log = get_logger(__name__)
 class Signal(str, Enum):
     BUY = "BUY"
     SELL = "SELL"
+    SHORT = "SHORT"   # open a short position (bet price goes down)
+    COVER = "COVER"   # close a short position (buy back borrowed shares)
     HOLD = "HOLD"
 
 
@@ -152,11 +154,17 @@ def train_model(
 def predict(
     ticker: str,
     sentiment: SentimentScore | None = None,
+    held_direction: str | None = None,
 ) -> TradeSignal:
-    """Generate a BUY / SELL / HOLD signal for *ticker*.
+    """Generate a BUY / SELL / SHORT / COVER / HOLD signal for *ticker*.
 
     Combines the ML model's prediction with sentiment analysis and
     basic risk rules to produce a final recommendation.
+
+    *held_direction* tells us if the caller already holds a position:
+      - ``"long"``  — we own shares (SELL to exit)
+      - ``"short"`` — we owe shares (COVER to exit)
+      - ``None``    — no position (BUY or SHORT to enter)
     """
     model, scaler, meta = _load_model()
     if model is None:
@@ -211,12 +219,28 @@ def predict(
     BUY_THRESHOLD = 0.25
     SELL_THRESHOLD = -0.25
 
-    if composite >= BUY_THRESHOLD:
-        signal = Signal.BUY
-    elif composite <= SELL_THRESHOLD:
-        signal = Signal.SELL
+    if held_direction == "long":
+        # We hold shares — only question is exit (SELL) or HOLD
+        if composite <= SELL_THRESHOLD:
+            signal = Signal.SELL
+        else:
+            signal = Signal.HOLD
+    elif held_direction == "short":
+        # We owe shares — only question is cover (COVER) or HOLD
+        if composite >= BUY_THRESHOLD:
+            signal = Signal.COVER
+            reasons.append("Bullish reversal — covering short")
+        else:
+            signal = Signal.HOLD
     else:
-        signal = Signal.HOLD
+        # No position — can go long (BUY) or short (SHORT)
+        if composite >= BUY_THRESHOLD:
+            signal = Signal.BUY
+        elif composite <= SELL_THRESHOLD and config.SHORT_SELLING_ENABLED:
+            signal = Signal.SHORT
+            reasons.append("Bearish — opening short position")
+        else:
+            signal = Signal.HOLD
 
     confidence = abs(composite)
     reasons.insert(0, f"ML P(up)={prob_up:.2f}, composite={composite:+.3f}")
@@ -231,11 +255,19 @@ def predict(
 def generate_signals(
     tickers: list[str],
     sentiments: dict[str, SentimentScore] | None = None,
+    positions: dict[str, str] | None = None,
 ) -> list[TradeSignal]:
-    """Generate trade signals for all *tickers*."""
+    """Generate trade signals for all *tickers*.
+
+    *positions* maps ticker → direction (``"long"`` or ``"short"``) for
+    tickers where we already hold a position.  This lets the predictor
+    decide between entry and exit signals correctly.
+    """
     signals: list[TradeSignal] = []
+    positions = positions or {}
     for ticker in tickers:
         sent = sentiments.get(ticker) if sentiments else None
-        sig = predict(ticker, sentiment=sent)
+        direction = positions.get(ticker)
+        sig = predict(ticker, sentiment=sent, held_direction=direction)
         signals.append(sig)
     return signals

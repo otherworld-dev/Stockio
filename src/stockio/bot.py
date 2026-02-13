@@ -212,9 +212,16 @@ class StockioBot:
                         "articles": sent.articles[:10],
                     })
 
-        # 5. Generate signals
+        # 5. Generate signals (pass held position directions so the strategy
+        #    can distinguish entry vs exit signals and generate SHORT/COVER)
+        held_positions = {
+            pos.ticker: pos.direction for pos in get_positions()
+            if pos.ticker in prices
+        }
         log.info("Generating trade signals ...")
-        signals = generate_signals(list(prices.keys()), sentiments=sentiments)
+        signals = generate_signals(
+            list(prices.keys()), sentiments=sentiments, positions=held_positions,
+        )
 
         # 5b. Log the bot's reasoning for each ticker
         log.info("-" * 50)
@@ -240,7 +247,7 @@ class StockioBot:
         log.info("-" * 50)
 
         # 6. Execute trades
-        buy_count = sell_count = 0
+        buy_count = sell_count = short_count = cover_count = 0
         for sig in signals:
             if sig.ticker not in prices:
                 continue
@@ -249,8 +256,12 @@ class StockioBot:
             if trade is not None:
                 if trade.side == "BUY":
                     buy_count += 1
-                else:
+                elif trade.side == "SELL":
                     sell_count += 1
+                elif trade.side == "SHORT":
+                    short_count += 1
+                elif trade.side == "COVER":
+                    cover_count += 1
                 cycle_log.append({
                     "type": "trade",
                     "ticker": trade.ticker,
@@ -261,7 +272,10 @@ class StockioBot:
                     "reason": trade.reason,
                 })
 
-        log.info("Executed %d buys, %d sells this cycle", buy_count, sell_count)
+        log.info(
+            "Executed %d buys, %d sells, %d shorts, %d covers this cycle",
+            buy_count, sell_count, short_count, cover_count,
+        )
 
         # 7. Portfolio summary + snapshot for charts
         summary = portfolio_summary(prices)

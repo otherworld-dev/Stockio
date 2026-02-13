@@ -1,6 +1,6 @@
 # Stockio — AI Stock Trading Bot
 
-An AI-powered stock trading bot that monitors markets, analyses news sentiment, and makes intelligent buy/sell decisions to grow an initial £500 investment.
+An AI-powered stock trading bot that monitors markets, analyses news sentiment, and makes intelligent buy/sell/short decisions to grow an initial £500 investment.
 
 ## How It Works
 
@@ -10,9 +10,9 @@ Stockio runs a continuous trading loop that:
 2. **Computes technical indicators** — RSI, MACD, Bollinger Bands, ADX, Stochastic, ATR, OBV, and more
 3. **Analyses news sentiment** — Fetches RSS headlines from financial outlets, Google News, and Reddit; scores them with FinBERT (a financial sentiment transformer)
 4. **Monitors Trump/political activity** — Tracks White House executive orders, tariffs, and trade policy via dedicated feeds with configurable weighting (default 1.5x) for outsized market impact
-5. **Generates ML trade signals** — A Gradient Boosting classifier trained on technical indicators predicts price direction; this is combined with sentiment to produce BUY/SELL/HOLD signals
-6. **Executes trades** — Paper trading by default (simulated with real prices), with Alpaca broker integration ready for live trading
-7. **Manages risk** — Position sizing limits, stop-loss, and take-profit rules protect the portfolio
+5. **Generates ML trade signals** — A Gradient Boosting classifier trained on technical indicators predicts price direction; this is combined with sentiment to produce BUY/SELL/SHORT/COVER/HOLD signals
+6. **Executes trades** — Paper trading by default (simulated with real prices), with Alpaca broker integration ready for live trading. Supports both long positions (buy low, sell high) and short positions (bet against a stock)
+7. **Manages risk** — Position sizing limits, stop-loss, take-profit, and a hard safety guard that automatically covers short positions before the portfolio can go negative
 8. **Learns over time** — The ML model automatically retrains on fresh data every 24 hours, improving predictions as it accumulates more market history
 
 ## Architecture
@@ -84,6 +84,11 @@ All settings can be overridden via environment variables or a `.env` file:
 | `STOCKIO_MAX_POSITION_PCT` | `20` | Max % of portfolio in one position |
 | `STOCKIO_STOP_LOSS_PCT` | `5` | Stop-loss threshold (%) |
 | `STOCKIO_TAKE_PROFIT_PCT` | `15` | Take-profit threshold (%) |
+| `STOCKIO_SHORT_SELLING` | `true` | Enable short selling (betting against stocks) |
+| `STOCKIO_MAX_SHORT_POSITION_PCT` | `15` | Max % of portfolio in a single short |
+| `STOCKIO_SHORT_STOP_LOSS_PCT` | `5` | Short stop-loss threshold (%) |
+| `STOCKIO_SHORT_TAKE_PROFIT_PCT` | `10` | Short take-profit threshold (%) |
+| `STOCKIO_MAX_TOTAL_SHORT_PCT` | `30` | Max total short exposure as % of portfolio |
 | `STOCKIO_TRUMP_MONITORING` | `true` | Enable Trump/political feed monitoring |
 | `STOCKIO_TRUMP_WEIGHT` | `1.5` | Extra weight multiplier for Trump/political stories |
 | `STOCKIO_REDDIT_WEIGHT` | `0.3` | Weight for Reddit sentiment (0.0–1.0) |

@@ -166,9 +166,16 @@
 
         .side-buy { color: var(--green); font-weight: 600; }
         .side-sell { color: var(--red); font-weight: 600; }
+        .side-short { color: #ff9100; font-weight: 600; }
+        .side-cover { color: #2196f3; font-weight: 600; }
+
+        .dir-long { color: var(--green); font-size: 0.75rem; font-weight: 600; }
+        .dir-short { color: #ff9100; font-size: 0.75rem; font-weight: 600; }
 
         .signal-buy { background: rgba(0,200,83,0.15); color: var(--green); padding: 0.2rem 0.6rem; border-radius: 4px; font-weight: 600; font-size: 0.8rem; }
         .signal-sell { background: rgba(255,23,68,0.15); color: var(--red); padding: 0.2rem 0.6rem; border-radius: 4px; font-weight: 600; font-size: 0.8rem; }
+        .signal-short { background: rgba(255,145,0,0.15); color: #ff9100; padding: 0.2rem 0.6rem; border-radius: 4px; font-weight: 600; font-size: 0.8rem; }
+        .signal-cover { background: rgba(33,150,243,0.15); color: #2196f3; padding: 0.2rem 0.6rem; border-radius: 4px; font-weight: 600; font-size: 0.8rem; }
         .signal-hold { background: rgba(139,143,163,0.15); color: var(--text-dim); padding: 0.2rem 0.6rem; border-radius: 4px; font-weight: 600; font-size: 0.8rem; }
 
         .grid-2 {
@@ -749,7 +756,8 @@
 
                 let html = '<table><thead><tr><th>Time</th><th>Side</th><th>Ticker</th><th>Shares</th><th>Price</th><th>Total</th><th>Reason</th></tr></thead><tbody>';
                 trades.forEach(t => {
-                    const cls = t.side === 'BUY' ? 'side-buy' : 'side-sell';
+                    const sideClasses = {BUY:'side-buy', SELL:'side-sell', SHORT:'side-short', COVER:'side-cover'};
+                    const cls = sideClasses[t.side] || 'side-sell';
                     const time = t.timestamp.replace('T', ' ').slice(0, 19);
                     const reason = t.reason.length > 60 ? t.reason.slice(0, 60) + '...' : t.reason;
                     html += `<tr>
@@ -783,7 +791,8 @@
 
                 let html = '<table><thead><tr><th>Ticker</th><th>Signal</th><th>Confidence</th><th>Reasons</th></tr></thead><tbody>';
                 signals.forEach(s => {
-                    const cls = s.signal === 'BUY' ? 'signal-buy' : s.signal === 'SELL' ? 'signal-sell' : 'signal-hold';
+                    const sigClasses = {BUY:'signal-buy', SELL:'signal-sell', SHORT:'signal-short', COVER:'signal-cover', HOLD:'signal-hold'};
+                    const cls = sigClasses[s.signal] || 'signal-hold';
                     const confWidth = Math.round(s.confidence * 100);
                     const reasons = s.reasons.slice(0, 3).join('; ');
                     html += `<tr>
@@ -840,7 +849,8 @@
 
                     cycle.entries.forEach(e => {
                         if (e.type === 'signal') {
-                            const sigCls = e.signal === 'BUY' ? 'signal-buy' : e.signal === 'SELL' ? 'signal-sell' : 'signal-hold';
+                            const sigMap = {BUY:'signal-buy', SELL:'signal-sell', SHORT:'signal-short', COVER:'signal-cover', HOLD:'signal-hold'};
+                            const sigCls = sigMap[e.signal] || 'signal-hold';
                             const price = e.price !== null ? ` @ \u00a3${e.price.toFixed(2)}` : '';
                             html += `<div class="log-entry">
                                 <span class="tag tag-signal">signal</span>
@@ -852,7 +862,8 @@
                                 html += `<div class="log-reasons">${e.reasons.join(' &bull; ')}</div>`;
                             }
                         } else if (e.type === 'trade') {
-                            const cls = e.side === 'BUY' ? 'side-buy' : 'side-sell';
+                            const tradeMap = {BUY:'side-buy', SELL:'side-sell', SHORT:'side-short', COVER:'side-cover'};
+                            const cls = tradeMap[e.side] || 'side-sell';
                             html += `<div class="log-entry">
                                 <span class="tag tag-trade">trade</span>
                                 <span class="${cls}">${e.side}</span>
@@ -1060,15 +1071,19 @@
                 }
 
                 if (data.holdings && data.holdings.length > 0) {
-                    let html = '<table><thead><tr><th>Ticker</th><th>Shares</th><th>Avg Cost</th><th>Price</th><th>Value</th><th>P&L</th></tr></thead><tbody>';
+                    let html = '<table><thead><tr><th>Ticker</th><th>Type</th><th>Shares</th><th>Entry</th><th>Price</th><th>Value</th><th>P&L</th></tr></thead><tbody>';
                     data.holdings.forEach(h => {
                         const cls = h.pnl >= 0 ? 'positive' : 'negative';
+                        const dir = h.direction || 'long';
+                        const dirCls = dir === 'short' ? 'dir-short' : 'dir-long';
+                        const dirLabel = dir === 'short' ? 'SHORT' : 'LONG';
                         html += `<tr>
                             <td><strong>${h.ticker}</strong></td>
+                            <td><span class="${dirCls}">${dirLabel}</span></td>
                             <td>${h.shares.toFixed(4)}</td>
                             <td>${fmt(h.avg_cost)}</td>
                             <td>${fmt(h.current_price)}</td>
-                            <td>${fmt(h.market_value)}</td>
+                            <td>${fmt(Math.abs(h.market_value))}</td>
                             <td class="${cls}">${(h.pnl >= 0 ? '+' : '') + fmt(h.pnl)} (${fmtPct(h.pnl_pct)})</td>
                         </tr>`;
                     });

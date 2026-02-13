@@ -110,10 +110,19 @@ TRUMP_WEIGHT = float(os.getenv("STOCKIO_TRUMP_WEIGHT", "1.5"))
 INTERVAL_MINUTES = int(os.getenv("STOCKIO_INTERVAL_MINUTES", "30"))
 RETRAIN_HOURS = int(os.getenv("STOCKIO_RETRAIN_HOURS", "24"))
 
-# Risk management
+# Risk management — long positions
 MAX_POSITION_PCT = float(os.getenv("STOCKIO_MAX_POSITION_PCT", "20"))
 STOP_LOSS_PCT = float(os.getenv("STOCKIO_STOP_LOSS_PCT", "5"))
 TAKE_PROFIT_PCT = float(os.getenv("STOCKIO_TAKE_PROFIT_PCT", "15"))
+
+# Risk management — short positions (betting against)
+SHORT_SELLING_ENABLED = os.getenv("STOCKIO_SHORT_SELLING", "true").lower() in (
+    "true", "1", "yes",
+)
+MAX_SHORT_POSITION_PCT = float(os.getenv("STOCKIO_MAX_SHORT_POSITION_PCT", "15"))
+SHORT_STOP_LOSS_PCT = float(os.getenv("STOCKIO_SHORT_STOP_LOSS_PCT", "5"))
+SHORT_TAKE_PROFIT_PCT = float(os.getenv("STOCKIO_SHORT_TAKE_PROFIT_PCT", "10"))
+MAX_TOTAL_SHORT_PCT = float(os.getenv("STOCKIO_MAX_TOTAL_SHORT_PCT", "30"))
 
 # Logging
 LOG_LEVEL = os.getenv("STOCKIO_LOG_LEVEL", "INFO").upper()

@@ -163,7 +163,11 @@ def api_signals():
         except Exception:
             pass
 
-        signals = generate_signals(tickers, sentiments=sentiments)
+        positions_map = {
+            p.ticker: p.direction for p in get_positions()
+            if p.ticker in prices
+        }
+        signals = generate_signals(tickers, sentiments=sentiments, positions=positions_map)
         return jsonify([
             {
                 "ticker": s.ticker,
