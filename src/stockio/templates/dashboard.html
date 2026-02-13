@@ -191,6 +191,17 @@
             color: var(--text-dim);
         }
 
+        .log-cycle { padding: 1rem 1.2rem; border-bottom: 1px solid var(--border); }
+        .log-cycle:last-child { border-bottom: none; }
+        .log-cycle-time { font-size: 0.75rem; color: var(--text-dim); margin-bottom: 0.5rem; }
+        .log-entry { font-size: 0.85rem; padding: 0.3rem 0; display: flex; gap: 0.6rem; align-items: baseline; }
+        .log-entry .tag { font-size: 0.7rem; text-transform: uppercase; padding: 0.1rem 0.4rem; border-radius: 3px; font-weight: 600; flex-shrink: 0; }
+        .log-entry .tag-signal { background: rgba(41,121,255,0.15); color: var(--blue); }
+        .log-entry .tag-trade { background: rgba(0,200,83,0.15); color: var(--green); }
+        .log-entry .tag-exit { background: rgba(255,23,68,0.15); color: var(--red); }
+        .log-entry .tag-sentiment { background: rgba(255,214,0,0.15); color: var(--yellow); }
+        .log-reasons { font-size: 0.8rem; color: var(--text-dim); padding-left: 4.5rem; }
+
         .chart-container {
             padding: 1rem 1.2rem 1.2rem;
             position: relative;
@@ -302,6 +313,17 @@
             </div>
         </div>
 
+        <!-- Bot Thinking Log -->
+        <div class="panel">
+            <div class="panel-header">
+                <h2>Bot Thinking</h2>
+                <button class="btn btn-refresh" onclick="loadBotLog()" style="font-size:0.75rem;padding:0.3rem 0.8rem;">Refresh</button>
+            </div>
+            <div id="bot-log" style="max-height:400px;overflow-y:auto">
+                <div class="loading">Waiting for first cycle...</div>
+            </div>
+        </div>
+
         <!-- Trade History -->
         <div class="panel">
             <div class="panel-header">
@@ -399,6 +421,68 @@
         function refreshAll() {
             loadStatus();
             loadTrades();
+            loadBotLog();
+        }
+
+        // ---------------- Bot Thinking Log ----------------
+        async function loadBotLog() {
+            try {
+                const resp = await fetch('/api/bot-log?limit=5');
+                const logs = await resp.json();
+                const container = document.getElementById('bot-log');
+
+                if (!logs.length) {
+                    container.innerHTML = '<div class="loading">No cycles recorded yet — start the bot to see its reasoning</div>';
+                    return;
+                }
+
+                let html = '';
+                logs.forEach(cycle => {
+                    const time = cycle.timestamp.replace('T', ' ').slice(0, 19);
+                    html += `<div class="log-cycle"><div class="log-cycle-time">Cycle: ${time} UTC</div>`;
+
+                    cycle.entries.forEach(e => {
+                        if (e.type === 'signal') {
+                            const sigCls = e.signal === 'BUY' ? 'signal-buy' : e.signal === 'SELL' ? 'signal-sell' : 'signal-hold';
+                            const price = e.price !== null ? ` @ £${e.price.toFixed(2)}` : '';
+                            html += `<div class="log-entry">
+                                <span class="tag tag-signal">signal</span>
+                                <strong>${e.ticker}</strong>${price} &rarr;
+                                <span class="${sigCls}">${e.signal}</span>
+                                (${(e.confidence * 100).toFixed(0)}%)
+                            </div>`;
+                            if (e.reasons && e.reasons.length) {
+                                html += `<div class="log-reasons">${e.reasons.join(' &bull; ')}</div>`;
+                            }
+                        } else if (e.type === 'trade') {
+                            const cls = e.side === 'BUY' ? 'side-buy' : 'side-sell';
+                            html += `<div class="log-entry">
+                                <span class="tag tag-trade">trade</span>
+                                <span class="${cls}">${e.side}</span>
+                                <strong>${e.ticker}</strong> x${e.shares} @ £${e.price.toFixed(2)} = £${e.total.toFixed(2)}
+                            </div>`;
+                        } else if (e.type === 'exit') {
+                            html += `<div class="log-entry">
+                                <span class="tag tag-exit">exit</span>
+                                <strong>${e.ticker}</strong> — ${e.reason}
+                            </div>`;
+                        } else if (e.type === 'sentiment') {
+                            const dir = e.direction;
+                            html += `<div class="log-entry">
+                                <span class="tag tag-sentiment">news</span>
+                                <strong>${e.ticker}</strong> sentiment: ${e.score > 0 ? '+' : ''}${e.score.toFixed(4)} (${dir}, ${e.num_articles} articles)
+                            </div>`;
+                            if (e.headlines && e.headlines.length) {
+                                html += `<div class="log-reasons">${e.headlines.slice(0,2).join(' &bull; ')}</div>`;
+                            }
+                        }
+                    });
+                    html += '</div>';
+                });
+                container.innerHTML = html;
+            } catch (err) {
+                console.error('Failed to load bot log:', err);
+            }
         }
 
         // ---------------- Charts ----------------

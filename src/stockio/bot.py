@@ -22,7 +22,7 @@ from stockio import config
 from stockio.config import get_logger
 from stockio.executor import get_executor
 from stockio.market_data import get_current_prices
-from stockio.portfolio import get_positions, portfolio_summary, record_snapshot
+from stockio.portfolio import get_positions, portfolio_summary, record_bot_log, record_snapshot
 from stockio.sentiment import get_sentiment_scores
 from stockio.strategy import Signal, generate_signals, train_model
 
@@ -54,6 +54,8 @@ class StockioBot:
             log.error("Trading cycle failed:\n%s", traceback.format_exc())
 
     def _execute_cycle(self) -> None:
+        cycle_log: list[dict] = []
+
         # 1. Fetch current prices
         log.info("Fetching prices for %d tickers ...", len(self.watchlist))
         prices = get_current_prices(self.watchlist)
@@ -65,7 +67,14 @@ class StockioBot:
         # 2. Check stop-loss / take-profit on existing positions
         for pos in get_positions():
             if pos.ticker in prices:
-                self.executor.check_exits(pos.ticker, prices[pos.ticker])
+                result = self.executor.check_exits(pos.ticker, prices[pos.ticker])
+                if result is not None:
+                    cycle_log.append({
+                        "type": "exit",
+                        "ticker": pos.ticker,
+                        "side": result.side,
+                        "reason": result.reason,
+                    })
 
         # 3. Sentiment analysis
         log.info("Analysing news sentiment ...")
@@ -85,6 +94,14 @@ class StockioBot:
                     )
                     for hl in sent.headlines[:3]:
                         log.info("    - %s", hl)
+                    cycle_log.append({
+                        "type": "sentiment",
+                        "ticker": ticker,
+                        "score": sent.score,
+                        "direction": direction,
+                        "num_articles": sent.num_articles,
+                        "headlines": sent.headlines[:3],
+                    })
                 else:
                     log.info("  %s sentiment: no articles found", ticker)
 
@@ -105,6 +122,14 @@ class StockioBot:
             )
             for reason in sig.reasons:
                 log.info("    • %s", reason)
+            cycle_log.append({
+                "type": "signal",
+                "ticker": sig.ticker,
+                "signal": sig.signal.value,
+                "confidence": round(sig.confidence, 4),
+                "price": round(price, 2) if price is not None else None,
+                "reasons": sig.reasons,
+            })
         log.info("-" * 50)
 
         # 5. Execute trades
@@ -119,6 +144,15 @@ class StockioBot:
                     buy_count += 1
                 else:
                     sell_count += 1
+                cycle_log.append({
+                    "type": "trade",
+                    "ticker": trade.ticker,
+                    "side": trade.side,
+                    "shares": round(trade.shares, 4),
+                    "price": round(trade.price, 2),
+                    "total": round(trade.total, 2),
+                    "reason": trade.reason,
+                })
 
         log.info("Executed %d buys, %d sells this cycle", buy_count, sell_count)
 
@@ -126,6 +160,9 @@ class StockioBot:
         summary = portfolio_summary(prices)
         self._log_summary(summary)
         record_snapshot(prices)
+
+        # 7. Save the cycle reasoning log
+        record_bot_log(cycle_log)
 
     # ------------------------------------------------------------------
     # ML model retraining

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import subprocess
 import threading
 
 from flask import Flask, jsonify, render_template, request
@@ -11,6 +12,7 @@ from stockio import __version__, config
 from stockio.config import get_logger
 from stockio.market_data import get_current_prices
 from stockio.portfolio import (
+    get_bot_logs,
     get_cash,
     get_positions,
     get_snapshots,
@@ -30,6 +32,41 @@ app = Flask(
 _bot_thread: threading.Thread | None = None
 _bot_instance = None
 _bot_running = False
+
+
+# ------------------------------------------------------------------
+# systemd helpers
+# ------------------------------------------------------------------
+
+
+def _try_systemctl(action: str) -> bool:
+    """Try to start/stop the bot via systemd. Returns True if it worked.
+
+    Uses sudo with a passwordless rule installed by setup.sh so the
+    stockio service user can manage the bot service.
+    """
+    if action not in ("start", "stop", "restart"):
+        return False
+    try:
+        subprocess.run(
+            ["sudo", "-n", "systemctl", action, "stockio-bot"],
+            check=True, capture_output=True, timeout=10,
+        )
+        return True
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
+def _systemd_bot_running() -> bool:
+    """Check if the bot systemd service is active."""
+    try:
+        result = subprocess.run(
+            ["systemctl", "is-active", "--quiet", "stockio-bot"],
+            capture_output=True, timeout=5,
+        )
+        return result.returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
 
 
 # ------------------------------------------------------------------
@@ -54,7 +91,7 @@ def api_status():
     try:
         prices = get_current_prices(config.WATCHLIST)
         summary = portfolio_summary(prices)
-        summary["bot_running"] = _bot_running
+        summary["bot_running"] = _bot_running or _systemd_bot_running()
         summary["mode"] = config.MODE
         summary["watchlist"] = config.WATCHLIST
         summary["timestamp"] = dt.datetime.utcnow().isoformat()
@@ -116,9 +153,14 @@ def api_signals():
 
 @app.route("/api/bot/start", methods=["POST"])
 def api_bot_start():
-    """Start the trading bot in a background thread."""
+    """Start the trading bot — prefers systemd, falls back to in-process thread."""
     global _bot_thread, _bot_instance, _bot_running
 
+    # Try systemd first (works when deployed)
+    if _try_systemctl("start"):
+        return jsonify({"status": "started", "via": "systemd"})
+
+    # Fall back to in-process thread (dev mode)
     if _bot_running:
         return jsonify({"status": "already_running"})
 
@@ -128,15 +170,27 @@ def api_bot_start():
     _bot_thread = threading.Thread(target=_run_bot, daemon=True)
     _bot_thread.start()
     _bot_running = True
-    return jsonify({"status": "started"})
+    return jsonify({"status": "started", "via": "thread"})
 
 
 @app.route("/api/bot/stop", methods=["POST"])
 def api_bot_stop():
-    """Signal the bot to stop."""
+    """Stop the trading bot."""
     global _bot_running
+
+    if _try_systemctl("stop"):
+        return jsonify({"status": "stopped", "via": "systemd"})
+
     _bot_running = False
-    return jsonify({"status": "stopped"})
+    return jsonify({"status": "stopped", "via": "thread"})
+
+
+@app.route("/api/bot-log")
+def api_bot_log():
+    """Return recent bot reasoning logs."""
+    limit = request.args.get("limit", 5, type=int)
+    logs = get_bot_logs(limit=limit)
+    return jsonify(logs)
 
 
 @app.route("/api/snapshots")

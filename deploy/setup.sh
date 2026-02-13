@@ -62,16 +62,23 @@ chown -R "$SERVICE_USER:$SERVICE_USER" "$APP_DIR" "$LOG_DIR"
 chmod -R g+w "$APP_DIR/data" "$LOG_DIR"
 chmod g+s "$APP_DIR/data" "$APP_DIR/data/models"
 
-# 7. Install systemd services
-echo "[6/7] Installing systemd services..."
+# 7. Allow stockio user to manage the bot service from the web dashboard
+echo "[6/8] Configuring service permissions..."
+cat > /etc/sudoers.d/stockio <<SUDOERS
+stockio ALL=(root) NOPASSWD: /usr/bin/systemctl start stockio-bot, /usr/bin/systemctl stop stockio-bot, /usr/bin/systemctl restart stockio-bot
+SUDOERS
+chmod 440 /etc/sudoers.d/stockio
+
+# 8. Install systemd services
+echo "[7/8] Installing systemd services..."
 cp "$REPO_DIR/deploy/stockio-web.service" /etc/systemd/system/
 cp "$REPO_DIR/deploy/stockio-bot.service" /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable stockio-web.service
 systemctl enable stockio-bot.service
 
-# 8. Start services
-echo "[7/7] Starting services..."
+# 9. Start services
+echo "[8/8] Starting services..."
 systemctl start stockio-web.service
 echo "    Web dashboard started on http://$(hostname -I | awk '{print $1}'):5000"
 

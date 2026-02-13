@@ -84,6 +84,12 @@ def _init_db(conn: sqlite3.Connection) -> None:
             pnl_pct         REAL NOT NULL,
             num_positions   INTEGER NOT NULL DEFAULT 0
         );
+
+        CREATE TABLE IF NOT EXISTS bot_log (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            entries   TEXT NOT NULL
+        );
         """
     )
     # Seed initial cash balance if not yet set
@@ -263,6 +269,36 @@ def record_sell(ticker: str, shares: float, price: float, reason: str = "") -> T
         id=None, ticker=ticker, side="SELL", shares=shares,
         price=price, total=total, timestamp=now, reason=reason,
     )
+
+
+def record_bot_log(entries: list[dict]) -> None:
+    """Store the bot's reasoning log for the most recent cycle."""
+    now = dt.datetime.utcnow().isoformat()
+    import json as _json
+    with _get_conn() as conn:
+        conn.execute(
+            "INSERT INTO bot_log (timestamp, entries) VALUES (?, ?)",
+            (now, _json.dumps(entries)),
+        )
+        # Keep only the last 50 cycles
+        conn.execute(
+            "DELETE FROM bot_log WHERE id NOT IN "
+            "(SELECT id FROM bot_log ORDER BY id DESC LIMIT 50)"
+        )
+
+
+def get_bot_logs(limit: int = 10) -> list[dict]:
+    """Return recent bot reasoning logs."""
+    import json as _json
+    with _get_conn() as conn:
+        rows = conn.execute(
+            "SELECT timestamp, entries FROM bot_log ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [
+            {"timestamp": r["timestamp"], "entries": _json.loads(r["entries"])}
+            for r in rows
+        ]
 
 
 def record_snapshot(current_prices: dict[str, float]) -> None:
