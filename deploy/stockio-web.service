@@ -8,6 +8,7 @@ User=stockio
 Group=stockio
 WorkingDirectory=/opt/stockio
 Environment=PATH=/opt/stockio/.venv/bin:/usr/bin:/bin
+Environment=HF_HOME=/opt/stockio/data/.hf_cache
 EnvironmentFile=/opt/stockio/.env
 ExecStart=/opt/stockio/.venv/bin/gunicorn \
     --bind 0.0.0.0:5000 \
