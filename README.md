@@ -105,8 +105,9 @@ sudo systemctl stop stockio-bot        # Stop trading
 sudo systemctl status stockio-web      # Check web status
 sudo journalctl -u stockio-bot -f      # Follow bot logs
 
-# Fix data directory permissions (needed to run CLI commands as your own user)
-sudo chown -R $(whoami):$(whoami) /opt/stockio/data
+# The setup script adds your user to the stockio group automatically.
+# If you still get permission errors, log out and back in, or run:
+newgrp stockio
 ```
 
 The web dashboard lets you start/stop the bot, view portfolio status, see live trade signals, and review trade history — all from your browser.

@@ -14,10 +14,16 @@ echo "[1/7] Installing system packages..."
 apt-get update -qq
 apt-get install -y -qq python3 python3-venv python3-pip git
 
-# 2. Create service user
+# 2. Create service user and group
 echo "[2/7] Creating service user..."
 if ! id "$SERVICE_USER" &>/dev/null; then
     useradd --system --shell /usr/sbin/nologin --home-dir "$APP_DIR" "$SERVICE_USER"
+fi
+# Add the calling user to the stockio group so they can run CLI commands
+# (e.g. stockio train) without permission errors
+CALLING_USER="${SUDO_USER:-}"
+if [ -n "$CALLING_USER" ] && [ "$CALLING_USER" != "root" ]; then
+    usermod -aG "$SERVICE_USER" "$CALLING_USER"
 fi
 
 # 3. Set up application directory
@@ -50,9 +56,11 @@ echo "    Installing remaining dependencies..."
 echo "    Installing stockio package..."
 "$APP_DIR/.venv/bin/pip" install -e "$APP_DIR" -q
 
-# 6. Set permissions
+# 6. Set permissions (group-writable data dir so CLI users can train/write)
 echo "[5/7] Setting permissions..."
 chown -R "$SERVICE_USER:$SERVICE_USER" "$APP_DIR" "$LOG_DIR"
+chmod -R g+w "$APP_DIR/data" "$LOG_DIR"
+chmod g+s "$APP_DIR/data" "$APP_DIR/data/models"
 
 # 7. Install systemd services
 echo "[6/7] Installing systemd services..."
