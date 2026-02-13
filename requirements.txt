@@ -14,6 +14,9 @@ transformers>=4.35.0
 # NOTE: torch is installed separately as CPU-only to reduce download size
 # (see deploy/setup.sh). Only add torch here if you need GPU support.
 
+# Live trading (Alpaca brokerage)
+alpaca-py>=0.21.0
+
 # Storage
 # (sqlite3 is in the Python standard library)
 
