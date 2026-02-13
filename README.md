@@ -8,26 +8,28 @@ Stockio runs a continuous trading loop that:
 
 1. **Fetches live market data** — OHLCV prices via Yahoo Finance for your watchlist
 2. **Computes technical indicators** — RSI, MACD, Bollinger Bands, ADX, Stochastic, ATR, OBV, and more
-3. **Analyses news sentiment** — Fetches RSS headlines and scores them with FinBERT (a financial sentiment transformer)
-4. **Generates ML trade signals** — A Gradient Boosting classifier trained on technical indicators predicts price direction; this is combined with sentiment to produce BUY/SELL/HOLD signals
-5. **Executes trades** — Paper trading by default (simulated with real prices), with Alpaca broker integration ready for live trading
-6. **Manages risk** — Position sizing limits, stop-loss, and take-profit rules protect the portfolio
-7. **Learns over time** — The ML model automatically retrains on fresh data every 24 hours, improving predictions as it accumulates more market history
+3. **Analyses news sentiment** — Fetches RSS headlines from financial outlets, Google News, and Reddit; scores them with FinBERT (a financial sentiment transformer)
+4. **Monitors Trump/political activity** — Tracks White House executive orders, tariffs, and trade policy via dedicated feeds with configurable weighting (default 1.5x) for outsized market impact
+5. **Generates ML trade signals** — A Gradient Boosting classifier trained on technical indicators predicts price direction; this is combined with sentiment to produce BUY/SELL/HOLD signals
+6. **Executes trades** — Paper trading by default (simulated with real prices), with Alpaca broker integration ready for live trading
+7. **Manages risk** — Position sizing limits, stop-loss, and take-profit rules protect the portfolio
+8. **Learns over time** — The ML model automatically retrains on fresh data every 24 hours, improving predictions as it accumulates more market history
 
 ## Architecture
 
 ```
 src/stockio/
-├── config.py       # Central configuration (env vars, paths, defaults)
-├── market_data.py  # Yahoo Finance data + technical indicators
-├── sentiment.py    # RSS news fetching + FinBERT sentiment scoring
-├── strategy.py     # ML model training, prediction, signal generation
-├── portfolio.py    # SQLite portfolio tracker, risk management, P&L
-├── executor.py     # Paper & Alpaca trade execution
-├── bot.py          # Main orchestrator — ties everything together
-├── webapp.py       # Flask web dashboard + REST API
-├── templates/      # HTML dashboard template
-└── cli.py          # Click CLI entry point
+├── config.py            # Central configuration (env vars, paths, defaults)
+├── market_discovery.py  # Multi-market stock discovery and caching
+├── market_data.py       # Yahoo Finance data + technical indicators
+├── sentiment.py         # RSS/Reddit/Trump feed fetching + FinBERT sentiment scoring
+├── strategy.py          # ML model training, prediction, signal generation
+├── portfolio.py         # SQLite portfolio tracker, risk management, P&L
+├── executor.py          # Paper & Alpaca trade execution
+├── bot.py               # Main orchestrator — ties everything together
+├── webapp.py            # Flask web dashboard + REST API
+├── templates/           # HTML dashboard template
+└── cli.py               # Click CLI entry point
 
 deploy/
 ├── setup.sh              # One-command LXC container setup
@@ -82,6 +84,9 @@ All settings can be overridden via environment variables or a `.env` file:
 | `STOCKIO_MAX_POSITION_PCT` | `20` | Max % of portfolio in one position |
 | `STOCKIO_STOP_LOSS_PCT` | `5` | Stop-loss threshold (%) |
 | `STOCKIO_TAKE_PROFIT_PCT` | `15` | Take-profit threshold (%) |
+| `STOCKIO_TRUMP_MONITORING` | `true` | Enable Trump/political feed monitoring |
+| `STOCKIO_TRUMP_WEIGHT` | `1.5` | Extra weight multiplier for Trump/political stories |
+| `STOCKIO_REDDIT_WEIGHT` | `0.3` | Weight for Reddit sentiment (0.0–1.0) |
 
 ## Deploy to LXC Container
 
@@ -118,7 +123,7 @@ sudo journalctl -u stockio-bot -f      # Follow bot logs
 sudo journalctl -u stockio-web -f      # Follow web logs
 ```
 
-The web dashboard is available at `http://<container-ip>:5000` and lets you start/stop the bot, view portfolio status, see live trade signals, and review trade history.
+The web dashboard is available at `http://<container-ip>:5000` and lets you start/stop the bot, view portfolio status, see live trade signals, monitor Trump/political activity, and review trade history.
 
 ### Updating
 
