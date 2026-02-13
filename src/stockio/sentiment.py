@@ -145,11 +145,11 @@ _BUILTIN_FEEDS = [
 # These feeds are checked when TRUMP_MONITORING_ENABLED is true.
 # Truth Social RSS for @realDonaldTrump is the primary direct source.
 _TRUMP_FEEDS = [
-    # Truth Social — direct feed of Trump's posts
-    "https://truthsocial.com/@realDonaldTrump.rss",
-    # White House — official statements, executive orders, presidential actions
-    "https://www.whitehouse.gov/feed/",
+    # White House — presidential actions (executive orders, proclamations)
     "https://www.whitehouse.gov/presidential-actions/feed/",
+    # Google News RSS — Trump + market-moving topics
+    "https://news.google.com/rss/search?q=trump+tariff+OR+trade+OR+executive+order&hl=en-US&gl=US&ceid=US:en",
+    "https://news.google.com/rss/search?q=trump+economy+OR+sanctions+OR+market&hl=en-US&gl=US&ceid=US:en",
     # Political/economic news RSS
     "https://www.theguardian.com/us-news/donaldtrump/rss",
     "https://feeds.finance.yahoo.com/rss/2.0/headline?s=^DJI&region=US&lang=en-US",
@@ -587,9 +587,20 @@ def fetch_news(tickers: list[str], max_per_source: int = 20) -> dict[str, list[N
     return result
 
 
+_FEED_USER_AGENT = "Stockio/1.0 (stock sentiment bot; +https://github.com)"
+
+
 def _parse_feed(url: str, source: str, max_items: int) -> list[NewsItem]:
     try:
-        feed = feedparser.parse(url)
+        # Fetch with requests first so we can send a proper User-Agent
+        # (many sites block feedparser's bare urllib requests)
+        resp = requests.get(
+            url,
+            headers={"User-Agent": _FEED_USER_AGENT},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        feed = feedparser.parse(resp.content)
         items: list[NewsItem] = []
         for entry in feed.entries[:max_items]:
             title = entry.get("title", "").strip()
@@ -610,14 +621,11 @@ def _parse_feed(url: str, source: str, max_items: int) -> list[NewsItem]:
 
 
 # ---------------------------------------------------------------------------
-# Truth Social / Trump monitoring
+# Trump / Political monitoring
 # ---------------------------------------------------------------------------
 
-_TRUTHSOCIAL_USER_AGENT = "Stockio/1.0 (stock sentiment bot)"
-
-
 def fetch_trump_feeds() -> list[NewsItem]:
-    """Fetch posts from Trump-specific feeds (Truth Social, White House, etc.).
+    """Fetch posts from Trump-specific feeds (White House, Google News, etc.).
 
     Returns a flat list of NewsItems with source tags identifying the origin.
     Each item is marked with match_type="trump" for special weighting.
@@ -630,14 +638,17 @@ def fetch_trump_feeds() -> list[NewsItem]:
 
     for feed_url in _TRUMP_FEEDS:
         try:
-            raw_items = _parse_feed(feed_url, source="trump")
+            raw_items = _parse_feed(feed_url, source="trump", max_items=20)
+            count = 0
             for item in raw_items:
                 if item.title not in seen_titles:
                     # Tag with a more specific source based on the URL
-                    if "truthsocial" in feed_url:
-                        source = "truth_social"
-                    elif "whitehouse" in feed_url:
+                    if "whitehouse" in feed_url:
                         source = "white_house"
+                    elif "news.google" in feed_url:
+                        source = "trump_news"
+                    elif "guardian" in feed_url:
+                        source = "trump_news"
                     else:
                         source = "trump_news"
                     items.append(NewsItem(
@@ -648,6 +659,8 @@ def fetch_trump_feeds() -> list[NewsItem]:
                         match_type="trump",
                     ))
                     seen_titles.add(item.title)
+                    count += 1
+            log.info("Trump feed %s: %d items", feed_url[:60], count)
         except Exception as exc:
             log.warning("Failed to fetch Trump feed %s: %s", feed_url, exc)
 
