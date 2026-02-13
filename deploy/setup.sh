@@ -47,6 +47,8 @@ echo "    Installing PyTorch (CPU-only, ~200MB)..."
 "$APP_DIR/.venv/bin/pip" install torch --index-url https://download.pytorch.org/whl/cpu
 echo "    Installing remaining dependencies..."
 "$APP_DIR/.venv/bin/pip" install -r "$APP_DIR/requirements.txt"
+echo "    Installing stockio package..."
+"$APP_DIR/.venv/bin/pip" install -e "$APP_DIR" -q
 
 # 6. Set permissions
 echo "[5/7] Setting permissions..."
@@ -64,6 +66,11 @@ systemctl enable stockio-bot.service
 echo "[7/7] Starting services..."
 systemctl start stockio-web.service
 echo "    Web dashboard started on http://$(hostname -I | awk '{print $1}'):5000"
+
+# 9. Add stockio venv to system PATH
+echo "[8/8] Adding stockio to PATH..."
+echo "export PATH=\"$APP_DIR/.venv/bin:\$PATH\"" > /etc/profile.d/stockio.sh
+chmod +x /etc/profile.d/stockio.sh
 
 echo ""
 echo "=== Setup Complete ==="
