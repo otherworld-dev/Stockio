@@ -1,0 +1,23 @@
+[Unit]
+Description=Stockio Trading Bot
+After=network.target
+
+[Service]
+Type=exec
+User=stockio
+Group=stockio
+WorkingDirectory=/opt/stockio
+Environment=PATH=/opt/stockio/.venv/bin:/usr/bin:/bin
+EnvironmentFile=/opt/stockio/.env
+ExecStart=/opt/stockio/.venv/bin/python -m stockio.cli run
+Restart=always
+RestartSec=30
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/stockio/data /var/log/stockio
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

@@ -25,7 +25,14 @@ src/stockio/
 ├── portfolio.py    # SQLite portfolio tracker, risk management, P&L
 ├── executor.py     # Paper & Alpaca trade execution
 ├── bot.py          # Main orchestrator — ties everything together
+├── webapp.py       # Flask web dashboard + REST API
+├── templates/      # HTML dashboard template
 └── cli.py          # Click CLI entry point
+
+deploy/
+├── setup.sh              # One-command LXC container setup
+├── stockio-web.service   # systemd unit for the web dashboard
+└── stockio-bot.service   # systemd unit for the trading bot
 ```
 
 ## Quick Start
@@ -41,7 +48,10 @@ cp .env.example .env
 # 3. Train the ML model
 stockio train
 
-# 4. Run the bot
+# 4. Start the web dashboard
+stockio web
+
+# Or run the bot headless
 stockio run
 ```
 
@@ -49,7 +59,8 @@ stockio run
 
 | Command | Description |
 |---------|-------------|
-| `stockio run` | Start the trading bot loop |
+| `stockio web --port 5000` | Start the web dashboard |
+| `stockio run` | Start the trading bot loop (headless) |
 | `stockio train --period 2y` | Manually retrain the ML model |
 | `stockio status` | Show current portfolio (cash, holdings, P&L) |
 | `stockio history --limit 20` | Show recent trade history |
@@ -70,6 +81,32 @@ All settings can be overridden via environment variables or a `.env` file:
 | `STOCKIO_MAX_POSITION_PCT` | `20` | Max % of portfolio in one position |
 | `STOCKIO_STOP_LOSS_PCT` | `5` | Stop-loss threshold (%) |
 | `STOCKIO_TAKE_PROFIT_PCT` | `15` | Take-profit threshold (%) |
+
+## Deploy to LXC Container
+
+Run the setup script as root on a fresh Debian/Ubuntu LXC container:
+
+```bash
+# From the repo root
+sudo bash deploy/setup.sh
+```
+
+This will:
+- Install Python and dependencies
+- Create a `stockio` service user
+- Install the app to `/opt/stockio`
+- Set up two systemd services (web dashboard + trading bot)
+- Start the web dashboard on port 5000
+
+```bash
+# Manage the services
+sudo systemctl start stockio-bot       # Start trading
+sudo systemctl stop stockio-bot        # Stop trading
+sudo systemctl status stockio-web      # Check web status
+sudo journalctl -u stockio-bot -f      # Follow bot logs
+```
+
+The web dashboard lets you start/stop the bot, view portfolio status, see live trade signals, and review trade history — all from your browser.
 
 ## Testing
 

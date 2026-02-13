@@ -161,6 +161,23 @@ def signals() -> None:
 
 
 # ------------------------------------------------------------------
+# web: start the web dashboard
+# ------------------------------------------------------------------
+
+
+@main.command()
+@click.option("--host", default="0.0.0.0", help="Bind address")
+@click.option("--port", default=5000, type=int, help="Port number")
+@click.option("--debug", is_flag=True, help="Enable Flask debug mode")
+def web(host: str, port: int, debug: bool) -> None:
+    """Start the web dashboard."""
+    from stockio.webapp import run_webapp
+
+    click.echo(f"Starting Stockio web dashboard on http://{host}:{port}")
+    run_webapp(host=host, port=port, debug=debug)
+
+
+# ------------------------------------------------------------------
 # backtest: simple historical backtest
 # ------------------------------------------------------------------
 

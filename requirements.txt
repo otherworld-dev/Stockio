@@ -22,5 +22,9 @@ schedule>=1.2.0
 # CLI
 click>=8.1.0
 
+# Web dashboard
+flask>=3.0.0
+gunicorn>=21.0.0
+
 # Configuration
 python-dotenv>=1.0.0

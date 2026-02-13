@@ -1,0 +1,29 @@
+[Unit]
+Description=Stockio Web Dashboard
+After=network.target
+
+[Service]
+Type=exec
+User=stockio
+Group=stockio
+WorkingDirectory=/opt/stockio
+Environment=PATH=/opt/stockio/.venv/bin:/usr/bin:/bin
+EnvironmentFile=/opt/stockio/.env
+ExecStart=/opt/stockio/.venv/bin/gunicorn \
+    --bind 0.0.0.0:5000 \
+    --workers 2 \
+    --timeout 120 \
+    --access-logfile /var/log/stockio/access.log \
+    --error-logfile /var/log/stockio/error.log \
+    "stockio.webapp:app"
+Restart=always
+RestartSec=10
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/stockio/data /var/log/stockio
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
