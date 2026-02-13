@@ -163,6 +163,26 @@ class StockioBot:
             sentiments = {}
 
         if sentiments:
+            # Log broad market sentiment once (from the first ticker that has it)
+            market_sent_logged = False
+            for sent in sentiments.values():
+                if not market_sent_logged and sent.market_sentiment != 0.0:
+                    mkt_dir = "bullish" if sent.market_sentiment > 0.05 else "bearish" if sent.market_sentiment < -0.05 else "neutral"
+                    log.info(
+                        "  BROAD MARKET sentiment: %+.4f (%s)",
+                        sent.market_sentiment, mkt_dir,
+                    )
+                    cycle_log.append({
+                        "type": "sentiment",
+                        "ticker": "_MARKET",
+                        "score": sent.market_sentiment,
+                        "direction": mkt_dir,
+                        "num_articles": 0,
+                        "headlines": [],
+                    })
+                    market_sent_logged = True
+                    break
+
             for ticker, sent in sentiments.items():
                 if sent.num_articles > 0:
                     direction = "bullish" if sent.score > 0.05 else "bearish" if sent.score < -0.05 else "neutral"

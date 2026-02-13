@@ -438,6 +438,27 @@ def get_market_region(ticker: str) -> str:
     return "US"
 
 
+def get_ticker_names(tickers: list[str] | None = None) -> dict[str, str]:
+    """Return ``{symbol: company_name}`` for given tickers from the cache.
+
+    If *tickers* is None, returns names for all cached tickers.
+    """
+    with _get_conn() as conn:
+        if tickers:
+            placeholders = ",".join("?" for _ in tickers)
+            rows = conn.execute(
+                f"SELECT symbol, name FROM market_tickers "
+                f"WHERE symbol IN ({placeholders})",
+                tickers,
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT symbol, name FROM market_tickers WHERE name != ''"
+            ).fetchall()
+
+    return {r["symbol"]: r["name"] for r in rows if r["name"]}
+
+
 def get_news_lang(ticker: str) -> str:
     """Return the news language tag for a ticker (e.g. 'en-GB')."""
     with _get_conn() as conn:

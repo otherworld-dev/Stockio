@@ -24,13 +24,10 @@ ALPACA_API_KEY = os.getenv("ALPACA_API_KEY", "")
 ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY", "")
 ALPACA_BASE_URL = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
 
-# News feeds
+# User-configured news feeds (in addition to built-in feeds in sentiment.py)
 NEWS_FEEDS = [
     f.strip()
-    for f in os.getenv(
-        "STOCKIO_NEWS_FEEDS",
-        "https://feeds.finance.yahoo.com/rss/2.0/headline?s=^FTSE&region=GB&lang=en-GB",
-    ).split(",")
+    for f in os.getenv("STOCKIO_NEWS_FEEDS", "").split(",")
     if f.strip()
 ]
 
@@ -43,7 +40,7 @@ NEWS_FEEDS = [
 # Set to empty string to use STOCKIO_WATCHLIST instead.
 MARKETS = [
     m.strip().upper()
-    for m in os.getenv("STOCKIO_MARKETS", "LSE,AIM").split(",")
+    for m in os.getenv("STOCKIO_MARKETS", "LSE,AIM,NYSE,NASDAQ").split(",")
     if m.strip()
 ]
 
