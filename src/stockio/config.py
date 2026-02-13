@@ -34,16 +34,45 @@ NEWS_FEEDS = [
     if f.strip()
 ]
 
-# Watchlist
+# ---------------------------------------------------------------------------
+# Markets & Watchlist
+# ---------------------------------------------------------------------------
+
+# Markets to scan for stocks (comma-separated).
+# Supported: LSE, AIM, NYSE, NASDAQ, EURONEXT, XETRA
+# Set to empty string to use STOCKIO_WATCHLIST instead.
+MARKETS = [
+    m.strip().upper()
+    for m in os.getenv("STOCKIO_MARKETS", "LSE,AIM").split(",")
+    if m.strip()
+]
+
+# Static watchlist — used as ADDITIONAL tickers on top of market discovery.
+# If STOCKIO_MARKETS is empty, this is the only source of tickers.
 WATCHLIST = [
     t.strip()
-    for t in os.getenv(
-        "STOCKIO_WATCHLIST", "AAPL,MSFT,GOOGL,AMZN,TSLA,NVDA,META,JPM,V,JNJ"
-    ).split(",")
+    for t in os.getenv("STOCKIO_WATCHLIST", "").split(",")
     if t.strip()
 ]
 
+# How often to refresh the full list of tickers from each market (hours)
+MARKET_REFRESH_HOURS = int(os.getenv("STOCKIO_MARKET_REFRESH_HOURS", "24"))
+
+# How many tickers to analyse per trading cycle (the bot rotates through all)
+BATCH_SIZE = int(os.getenv("STOCKIO_BATCH_SIZE", "50"))
+
+# Include penny stocks (price below threshold)
+INCLUDE_PENNY_STOCKS = os.getenv("STOCKIO_INCLUDE_PENNY_STOCKS", "true").lower() in (
+    "true", "1", "yes",
+)
+
+# Maximum number of tickers to discover per market (safety limit)
+MAX_TICKERS_PER_MARKET = int(os.getenv("STOCKIO_MAX_TICKERS_PER_MARKET", "5000"))
+
+# ---------------------------------------------------------------------------
 # Scheduling
+# ---------------------------------------------------------------------------
+
 INTERVAL_MINUTES = int(os.getenv("STOCKIO_INTERVAL_MINUTES", "30"))
 RETRAIN_HOURS = int(os.getenv("STOCKIO_RETRAIN_HOURS", "24"))
 

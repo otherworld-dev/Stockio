@@ -126,10 +126,68 @@ def get_latest_price(ticker: str) -> float | None:
 
 
 def get_current_prices(tickers: list[str]) -> dict[str, float]:
-    """Batch-fetch latest closing prices for multiple tickers."""
+    """Batch-fetch latest closing prices for multiple tickers.
+
+    Uses yf.download() for efficient batching when there are many tickers.
+    Falls back to individual fetching on error.
+    """
+    if not tickers:
+        return {}
+
     prices: dict[str, float] = {}
-    for ticker in tickers:
-        price = get_latest_price(ticker)
-        if price is not None:
-            prices[ticker] = price
+
+    # For small lists, individual fetch is fine
+    if len(tickers) <= 5:
+        for ticker in tickers:
+            price = get_latest_price(ticker)
+            if price is not None:
+                prices[ticker] = price
+        return prices
+
+    # Batch download for larger lists — process in chunks to avoid
+    # overloading yfinance with thousands of tickers at once.
+    chunk_size = 200
+    for i in range(0, len(tickers), chunk_size):
+        chunk = tickers[i : i + chunk_size]
+        try:
+            log.info(
+                "Batch fetching prices for %d tickers (%d/%d) ...",
+                len(chunk), i + 1, len(tickers),
+            )
+            df = yf.download(
+                chunk,
+                period="1d",
+                interval="1d",
+                progress=False,
+                threads=True,
+            )
+
+            if df.empty:
+                continue
+
+            # yf.download with multiple tickers returns MultiIndex columns:
+            # level 0 = Price field (Close, Open, etc.), level 1 = Ticker
+            if isinstance(df.columns, pd.MultiIndex):
+                if "Close" in df.columns.get_level_values(0):
+                    close_df = df["Close"]
+                    for ticker in close_df.columns:
+                        val = close_df[ticker].dropna()
+                        if not val.empty:
+                            prices[str(ticker)] = float(val.iloc[-1])
+            else:
+                # Single ticker returned as flat columns
+                if len(chunk) == 1 and "Close" in df.columns:
+                    val = df["Close"].dropna()
+                    if not val.empty:
+                        prices[chunk[0]] = float(val.iloc[-1])
+
+        except Exception as exc:
+            log.warning("Batch download failed for chunk: %s", exc)
+            # Fallback to individual fetching for this chunk
+            for ticker in chunk:
+                price = get_latest_price(ticker)
+                if price is not None:
+                    prices[ticker] = price
+
+    log.info("Got prices for %d / %d tickers", len(prices), len(tickers))
     return prices

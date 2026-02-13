@@ -11,6 +11,13 @@ from flask import Flask, jsonify, render_template, request
 from stockio import __version__, config
 from stockio.config import get_logger
 from stockio.market_data import get_current_prices
+from stockio.market_discovery import (
+    SUPPORTED_MARKETS,
+    get_cached_tickers,
+    get_market_summary,
+    get_ticker_count,
+    refresh_all_markets,
+)
 from stockio.portfolio import (
     get_bot_logs,
     get_cash,
@@ -89,11 +96,15 @@ def index():
 def api_status():
     """Return current portfolio status as JSON."""
     try:
-        prices = get_current_prices(config.WATCHLIST)
+        # Use held positions for status (not the full universe)
+        held_tickers = [p.ticker for p in get_positions()]
+        prices = get_current_prices(held_tickers) if held_tickers else {}
         summary = portfolio_summary(prices)
         summary["bot_running"] = _bot_running or _systemd_bot_running()
         summary["mode"] = config.MODE
-        summary["watchlist"] = config.WATCHLIST
+        summary["markets"] = config.MARKETS
+        summary["total_tickers"] = get_ticker_count()
+        summary["batch_size"] = config.BATCH_SIZE
         summary["timestamp"] = dt.datetime.utcnow().isoformat()
         return jsonify(summary)
     except Exception as exc:
@@ -122,11 +133,17 @@ def api_trades():
 
 @app.route("/api/signals")
 def api_signals():
-    """Generate and return current trade signals."""
+    """Generate and return current trade signals for held positions + top tickers."""
     try:
         from stockio.strategy import generate_signals
 
-        prices = get_current_prices(config.WATCHLIST)
+        # Use held positions + a small sample from the universe
+        held = [p.ticker for p in get_positions()]
+        all_tickers = get_cached_tickers()
+        sample = all_tickers[:20]  # top 20 by market cap
+
+        combined = list(dict.fromkeys(held + sample))  # deduplicate, preserve order
+        prices = get_current_prices(combined)
         tickers = list(prices.keys())
 
         # Try sentiment — fall back gracefully
@@ -201,15 +218,54 @@ def api_snapshots():
     return jsonify(snapshots)
 
 
+@app.route("/api/markets")
+def api_markets():
+    """Return market discovery status and ticker counts."""
+    try:
+        summary = get_market_summary()
+        return jsonify({
+            "configured_markets": config.MARKETS,
+            "supported_markets": {
+                k: {"name": v["name"], "region": v["region"], "currency": v["currency"]}
+                for k, v in SUPPORTED_MARKETS.items()
+            },
+            "cached_markets": summary,
+            "total_tickers": get_ticker_count(),
+            "batch_size": config.BATCH_SIZE,
+            "extra_watchlist": config.WATCHLIST,
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/markets/refresh", methods=["POST"])
+def api_markets_refresh():
+    """Force-refresh all configured market ticker caches."""
+    try:
+        results = refresh_all_markets()
+        return jsonify({
+            "status": "refreshed",
+            "results": results,
+            "total_tickers": get_ticker_count(),
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 @app.route("/api/config")
 def api_config():
     """Return current configuration (non-sensitive)."""
     return jsonify({
         "mode": config.MODE,
         "budget": config.INITIAL_BUDGET_GBP,
+        "markets": config.MARKETS,
         "watchlist": config.WATCHLIST,
+        "total_tickers": get_ticker_count(),
+        "batch_size": config.BATCH_SIZE,
+        "include_penny_stocks": config.INCLUDE_PENNY_STOCKS,
         "interval_minutes": config.INTERVAL_MINUTES,
         "retrain_hours": config.RETRAIN_HOURS,
+        "market_refresh_hours": config.MARKET_REFRESH_HOURS,
         "max_position_pct": config.MAX_POSITION_PCT,
         "stop_loss_pct": config.STOP_LOSS_PCT,
         "take_profit_pct": config.TAKE_PROFIT_PCT,

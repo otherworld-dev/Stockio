@@ -68,22 +68,43 @@ class SentimentScore:
 # News fetching
 # ---------------------------------------------------------------------------
 
-_TICKER_FEEDS = {
-    # Yahoo Finance per-ticker RSS — {ticker} is replaced at runtime
-    "yahoo": "https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region=US&lang=en-US",
-}
+_TICKER_FEED_TEMPLATE = (
+    "https://feeds.finance.yahoo.com/rss/2.0/headline"
+    "?s={ticker}&region={region}&lang={lang}"
+)
+
+
+def _ticker_search_name(ticker: str) -> str:
+    """Return the base name to match in headlines (strip exchange suffix)."""
+    # e.g. "VOD.L" -> "VOD", "AAPL" -> "AAPL"
+    return ticker.split(".")[0]
 
 
 def fetch_news(tickers: list[str], max_per_source: int = 15) -> dict[str, list[NewsItem]]:
     """Fetch recent headlines relevant to each ticker.
 
     Returns ``{ticker: [NewsItem, ...]}``.
+    Uses region-appropriate feeds based on the ticker's market.
     """
     result: dict[str, list[NewsItem]] = {t: [] for t in tickers}
 
-    # 1. Per-ticker RSS feeds
+    # Lazy import to avoid circular dependency
+    try:
+        from stockio.market_discovery import get_market_region, get_news_lang
+    except ImportError:
+        get_market_region = None
+        get_news_lang = None
+
+    # 1. Per-ticker RSS feeds (region-aware)
     for ticker in tickers:
-        url = _TICKER_FEEDS["yahoo"].format(ticker=ticker)
+        if get_market_region and get_news_lang:
+            region = get_market_region(ticker)
+            lang = get_news_lang(ticker)
+        else:
+            region = "US"
+            lang = "en-US"
+
+        url = _TICKER_FEED_TEMPLATE.format(ticker=ticker, region=region, lang=lang)
         items = _parse_feed(url, source="yahoo", max_items=max_per_source)
         result[ticker].extend(items)
 
@@ -92,11 +113,13 @@ def fetch_news(tickers: list[str], max_per_source: int = 15) -> dict[str, list[N
         items = _parse_feed(feed_url, source="general", max_items=max_per_source)
         for item in items:
             for ticker in tickers:
-                if _headline_mentions(item.title, ticker):
+                search_name = _ticker_search_name(ticker)
+                if _headline_mentions(item.title, search_name):
                     result[ticker].append(item)
 
     for t, items in result.items():
-        log.info("Fetched %d headlines for %s", len(items), t)
+        if items:
+            log.info("Fetched %d headlines for %s", len(items), t)
     return result
 
 

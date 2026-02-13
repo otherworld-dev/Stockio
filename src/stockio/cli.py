@@ -42,10 +42,24 @@ def run() -> None:
 def train(period: str) -> None:
     """Retrain the ML prediction model."""
     from stockio import config
+    from stockio.market_discovery import get_cached_tickers, maybe_refresh
     from stockio.strategy import train_model
 
-    click.echo(f"Training model on {len(config.WATCHLIST)} tickers (period={period}) ...")
-    _, _, features, accuracy = train_model(config.WATCHLIST, period=period)
+    # Ensure market cache is populated
+    if config.MARKETS:
+        click.echo("Checking market ticker cache ...")
+        maybe_refresh()
+
+    tickers = get_cached_tickers()
+
+    # Limit training set for speed
+    max_training = 100
+    if len(tickers) > max_training:
+        click.echo(f"Universe has {len(tickers)} tickers — training on top {max_training} by market cap")
+        tickers = tickers[:max_training]
+
+    click.echo(f"Training model on {len(tickers)} tickers (period={period}) ...")
+    _, _, features, accuracy = train_model(tickers, period=period)
     click.echo(f"Model trained — CV accuracy: {accuracy:.4f}")
     click.echo(f"Features used: {len(features)}")
 
@@ -60,16 +74,24 @@ def status() -> None:
     """Show current portfolio status."""
     from stockio import config
     from stockio.market_data import get_current_prices
-    from stockio.portfolio import portfolio_summary
+    from stockio.market_discovery import get_ticker_count
+    from stockio.portfolio import get_positions, portfolio_summary
 
-    click.echo("Fetching current prices ...")
-    prices = get_current_prices(config.WATCHLIST)
+    held_tickers = [p.ticker for p in get_positions()]
+    if held_tickers:
+        click.echo(f"Fetching prices for {len(held_tickers)} held positions ...")
+        prices = get_current_prices(held_tickers)
+    else:
+        prices = {}
+
     summary = portfolio_summary(prices)
 
     click.echo()
     click.echo(f"{'=' * 50}")
     click.echo(f"  STOCKIO PORTFOLIO STATUS")
     click.echo(f"{'=' * 50}")
+    click.echo(f"  Markets:        {', '.join(config.MARKETS) or 'none (watchlist only)'}")
+    click.echo(f"  Universe:       {get_ticker_count()} tickers")
     click.echo(f"  Cash:           £{summary['cash']:.2f}")
     click.echo(f"  Holdings value: £{summary['holdings_value']:.2f}")
     click.echo(f"  Total value:    £{summary['total_value']:.2f}")
@@ -133,13 +155,22 @@ def signals() -> None:
     """Analyse and display current trade signals (dry run)."""
     from stockio import config
     from stockio.market_data import get_current_prices
+    from stockio.market_discovery import get_cached_tickers
+    from stockio.portfolio import get_positions
     from stockio.sentiment import get_sentiment_scores
     from stockio.strategy import generate_signals
 
-    click.echo("Fetching prices and analysing sentiment ...")
-    prices = get_current_prices(config.WATCHLIST)
+    # Show signals for held positions + top tickers
+    held = [p.ticker for p in get_positions()]
+    all_tickers = get_cached_tickers()
+    sample = all_tickers[:20]
+    combined = list(dict.fromkeys(held + sample))
+
+    click.echo(f"Fetching prices for {len(combined)} tickers ...")
+    prices = get_current_prices(combined)
     tickers = list(prices.keys())
 
+    click.echo("Analysing sentiment ...")
     try:
         sentiments = get_sentiment_scores(tickers)
     except Exception:
@@ -154,9 +185,75 @@ def signals() -> None:
     click.echo(f"{'=' * 60}")
     for s in sigs:
         icon = {"BUY": "+", "SELL": "-", "HOLD": " "}[s.signal.value]
-        click.echo(f"  [{icon}] {s.ticker:<8} {s.signal.value:<5} conf={s.confidence:.2f}")
+        click.echo(f"  [{icon}] {s.ticker:<12} {s.signal.value:<5} conf={s.confidence:.2f}")
         for r in s.reasons:
             click.echo(f"        {r}")
+    click.echo()
+
+
+# ------------------------------------------------------------------
+# markets: manage market discovery
+# ------------------------------------------------------------------
+
+
+@main.command()
+@click.option("--refresh", is_flag=True, help="Force-refresh all market caches")
+@click.option("--list-supported", is_flag=True, help="Show all supported markets")
+def markets(refresh: bool, list_supported: bool) -> None:
+    """Show or refresh market ticker caches."""
+    from stockio import config
+    from stockio.market_discovery import (
+        SUPPORTED_MARKETS,
+        get_market_summary,
+        get_ticker_count,
+        refresh_all_markets,
+    )
+
+    if list_supported:
+        click.echo()
+        click.echo(f"{'=' * 60}")
+        click.echo(f"  SUPPORTED MARKETS")
+        click.echo(f"{'=' * 60}")
+        for key, info in SUPPORTED_MARKETS.items():
+            active = " [ACTIVE]" if key in config.MARKETS else ""
+            click.echo(f"  {key:<10} {info['name']:<40} {info['currency']}{active}")
+        click.echo()
+        click.echo(f"  Set STOCKIO_MARKETS in .env to activate markets.")
+        click.echo(f"  e.g. STOCKIO_MARKETS=LSE,AIM,NASDAQ")
+        click.echo()
+        return
+
+    if refresh:
+        click.echo("Refreshing all configured market caches ...")
+        results = refresh_all_markets()
+        for market, count in results.items():
+            click.echo(f"  {market}: {count} tickers")
+        click.echo(f"Total: {get_ticker_count()} tickers")
+        click.echo()
+        return
+
+    # Default: show current state
+    click.echo()
+    click.echo(f"{'=' * 60}")
+    click.echo(f"  MARKET DISCOVERY STATUS")
+    click.echo(f"{'=' * 60}")
+    click.echo(f"  Configured markets: {', '.join(config.MARKETS) or 'none'}")
+    click.echo(f"  Total tickers:      {get_ticker_count()}")
+    click.echo(f"  Batch size:         {config.BATCH_SIZE} per cycle")
+    click.echo(f"  Refresh interval:   every {config.MARKET_REFRESH_HOURS}h")
+    click.echo()
+
+    summary = get_market_summary()
+    if summary:
+        click.echo(f"  {'Market':<10} {'Tickers':>10} {'Last Refresh'}")
+        click.echo(f"  {'-' * 50}")
+        for m in summary:
+            click.echo(f"  {m['market']:<10} {m['ticker_count']:>10} {m['last_refresh'][:19]}")
+    else:
+        click.echo("  No market data cached yet. Run: stockio markets --refresh")
+
+    if config.WATCHLIST:
+        click.echo(f"\n  Extra watchlist: {', '.join(config.WATCHLIST)}")
     click.echo()
 
 
