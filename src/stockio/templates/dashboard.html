@@ -213,9 +213,10 @@
         .log-reasons { font-size: 0.8rem; color: var(--text-dim); padding-left: 4.5rem; }
 
         /* Sentiment breakdown bar */
-        .sent-bar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; width: 100px; }
+        .sent-bar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; width: 120px; }
         .sent-bar-news { background: var(--blue); }
         .sent-bar-reddit { background: var(--orange); }
+        .sent-bar-trump { background: var(--red); }
         .sent-bar-market { background: var(--purple); }
 
         /* Source tags for news feed */
@@ -231,6 +232,7 @@
         .source-news { background: rgba(41,121,255,0.15); color: var(--blue); }
         .source-yahoo { background: rgba(171,71,188,0.15); color: var(--purple); }
         .source-broad { background: rgba(139,143,163,0.15); color: var(--text-dim); }
+        .source-trump { background: rgba(255,23,68,0.15); color: var(--red); }
 
         .match-tag {
             font-size: 0.65rem;
@@ -518,6 +520,9 @@
         }
 
         function sourceTag(source) {
+            if (source === 'truth_social') return `<span class="source-tag source-trump">Truth Social</span>`;
+            if (source === 'white_house') return `<span class="source-tag source-trump">White House</span>`;
+            if (source === 'trump_news') return `<span class="source-tag source-trump">Trump News</span>`;
             if (source.startsWith('reddit/')) return `<span class="source-tag source-reddit">${source}</span>`;
             if (source.includes('yahoo')) return `<span class="source-tag source-yahoo">Yahoo</span>`;
             if (source === 'general') return `<span class="source-tag source-news">News</span>`;
@@ -528,6 +533,7 @@
             if (type === 'ticker') return '<span class="match-tag">ticker match</span>';
             if (type === 'name') return '<span class="match-tag">name match</span>';
             if (type === 'broad_market') return '<span class="match-tag">market-wide</span>';
+            if (type === 'trump') return '<span class="match-tag" style="background:rgba(255,23,68,0.1);color:var(--red)">Trump/Political</span>';
             return '';
         }
 
@@ -597,9 +603,12 @@
                 let html = '';
                 data.forEach(s => {
                     const scoreCls = sentColour(s.score);
-                    const total = s.news_count + s.reddit_count + s.broad_count;
+                    const trumpCount = s.trump_count || 0;
+                    const trumpScore = s.trump_score || 0;
+                    const total = s.news_count + s.reddit_count + trumpCount + s.broad_count;
                     const newsPct = total > 0 ? Math.round((s.news_count / total) * 100) : 0;
                     const redditPct = total > 0 ? Math.round((s.reddit_count / total) * 100) : 0;
+                    const trumpPct = total > 0 ? Math.round((trumpCount / total) * 100) : 0;
                     const broadPct = total > 0 ? Math.round((s.broad_count / total) * 100) : 0;
 
                     html += `<div class="sent-detail-row">
@@ -611,11 +620,13 @@
                         <div class="sent-detail-sources">
                             <span style="color:var(--blue)">News: ${s.news_count} (${s.news_score > 0 ? '+' : ''}${s.news_score.toFixed(3)})</span>
                             <span style="color:var(--orange)">Reddit: ${s.reddit_count} (${s.reddit_score > 0 ? '+' : ''}${s.reddit_score.toFixed(3)})</span>
+                            ${trumpCount > 0 ? `<span style="color:var(--red)">Trump: ${trumpCount} (${trumpScore > 0 ? '+' : ''}${trumpScore.toFixed(3)})</span>` : ''}
                             <span style="color:var(--purple)">Market: ${s.broad_count} (${s.market_sentiment > 0 ? '+' : ''}${s.market_sentiment.toFixed(3)})</span>
                         </div>
-                        <div class="sent-bar" title="Blue=News, Orange=Reddit, Purple=Market">
+                        <div class="sent-bar" title="Blue=News, Orange=Reddit, Red=Trump, Purple=Market">
                             <div class="sent-bar-news" style="width:${newsPct}%"></div>
                             <div class="sent-bar-reddit" style="width:${redditPct}%"></div>
+                            <div class="sent-bar-trump" style="width:${trumpPct}%"></div>
                             <div class="sent-bar-market" style="width:${broadPct}%"></div>
                         </div>`;
 
@@ -776,6 +787,7 @@
                                 const parts = [];
                                 if (e.news_count > 0) parts.push(`<span style="color:var(--blue)">${e.news_count} news</span>`);
                                 if (e.reddit_count > 0) parts.push(`<span style="color:var(--orange)">${e.reddit_count} reddit</span>`);
+                                if (e.trump_count > 0) parts.push(`<span style="color:var(--red)">${e.trump_count} trump</span>`);
                                 if (e.broad_count > 0) parts.push(`<span style="color:var(--purple)">${e.broad_count} market</span>`);
                                 sourceInfo = parts.join(', ') || 'no matches';
                             }

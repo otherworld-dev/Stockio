@@ -91,6 +91,19 @@ REDDIT_MAX_POSTS = int(os.getenv("STOCKIO_REDDIT_MAX_POSTS", "25"))
 REDDIT_WEIGHT = float(os.getenv("STOCKIO_REDDIT_WEIGHT", "0.3"))
 
 # ---------------------------------------------------------------------------
+# Trump / Political monitoring
+# ---------------------------------------------------------------------------
+
+TRUMP_MONITORING_ENABLED = os.getenv("STOCKIO_TRUMP_MONITORING", "true").lower() in (
+    "true", "1", "yes",
+)
+
+# How much extra weight Trump/political stories get vs normal broad market
+# This multiplier is applied ON TOP of normal weighting because these events
+# tend to cause immediate, outsized market moves (tariffs, executive orders, etc.)
+TRUMP_WEIGHT = float(os.getenv("STOCKIO_TRUMP_WEIGHT", "1.5"))
+
+# ---------------------------------------------------------------------------
 # Scheduling
 # ---------------------------------------------------------------------------
 

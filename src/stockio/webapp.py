@@ -284,8 +284,10 @@ def api_sentiment_detail():
                 "num_articles": sent.num_articles,
                 "news_score": sent.news_score,
                 "reddit_score": sent.reddit_score,
+                "trump_score": sent.trump_score,
                 "news_count": sent.news_count,
                 "reddit_count": sent.reddit_count,
+                "trump_count": sent.trump_count,
                 "broad_count": sent.broad_count,
                 "market_sentiment": sent.market_sentiment,
                 "headlines": sent.headlines,
@@ -367,6 +369,8 @@ def api_config():
         "reddit_enabled": config.REDDIT_ENABLED,
         "reddit_subreddits": config.REDDIT_SUBREDDITS,
         "reddit_weight": config.REDDIT_WEIGHT,
+        "trump_monitoring_enabled": config.TRUMP_MONITORING_ENABLED,
+        "trump_weight": config.TRUMP_WEIGHT,
     })
 
 

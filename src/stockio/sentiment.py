@@ -80,8 +80,10 @@ class SentimentScore:
     # Detailed breakdown for transparency
     news_score: float = 0.0  # sentiment from news sources only
     reddit_score: float = 0.0  # sentiment from Reddit only
+    trump_score: float = 0.0  # sentiment from Trump/political sources
     news_count: int = 0  # number of news articles matched
     reddit_count: int = 0  # number of Reddit posts matched
+    trump_count: int = 0  # number of Trump/political stories matched
     broad_count: int = 0  # number of broad market stories
     articles: list[dict] = field(default_factory=list)  # [{title, source, match_type, sentiment}]
 
@@ -109,6 +111,99 @@ _BUILTIN_FEEDS = [
     "https://feeds.finance.yahoo.com/rss/2.0/headline?s=^N225&region=JP&lang=en-US",
     "https://feeds.finance.yahoo.com/rss/2.0/headline?s=^HSI&region=HK&lang=en-US",
 ]
+
+# ---------------------------------------------------------------------------
+# Trump / Political monitoring feeds
+# ---------------------------------------------------------------------------
+
+# These feeds are checked when TRUMP_MONITORING_ENABLED is true.
+# Truth Social RSS for @realDonaldTrump is the primary direct source.
+_TRUMP_FEEDS = [
+    # Truth Social — direct feed of Trump's posts
+    "https://truthsocial.com/@realDonaldTrump.rss",
+    # White House — official statements, executive orders, presidential actions
+    "https://www.whitehouse.gov/feed/",
+    "https://www.whitehouse.gov/presidential-actions/feed/",
+    # Political/economic news RSS
+    "https://www.theguardian.com/us-news/donaldtrump/rss",
+    "https://feeds.finance.yahoo.com/rss/2.0/headline?s=^DJI&region=US&lang=en-US",
+]
+
+# ---------------------------------------------------------------------------
+# Trump-specific market-moving keyword patterns
+# ---------------------------------------------------------------------------
+
+# These patterns identify Trump-related stories that tend to cause immediate,
+# outsized market moves. They get weighted at TRUMP_WEIGHT (default 1.5x)
+# instead of normal broad market weight.
+_TRUMP_KEYWORDS: list[re.Pattern] = [
+    # Direct mentions
+    re.compile(r"\btrump\b", re.IGNORECASE),
+    re.compile(r"\bpotus\b", re.IGNORECASE),
+    re.compile(r"\bpresident\s+(trump|donald)", re.IGNORECASE),
+    re.compile(r"\btruth\s+social\b", re.IGNORECASE),
+    # Tariffs & trade (Trump's signature market mover)
+    re.compile(r"\btrump.{0,20}tariff", re.IGNORECASE),
+    re.compile(r"\btariff.{0,20}trump", re.IGNORECASE),
+    re.compile(r"\btrade\s+war\b", re.IGNORECASE),
+    re.compile(r"\btrade\s+deal\b", re.IGNORECASE),
+    re.compile(r"\btrade\s+ban\b", re.IGNORECASE),
+    re.compile(r"\bimport\s+dut", re.IGNORECASE),
+    re.compile(r"\bchina\s+tariff", re.IGNORECASE),
+    re.compile(r"\beu\s+tariff", re.IGNORECASE),
+    re.compile(r"\bcanada\s+tariff", re.IGNORECASE),
+    re.compile(r"\bmexico\s+tariff", re.IGNORECASE),
+    re.compile(r"\bsteel\s+tariff", re.IGNORECASE),
+    re.compile(r"\baluminium\s+tariff", re.IGNORECASE),
+    re.compile(r"\baluminum\s+tariff", re.IGNORECASE),
+    re.compile(r"\bauto\s+tariff", re.IGNORECASE),
+    re.compile(r"\breciprocal\s+tariff", re.IGNORECASE),
+    # Executive actions
+    re.compile(r"\bexecutive\s+order\b", re.IGNORECASE),
+    re.compile(r"\bpresidential\s+proclamation\b", re.IGNORECASE),
+    re.compile(r"\bpresidential\s+memorand", re.IGNORECASE),
+    re.compile(r"\bpresidential\s+action\b", re.IGNORECASE),
+    # Sanctions & geopolitics
+    re.compile(r"\btrump.{0,20}sanction", re.IGNORECASE),
+    re.compile(r"\btrump.{0,20}ban\b", re.IGNORECASE),
+    re.compile(r"\btrump.{0,20}restrict", re.IGNORECASE),
+    re.compile(r"\btrump.{0,20}threaten", re.IGNORECASE),
+    # Deregulation / regulation
+    re.compile(r"\btrump.{0,20}deregulat", re.IGNORECASE),
+    re.compile(r"\btrump.{0,20}regulat", re.IGNORECASE),
+    re.compile(r"\btrump.{0,20}repeal", re.IGNORECASE),
+    # Fiscal / spending
+    re.compile(r"\btrump.{0,20}tax\b", re.IGNORECASE),
+    re.compile(r"\btrump.{0,20}spend", re.IGNORECASE),
+    re.compile(r"\btrump.{0,20}deficit", re.IGNORECASE),
+    re.compile(r"\btrump.{0,20}debt\b", re.IGNORECASE),
+    # Tech / sector-specific
+    re.compile(r"\btrump.{0,20}tech\b", re.IGNORECASE),
+    re.compile(r"\btrump.{0,20}tiktok\b", re.IGNORECASE),
+    re.compile(r"\btrump.{0,20}crypto\b", re.IGNORECASE),
+    re.compile(r"\btrump.{0,20}bitcoin\b", re.IGNORECASE),
+    re.compile(r"\btrump.{0,20}energy\b", re.IGNORECASE),
+    re.compile(r"\btrump.{0,20}drill", re.IGNORECASE),
+    re.compile(r"\btrump.{0,20}oil\b", re.IGNORECASE),
+    re.compile(r"\btrump.{0,20}auto\b", re.IGNORECASE),
+    re.compile(r"\btrump.{0,20}pharma\b", re.IGNORECASE),
+    re.compile(r"\btrump.{0,20}drug\s+pric", re.IGNORECASE),
+    re.compile(r"\btrump.{0,20}nato\b", re.IGNORECASE),
+    # Market commentary referencing Trump
+    re.compile(r"\bmarket.{0,20}trump\b", re.IGNORECASE),
+    re.compile(r"\bstocks?.{0,15}trump\b", re.IGNORECASE),
+    re.compile(r"\btrump.{0,15}stocks?\b", re.IGNORECASE),
+    re.compile(r"\btrump.{0,15}market\b", re.IGNORECASE),
+    re.compile(r"\btrump\s+bump\b", re.IGNORECASE),
+    re.compile(r"\btrump\s+slump\b", re.IGNORECASE),
+    re.compile(r"\btrump\s+rally\b", re.IGNORECASE),
+    re.compile(r"\bmaga\b", re.IGNORECASE),
+]
+
+
+def _is_trump_story(headline: str) -> bool:
+    """Check if a headline is about Trump or his market-moving actions."""
+    return any(pat.search(headline) for pat in _TRUMP_KEYWORDS)
 
 # ---------------------------------------------------------------------------
 # Broad market keyword detection
@@ -382,7 +477,22 @@ def fetch_news(tickers: list[str], max_per_source: int = 20) -> dict[str, list[N
                         seen[t].add(item.title)
                         matched_tickers.add(t)
 
-        # 3b. Check if this is a broad market story
+        # 3b. Check if this is a Trump-related story (gets boosted weight)
+        if _is_trump_story(item.title):
+            for ticker in tickers:
+                if ticker not in matched_tickers and item.title not in seen[ticker]:
+                    trump_item = NewsItem(
+                        title=item.title,
+                        link=item.link,
+                        published=item.published,
+                        source=item.source,
+                        match_type="trump",
+                    )
+                    result[ticker].append(trump_item)
+                    seen[ticker].add(item.title)
+                    matched_tickers.add(ticker)
+
+        # 3c. Check if this is a broad market story
         if _is_broad_market_story(item.title):
             for ticker in tickers:
                 if ticker not in matched_tickers and item.title not in seen[ticker]:
@@ -407,6 +517,16 @@ def fetch_news(tickers: list[str], max_per_source: int = 20) -> dict[str, list[N
                     result[ticker].append(item)
                     existing_titles.add(item.title)
 
+    # 5. Trump / political feeds (Truth Social, White House, etc.)
+    trump_items = fetch_trump_feeds()
+    if trump_items:
+        for item in trump_items:
+            # Trump posts affect all tickers (market-wide impact)
+            for ticker in tickers:
+                existing_titles = {it.title for it in result[ticker]}
+                if item.title not in existing_titles:
+                    result[ticker].append(item)
+
     # Log summary
     name_matches = sum(
         1 for items in result.values()
@@ -424,10 +544,14 @@ def fetch_news(tickers: list[str], max_per_source: int = 20) -> dict[str, list[N
         1 for items in result.values()
         for it in items if it.source.startswith("reddit/")
     )
+    trump_matches = sum(
+        1 for items in result.values()
+        for it in items if it.match_type == "trump"
+    )
 
     log.info(
-        "News matched: %d by ticker, %d by company name, %d broad market, %d from Reddit",
-        ticker_matches, name_matches, broad_matches, reddit_matches,
+        "News matched: %d ticker, %d name, %d broad, %d reddit, %d trump/political",
+        ticker_matches, name_matches, broad_matches, reddit_matches, trump_matches,
     )
 
     for t, items in result.items():
@@ -457,6 +581,54 @@ def _parse_feed(url: str, source: str, max_items: int) -> list[NewsItem]:
     except Exception as exc:
         log.warning("Failed to parse feed %s: %s", url, exc)
         return []
+
+
+# ---------------------------------------------------------------------------
+# Truth Social / Trump monitoring
+# ---------------------------------------------------------------------------
+
+_TRUTHSOCIAL_USER_AGENT = "Stockio/1.0 (stock sentiment bot)"
+
+
+def fetch_trump_feeds() -> list[NewsItem]:
+    """Fetch posts from Trump-specific feeds (Truth Social, White House, etc.).
+
+    Returns a flat list of NewsItems with source tags identifying the origin.
+    Each item is marked with match_type="trump" for special weighting.
+    """
+    if not config.TRUMP_MONITORING_ENABLED:
+        return []
+
+    items: list[NewsItem] = []
+    seen_titles: set[str] = set()
+
+    for feed_url in _TRUMP_FEEDS:
+        try:
+            raw_items = _parse_feed(feed_url, source="trump")
+            for item in raw_items:
+                if item.title not in seen_titles:
+                    # Tag with a more specific source based on the URL
+                    if "truthsocial" in feed_url:
+                        source = "truth_social"
+                    elif "whitehouse" in feed_url:
+                        source = "white_house"
+                    else:
+                        source = "trump_news"
+                    items.append(NewsItem(
+                        title=item.title,
+                        link=item.link,
+                        published=item.published,
+                        source=source,
+                        match_type="trump",
+                    ))
+                    seen_titles.add(item.title)
+        except Exception as exc:
+            log.warning("Failed to fetch Trump feed %s: %s", feed_url, exc)
+
+    if items:
+        log.info("Fetched %d Trump/political items from %d feeds",
+                 len(items), len(_TRUMP_FEEDS))
+    return items
 
 
 # ---------------------------------------------------------------------------
@@ -631,6 +803,7 @@ def analyse_sentiment(news: dict[str, list[NewsItem]]) -> dict[str, SentimentSco
       - company name match: 0.8 weight
       - broad market story: 0.3 weight
       - Reddit source: scaled by REDDIT_WEIGHT (default 0.3)
+      - Trump/political stories: boosted by TRUMP_WEIGHT (default 1.5x)
 
     Returns ``{ticker: SentimentScore}``.
     """
@@ -639,14 +812,23 @@ def analyse_sentiment(news: dict[str, list[NewsItem]]) -> dict[str, SentimentSco
 
     # First, compute broad market sentiment once (shared across tickers)
     broad_headlines: list[str] = []
+    trump_headlines: list[str] = []
     seen_broad: set[str] = set()
     for items in news.values():
         for it in items:
-            if it.match_type == "broad_market" and it.title not in seen_broad:
+            if it.title in seen_broad:
+                continue
+            if it.match_type == "trump":
+                trump_headlines.append(it.title)
+                seen_broad.add(it.title)
+            elif it.match_type == "broad_market":
                 broad_headlines.append(it.title)
                 seen_broad.add(it.title)
 
     market_sentiment = 0.0
+    trump_sentiment = 0.0
+
+    # Score broad market headlines
     if broad_headlines:
         truncated = [h[:512] for h in broad_headlines]
         try:
@@ -667,6 +849,42 @@ def analyse_sentiment(news: dict[str, list[NewsItem]]) -> dict[str, SentimentSco
             market_sentiment, len(broad_headlines),
         )
 
+    # Score Trump/political headlines separately (with boosted weight)
+    if trump_headlines:
+        truncated = [h[:512] for h in trump_headlines]
+        try:
+            results = pipe(truncated, batch_size=16, truncation=True)
+            total_w = 0.0
+            weighted_s = 0.0
+            for res in results:
+                label = res["label"].lower()
+                conf = res["score"]
+                weighted_s += _LABEL_MAP.get(label, 0.0) * conf
+                total_w += conf
+            trump_sentiment = weighted_s / total_w if total_w > 0 else 0.0
+        except Exception as exc:
+            log.warning("Trump sentiment analysis failed: %s", exc)
+
+        log.info(
+            "Trump/political sentiment: %+.4f (%d headlines, weight=%.1fx)",
+            trump_sentiment, len(trump_headlines), config.TRUMP_WEIGHT,
+        )
+
+    # Blend market and trump sentiment (trump gets boosted weight)
+    if trump_headlines and broad_headlines:
+        trump_w = config.TRUMP_WEIGHT
+        combined_market = (
+            market_sentiment * len(broad_headlines)
+            + trump_sentiment * len(trump_headlines) * trump_w
+        ) / (len(broad_headlines) + len(trump_headlines) * trump_w)
+        market_sentiment = combined_market
+        log.info(
+            "Combined market+trump sentiment: %+.4f",
+            market_sentiment,
+        )
+    elif trump_headlines and not broad_headlines:
+        market_sentiment = trump_sentiment
+
     # Now score each ticker
     for ticker, items in news.items():
         if not items:
@@ -676,28 +894,33 @@ def analyse_sentiment(news: dict[str, list[NewsItem]]) -> dict[str, SentimentSco
             )
             continue
 
-        # Separate company-specific vs broad market items
-        specific_items = [it for it in items if it.match_type != "broad_market"]
+        # Separate company-specific vs broad market vs trump items
+        specific_items = [it for it in items if it.match_type not in ("broad_market", "trump")]
+        trump_items = [it for it in items if it.match_type == "trump"]
         broad_items = [it for it in items if it.match_type == "broad_market"]
-        headlines = [it.title for it in specific_items if it.title.strip()]
+        # Trump items are scored as specific items but with boosted weight
+        all_specific = specific_items + trump_items
+        headlines = [it.title for it in all_specific if it.title.strip()]
 
-        if not headlines and not broad_headlines:
+        if not headlines and not broad_headlines and not trump_headlines:
             scores[ticker] = SentimentScore(
                 ticker=ticker, score=0.0, num_articles=0, headlines=[],
                 market_sentiment=market_sentiment,
             )
             continue
 
-        # Score company-specific headlines and track per-article details
+        # Score company-specific + trump headlines and track per-article details
         specific_score = 0.0
         specific_weight = 0.0
         article_details: list[dict] = []
 
-        # Track news vs reddit breakdown
+        # Track news vs reddit vs trump breakdown
         news_score_sum = 0.0
         news_weight_sum = 0.0
         reddit_score_sum = 0.0
         reddit_weight_sum = 0.0
+        trump_score_sum = 0.0
+        trump_weight_sum = 0.0
 
         if headlines:
             truncated = [h[:512] for h in headlines]
@@ -708,19 +931,26 @@ def analyse_sentiment(news: dict[str, list[NewsItem]]) -> dict[str, SentimentSco
                     conf = res["score"]
                     raw_sentiment = _LABEL_MAP.get(label, 0.0) * conf
                     # Weight by match type
-                    item = specific_items[i] if i < len(specific_items) else None
+                    item = all_specific[i] if i < len(all_specific) else None
                     match_type = item.match_type if item else "ticker"
                     type_weight = _NAME_MATCH_WEIGHT if match_type == "name" else 1.0
                     is_reddit = item and item.source.startswith("reddit/")
+                    is_trump = match_type == "trump"
                     # Scale down Reddit sources
                     if is_reddit:
                         type_weight *= config.REDDIT_WEIGHT
+                    # Boost Trump/political stories
+                    if is_trump:
+                        type_weight *= config.TRUMP_WEIGHT
                     w = conf * type_weight
                     specific_score += _LABEL_MAP.get(label, 0.0) * w
                     specific_weight += w
 
                     # Track per-source breakdown
-                    if is_reddit:
+                    if is_trump:
+                        trump_score_sum += raw_sentiment
+                        trump_weight_sum += conf
+                    elif is_reddit:
                         reddit_score_sum += raw_sentiment
                         reddit_weight_sum += conf
                     else:
@@ -769,8 +999,10 @@ def analyse_sentiment(news: dict[str, list[NewsItem]]) -> dict[str, SentimentSco
         # Compute per-source averages
         avg_news = news_score_sum / news_weight_sum if news_weight_sum > 0 else 0.0
         avg_reddit = reddit_score_sum / reddit_weight_sum if reddit_weight_sum > 0 else 0.0
+        avg_trump = trump_score_sum / trump_weight_sum if trump_weight_sum > 0 else 0.0
         news_count = sum(1 for it in specific_items if not it.source.startswith("reddit/"))
         reddit_count = sum(1 for it in specific_items if it.source.startswith("reddit/"))
+        trump_count = len(trump_items)
 
         scores[ticker] = SentimentScore(
             ticker=ticker,
@@ -780,18 +1012,21 @@ def analyse_sentiment(news: dict[str, list[NewsItem]]) -> dict[str, SentimentSco
             market_sentiment=round(market_sentiment, 4),
             news_score=round(avg_news, 4),
             reddit_score=round(avg_reddit, 4),
+            trump_score=round(avg_trump, 4),
             news_count=news_count,
             reddit_count=reddit_count,
+            trump_count=trump_count,
             broad_count=len(broad_items),
             articles=article_details[:20],  # cap at 20 for memory
         )
         if total_articles > 0:
             log.info(
-                "Sentiment for %s: %+.4f (news=%+.4f/%d, reddit=%+.4f/%d, market=%+.4f, broad=%d)",
+                "Sentiment for %s: %+.4f (news=%+.4f/%d, reddit=%+.4f/%d, trump=%+.4f/%d, market=%+.4f, broad=%d)",
                 ticker,
                 blended,
                 avg_news, news_count,
                 avg_reddit, reddit_count,
+                avg_trump, trump_count,
                 market_sentiment,
                 len(broad_items),
             )
