@@ -77,6 +77,13 @@ class SentimentScore:
     num_articles: int
     headlines: list[str]
     market_sentiment: float = 0.0  # broad market mood (-1 to +1)
+    # Detailed breakdown for transparency
+    news_score: float = 0.0  # sentiment from news sources only
+    reddit_score: float = 0.0  # sentiment from Reddit only
+    news_count: int = 0  # number of news articles matched
+    reddit_count: int = 0  # number of Reddit posts matched
+    broad_count: int = 0  # number of broad market stories
+    articles: list[dict] = field(default_factory=list)  # [{title, source, match_type, sentiment}]
 
 
 # ---------------------------------------------------------------------------
@@ -671,6 +678,7 @@ def analyse_sentiment(news: dict[str, list[NewsItem]]) -> dict[str, SentimentSco
 
         # Separate company-specific vs broad market items
         specific_items = [it for it in items if it.match_type != "broad_market"]
+        broad_items = [it for it in items if it.match_type == "broad_market"]
         headlines = [it.title for it in specific_items if it.title.strip()]
 
         if not headlines and not broad_headlines:
@@ -680,9 +688,16 @@ def analyse_sentiment(news: dict[str, list[NewsItem]]) -> dict[str, SentimentSco
             )
             continue
 
-        # Score company-specific headlines
+        # Score company-specific headlines and track per-article details
         specific_score = 0.0
         specific_weight = 0.0
+        article_details: list[dict] = []
+
+        # Track news vs reddit breakdown
+        news_score_sum = 0.0
+        news_weight_sum = 0.0
+        reddit_score_sum = 0.0
+        reddit_weight_sum = 0.0
 
         if headlines:
             truncated = [h[:512] for h in headlines]
@@ -691,18 +706,52 @@ def analyse_sentiment(news: dict[str, list[NewsItem]]) -> dict[str, SentimentSco
                 for i, res in enumerate(results):
                     label = res["label"].lower()
                     conf = res["score"]
+                    raw_sentiment = _LABEL_MAP.get(label, 0.0) * conf
                     # Weight by match type
                     item = specific_items[i] if i < len(specific_items) else None
                     match_type = item.match_type if item else "ticker"
                     type_weight = _NAME_MATCH_WEIGHT if match_type == "name" else 1.0
+                    is_reddit = item and item.source.startswith("reddit/")
                     # Scale down Reddit sources
-                    if item and item.source.startswith("reddit/"):
+                    if is_reddit:
                         type_weight *= config.REDDIT_WEIGHT
                     w = conf * type_weight
                     specific_score += _LABEL_MAP.get(label, 0.0) * w
                     specific_weight += w
+
+                    # Track per-source breakdown
+                    if is_reddit:
+                        reddit_score_sum += raw_sentiment
+                        reddit_weight_sum += conf
+                    else:
+                        news_score_sum += raw_sentiment
+                        news_weight_sum += conf
+
+                    # Record per-article detail
+                    if item:
+                        article_details.append({
+                            "title": item.title,
+                            "source": item.source,
+                            "link": item.link,
+                            "match_type": item.match_type,
+                            "sentiment": round(raw_sentiment, 4),
+                            "label": label,
+                            "confidence": round(conf, 4),
+                        })
             except Exception as exc:
                 log.error("Sentiment analysis failed for %s: %s", ticker, exc)
+
+        # Add broad market articles to the detail list (no individual scoring needed)
+        for it in broad_items[:5]:
+            article_details.append({
+                "title": it.title,
+                "source": it.source,
+                "link": it.link,
+                "match_type": "broad_market",
+                "sentiment": round(market_sentiment, 4),
+                "label": "market",
+                "confidence": 0.0,
+            })
 
         # Blend: company-specific sentiment + broad market sentiment
         if specific_weight > 0:
@@ -717,21 +766,34 @@ def analyse_sentiment(news: dict[str, list[NewsItem]]) -> dict[str, SentimentSco
         total_articles = len(all_headlines)
         display_headlines = all_headlines[:5]
 
+        # Compute per-source averages
+        avg_news = news_score_sum / news_weight_sum if news_weight_sum > 0 else 0.0
+        avg_reddit = reddit_score_sum / reddit_weight_sum if reddit_weight_sum > 0 else 0.0
+        news_count = sum(1 for it in specific_items if not it.source.startswith("reddit/"))
+        reddit_count = sum(1 for it in specific_items if it.source.startswith("reddit/"))
+
         scores[ticker] = SentimentScore(
             ticker=ticker,
             score=round(blended, 4),
             num_articles=total_articles,
             headlines=display_headlines,
             market_sentiment=round(market_sentiment, 4),
+            news_score=round(avg_news, 4),
+            reddit_score=round(avg_reddit, 4),
+            news_count=news_count,
+            reddit_count=reddit_count,
+            broad_count=len(broad_items),
+            articles=article_details[:20],  # cap at 20 for memory
         )
         if total_articles > 0:
             log.info(
-                "Sentiment for %s: %+.4f (specific=%+.4f, market=%+.4f, %d articles)",
+                "Sentiment for %s: %+.4f (news=%+.4f/%d, reddit=%+.4f/%d, market=%+.4f, broad=%d)",
                 ticker,
                 blended,
-                specific_score / specific_weight if specific_weight > 0 else 0.0,
+                avg_news, news_count,
+                avg_reddit, reddit_count,
                 market_sentiment,
-                total_articles,
+                len(broad_items),
             )
 
     return scores

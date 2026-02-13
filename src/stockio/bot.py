@@ -179,6 +179,7 @@ class StockioBot:
                         "direction": mkt_dir,
                         "num_articles": 0,
                         "headlines": [],
+                        "articles": [],
                     })
                     market_sent_logged = True
                     break
@@ -187,8 +188,9 @@ class StockioBot:
                 if sent.num_articles > 0:
                     direction = "bullish" if sent.score > 0.05 else "bearish" if sent.score < -0.05 else "neutral"
                     log.info(
-                        "  %s sentiment: %+.4f (%s, %d articles)",
-                        ticker, sent.score, direction, sent.num_articles,
+                        "  %s sentiment: %+.4f (%s, news=%d, reddit=%d, broad=%d)",
+                        ticker, sent.score, direction, sent.news_count,
+                        sent.reddit_count, sent.broad_count,
                     )
                     for hl in sent.headlines[:3]:
                         log.info("    - %s", hl)
@@ -198,7 +200,14 @@ class StockioBot:
                         "score": sent.score,
                         "direction": direction,
                         "num_articles": sent.num_articles,
-                        "headlines": sent.headlines[:3],
+                        "headlines": sent.headlines[:5],
+                        "news_score": sent.news_score,
+                        "reddit_score": sent.reddit_score,
+                        "news_count": sent.news_count,
+                        "reddit_count": sent.reddit_count,
+                        "broad_count": sent.broad_count,
+                        "market_sentiment": sent.market_sentiment,
+                        "articles": sent.articles[:10],
                     })
 
         # 5. Generate signals

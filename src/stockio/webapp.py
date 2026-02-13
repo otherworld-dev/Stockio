@@ -252,6 +252,101 @@ def api_markets_refresh():
         return jsonify({"error": str(exc)}), 500
 
 
+@app.route("/api/sentiment-detail")
+def api_sentiment_detail():
+    """Run sentiment analysis on-demand and return full breakdown.
+
+    Returns per-ticker sentiment with source breakdown (news vs Reddit vs
+    broad market) and per-article details including individual sentiment scores.
+    """
+    try:
+        from stockio.sentiment import get_sentiment_scores
+
+        # Use held positions + top tickers by market cap
+        held = [p.ticker for p in get_positions()]
+        all_tickers = get_cached_tickers()
+        sample = all_tickers[:15]  # top 15 by market cap
+        combined = list(dict.fromkeys(held + sample))
+
+        prices = get_current_prices(combined)
+        tickers = list(prices.keys())
+
+        sentiments = get_sentiment_scores(tickers)
+
+        result = []
+        for ticker, sent in sentiments.items():
+            if sent.num_articles == 0 and sent.market_sentiment == 0.0:
+                continue
+            result.append({
+                "ticker": ticker,
+                "score": sent.score,
+                "direction": "bullish" if sent.score > 0.05 else "bearish" if sent.score < -0.05 else "neutral",
+                "num_articles": sent.num_articles,
+                "news_score": sent.news_score,
+                "reddit_score": sent.reddit_score,
+                "news_count": sent.news_count,
+                "reddit_count": sent.reddit_count,
+                "broad_count": sent.broad_count,
+                "market_sentiment": sent.market_sentiment,
+                "headlines": sent.headlines,
+                "articles": sent.articles,
+            })
+
+        # Sort by most articles first, then by absolute score
+        result.sort(key=lambda x: (-x["num_articles"], -abs(x["score"])))
+        return jsonify(result)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/news-feed")
+def api_news_feed():
+    """Return the latest news and Reddit posts from the most recent bot cycle.
+
+    Extracts article details from the bot log so no additional API calls needed.
+    """
+    try:
+        logs = get_bot_logs(limit=1)
+        if not logs:
+            return jsonify([])
+
+        entries = logs[0].get("entries", [])
+        articles = []
+        seen_titles: set = set()
+
+        for entry in entries:
+            if entry.get("type") != "sentiment":
+                continue
+            ticker = entry.get("ticker", "")
+            if ticker == "_MARKET":
+                continue
+
+            for article in entry.get("articles", []):
+                title = article.get("title", "")
+                if title in seen_titles:
+                    continue
+                seen_titles.add(title)
+                articles.append({
+                    "title": title,
+                    "source": article.get("source", ""),
+                    "link": article.get("link", ""),
+                    "match_type": article.get("match_type", ""),
+                    "matched_ticker": ticker,
+                    "sentiment": article.get("sentiment", 0),
+                    "label": article.get("label", ""),
+                })
+
+        # Sort: Reddit first (more interesting), then by absolute sentiment
+        articles.sort(key=lambda a: (
+            0 if a["source"].startswith("reddit/") else 1,
+            -abs(a["sentiment"]),
+        ))
+
+        return jsonify(articles[:100])
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 @app.route("/api/config")
 def api_config():
     """Return current configuration (non-sensitive)."""
@@ -269,6 +364,9 @@ def api_config():
         "max_position_pct": config.MAX_POSITION_PCT,
         "stop_loss_pct": config.STOP_LOSS_PCT,
         "take_profit_pct": config.TAKE_PROFIT_PCT,
+        "reddit_enabled": config.REDDIT_ENABLED,
+        "reddit_subreddits": config.REDDIT_SUBREDDITS,
+        "reddit_weight": config.REDDIT_WEIGHT,
     })
 
 

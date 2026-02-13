@@ -16,6 +16,8 @@
             --red: #ff1744;
             --blue: #2979ff;
             --yellow: #ffd600;
+            --orange: #ff9100;
+            --purple: #ab47bc;
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -132,6 +134,12 @@
             font-weight: 600;
         }
 
+        .panel-subtitle {
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            margin-left: 0.6rem;
+        }
+
         table {
             width: 100%;
             border-collapse: collapse;
@@ -191,16 +199,128 @@
             color: var(--text-dim);
         }
 
+        /* Bot Thinking Log */
         .log-cycle { padding: 1rem 1.2rem; border-bottom: 1px solid var(--border); }
         .log-cycle:last-child { border-bottom: none; }
         .log-cycle-time { font-size: 0.75rem; color: var(--text-dim); margin-bottom: 0.5rem; }
-        .log-entry { font-size: 0.85rem; padding: 0.3rem 0; display: flex; gap: 0.6rem; align-items: baseline; }
+        .log-entry { font-size: 0.85rem; padding: 0.3rem 0; display: flex; gap: 0.6rem; align-items: baseline; flex-wrap: wrap; }
         .log-entry .tag { font-size: 0.7rem; text-transform: uppercase; padding: 0.1rem 0.4rem; border-radius: 3px; font-weight: 600; flex-shrink: 0; }
         .log-entry .tag-signal { background: rgba(41,121,255,0.15); color: var(--blue); }
         .log-entry .tag-trade { background: rgba(0,200,83,0.15); color: var(--green); }
         .log-entry .tag-exit { background: rgba(255,23,68,0.15); color: var(--red); }
         .log-entry .tag-sentiment { background: rgba(255,214,0,0.15); color: var(--yellow); }
+        .log-entry .tag-reddit { background: rgba(255,145,0,0.15); color: var(--orange); }
         .log-reasons { font-size: 0.8rem; color: var(--text-dim); padding-left: 4.5rem; }
+
+        /* Sentiment breakdown bar */
+        .sent-bar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; width: 100px; }
+        .sent-bar-news { background: var(--blue); }
+        .sent-bar-reddit { background: var(--orange); }
+        .sent-bar-market { background: var(--purple); }
+
+        /* Source tags for news feed */
+        .source-tag {
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            padding: 0.1rem 0.5rem;
+            border-radius: 3px;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        .source-reddit { background: rgba(255,145,0,0.15); color: var(--orange); }
+        .source-news { background: rgba(41,121,255,0.15); color: var(--blue); }
+        .source-yahoo { background: rgba(171,71,188,0.15); color: var(--purple); }
+        .source-broad { background: rgba(139,143,163,0.15); color: var(--text-dim); }
+
+        .match-tag {
+            font-size: 0.65rem;
+            padding: 0.1rem 0.4rem;
+            border-radius: 3px;
+            font-weight: 500;
+            white-space: nowrap;
+            background: rgba(255,255,255,0.05);
+            color: var(--text-dim);
+        }
+
+        .sent-pill {
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 0.1rem 0.4rem;
+            border-radius: 3px;
+        }
+        .sent-pos { background: rgba(0,200,83,0.15); color: var(--green); }
+        .sent-neg { background: rgba(255,23,68,0.15); color: var(--red); }
+        .sent-neu { background: rgba(139,143,163,0.1); color: var(--text-dim); }
+
+        /* Feed item layout */
+        .feed-item {
+            padding: 0.6rem 1.2rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            gap: 0.6rem;
+            align-items: flex-start;
+        }
+        .feed-item:last-child { border-bottom: none; }
+        .feed-item:hover { background: rgba(255,255,255,0.02); }
+        .feed-meta {
+            display: flex;
+            gap: 0.4rem;
+            align-items: center;
+            flex-shrink: 0;
+            min-width: 120px;
+        }
+        .feed-content {
+            flex: 1;
+            min-width: 0;
+        }
+        .feed-title {
+            font-size: 0.85rem;
+            line-height: 1.3;
+        }
+        .feed-title a {
+            color: var(--text);
+            text-decoration: none;
+        }
+        .feed-title a:hover { color: var(--blue); }
+        .feed-ticker {
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            margin-top: 0.15rem;
+        }
+
+        /* Sentiment detail breakdown */
+        .sent-detail-row {
+            padding: 0.7rem 1.2rem;
+            border-bottom: 1px solid var(--border);
+        }
+        .sent-detail-row:last-child { border-bottom: none; }
+        .sent-detail-header {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            margin-bottom: 0.4rem;
+        }
+        .sent-detail-sources {
+            display: flex;
+            gap: 1rem;
+            font-size: 0.8rem;
+            color: var(--text-dim);
+            margin-bottom: 0.4rem;
+        }
+        .sent-detail-sources span { display: flex; align-items: center; gap: 0.25rem; }
+        .sent-detail-articles {
+            font-size: 0.8rem;
+            color: var(--text-dim);
+            padding-left: 0.4rem;
+        }
+        .sent-detail-articles li {
+            list-style: none;
+            padding: 0.15rem 0;
+        }
+        .sent-detail-articles li::before {
+            content: "- ";
+            color: var(--border);
+        }
 
         .chart-container {
             padding: 1rem 1.2rem 1.2rem;
@@ -215,6 +335,29 @@
             margin-bottom: 1.5rem;
         }
 
+        .tab-bar {
+            display: flex;
+            border-bottom: 1px solid var(--border);
+        }
+        .tab-btn {
+            padding: 0.6rem 1.2rem;
+            background: none;
+            border: none;
+            color: var(--text-dim);
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+        }
+        .tab-btn:hover { color: var(--text); }
+        .tab-btn.active {
+            color: var(--blue);
+            border-bottom-color: var(--blue);
+        }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
         @media (max-width: 1024px) {
             .grid-3 { grid-template-columns: 1fr; }
         }
@@ -224,6 +367,7 @@
             .grid-3 { grid-template-columns: 1fr; }
             .dashboard { padding: 1rem; }
             header { padding: 0.8rem 1rem; }
+            .feed-meta { min-width: 80px; }
         }
     </style>
 </head>
@@ -313,13 +457,31 @@
             </div>
         </div>
 
+        <!-- News & Reddit Feed + Sentiment Breakdown (tabbed) -->
+        <div class="panel">
+            <div class="panel-header">
+                <h2>Intelligence Feed</h2>
+                <button class="btn btn-refresh" onclick="loadNewsFeed(); loadSentimentDetail();" style="font-size:0.75rem;padding:0.3rem 0.8rem;">Scan Now</button>
+            </div>
+            <div class="tab-bar">
+                <button class="tab-btn active" onclick="switchTab(this, 'tab-feed')">News &amp; Reddit</button>
+                <button class="tab-btn" onclick="switchTab(this, 'tab-sentiment')">Sentiment Breakdown</button>
+            </div>
+            <div id="tab-feed" class="tab-content active" style="max-height:500px;overflow-y:auto">
+                <div class="loading">Start the bot or click "Scan Now" to see matched stories</div>
+            </div>
+            <div id="tab-sentiment" class="tab-content" style="max-height:500px;overflow-y:auto">
+                <div class="loading">Click "Scan Now" to run sentiment analysis</div>
+            </div>
+        </div>
+
         <!-- Bot Thinking Log -->
         <div class="panel">
             <div class="panel-header">
                 <h2>Bot Thinking</h2>
                 <button class="btn btn-refresh" onclick="loadBotLog()" style="font-size:0.75rem;padding:0.3rem 0.8rem;">Refresh</button>
             </div>
-            <div id="bot-log" style="max-height:400px;overflow-y:auto">
+            <div id="bot-log" style="max-height:600px;overflow-y:auto">
                 <div class="loading">Waiting for first cycle...</div>
             </div>
         </div>
@@ -340,9 +502,145 @@
         // Auto-refresh interval (30 seconds)
         const REFRESH_MS = 30000;
 
-        function fmt(n) { return '£' + n.toFixed(2); }
+        function fmt(n) { return '\u00a3' + n.toFixed(2); }
         function fmtPct(n) { return (n >= 0 ? '+' : '') + n.toFixed(2) + '%'; }
 
+        function sentColour(val) {
+            if (val > 0.05) return 'sent-pos';
+            if (val < -0.05) return 'sent-neg';
+            return 'sent-neu';
+        }
+
+        function sentLabel(val) {
+            if (val > 0.05) return 'bullish';
+            if (val < -0.05) return 'bearish';
+            return 'neutral';
+        }
+
+        function sourceTag(source) {
+            if (source.startsWith('reddit/')) return `<span class="source-tag source-reddit">${source}</span>`;
+            if (source.includes('yahoo')) return `<span class="source-tag source-yahoo">Yahoo</span>`;
+            if (source === 'general') return `<span class="source-tag source-news">News</span>`;
+            return `<span class="source-tag source-news">${source}</span>`;
+        }
+
+        function matchTag(type) {
+            if (type === 'ticker') return '<span class="match-tag">ticker match</span>';
+            if (type === 'name') return '<span class="match-tag">name match</span>';
+            if (type === 'broad_market') return '<span class="match-tag">market-wide</span>';
+            return '';
+        }
+
+        // ---- Tab switching ----
+        function switchTab(btn, tabId) {
+            btn.closest('.panel').querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            btn.closest('.panel').querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            document.getElementById(tabId).classList.add('active');
+        }
+
+        // ---- News & Reddit Feed ----
+        async function loadNewsFeed() {
+            const container = document.getElementById('tab-feed');
+            container.innerHTML = '<div class="loading">Loading stories...</div>';
+            try {
+                const resp = await fetch('/api/news-feed');
+                const articles = await resp.json();
+
+                if (!articles.length) {
+                    container.innerHTML = '<div class="loading">No matched stories yet. Start the bot to begin scanning.</div>';
+                    return;
+                }
+
+                let html = '';
+                articles.forEach(a => {
+                    const sentCls = sentColour(a.sentiment);
+                    const sentVal = a.sentiment > 0 ? '+' + a.sentiment.toFixed(3) : a.sentiment.toFixed(3);
+                    const linkHtml = a.link ? `<a href="${a.link}" target="_blank">${a.title}</a>` : a.title;
+
+                    html += `<div class="feed-item">
+                        <div class="feed-meta">
+                            ${sourceTag(a.source)}
+                            <span class="sent-pill ${sentCls}">${sentVal}</span>
+                        </div>
+                        <div class="feed-content">
+                            <div class="feed-title">${linkHtml}</div>
+                            <div class="feed-ticker">${matchTag(a.match_type)} matched <strong>${a.matched_ticker}</strong></div>
+                        </div>
+                    </div>`;
+                });
+                container.innerHTML = html;
+            } catch (err) {
+                container.innerHTML = '<div class="error">Failed to load news feed</div>';
+                console.error('Failed to load news feed:', err);
+            }
+        }
+
+        // ---- Sentiment Breakdown ----
+        async function loadSentimentDetail() {
+            const container = document.getElementById('tab-sentiment');
+            container.innerHTML = '<div class="loading">Analysing sentiment (this may take a moment)...</div>';
+            try {
+                const resp = await fetch('/api/sentiment-detail');
+                const data = await resp.json();
+
+                if (data.error) {
+                    container.innerHTML = `<div class="error">${data.error}</div>`;
+                    return;
+                }
+
+                if (!data.length) {
+                    container.innerHTML = '<div class="loading">No sentiment data available</div>';
+                    return;
+                }
+
+                let html = '';
+                data.forEach(s => {
+                    const scoreCls = sentColour(s.score);
+                    const total = s.news_count + s.reddit_count + s.broad_count;
+                    const newsPct = total > 0 ? Math.round((s.news_count / total) * 100) : 0;
+                    const redditPct = total > 0 ? Math.round((s.reddit_count / total) * 100) : 0;
+                    const broadPct = total > 0 ? Math.round((s.broad_count / total) * 100) : 0;
+
+                    html += `<div class="sent-detail-row">
+                        <div class="sent-detail-header">
+                            <strong>${s.ticker}</strong>
+                            <span class="sent-pill ${scoreCls}">${s.score > 0 ? '+' : ''}${s.score.toFixed(4)} ${s.direction}</span>
+                            <span style="font-size:0.8rem;color:var(--text-dim)">${total} sources</span>
+                        </div>
+                        <div class="sent-detail-sources">
+                            <span style="color:var(--blue)">News: ${s.news_count} (${s.news_score > 0 ? '+' : ''}${s.news_score.toFixed(3)})</span>
+                            <span style="color:var(--orange)">Reddit: ${s.reddit_count} (${s.reddit_score > 0 ? '+' : ''}${s.reddit_score.toFixed(3)})</span>
+                            <span style="color:var(--purple)">Market: ${s.broad_count} (${s.market_sentiment > 0 ? '+' : ''}${s.market_sentiment.toFixed(3)})</span>
+                        </div>
+                        <div class="sent-bar" title="Blue=News, Orange=Reddit, Purple=Market">
+                            <div class="sent-bar-news" style="width:${newsPct}%"></div>
+                            <div class="sent-bar-reddit" style="width:${redditPct}%"></div>
+                            <div class="sent-bar-market" style="width:${broadPct}%"></div>
+                        </div>`;
+
+                    if (s.articles && s.articles.length) {
+                        html += `<ul class="sent-detail-articles">`;
+                        s.articles.slice(0, 5).forEach(a => {
+                            const aSentCls = sentColour(a.sentiment);
+                            html += `<li>${sourceTag(a.source)} <span class="sent-pill ${aSentCls}" style="font-size:0.7rem">${a.sentiment > 0 ? '+' : ''}${a.sentiment.toFixed(3)}</span> ${a.title}</li>`;
+                        });
+                        if (s.articles.length > 5) {
+                            html += `<li style="color:var(--text-dim)">... and ${s.articles.length - 5} more</li>`;
+                        }
+                        html += `</ul>`;
+                    }
+
+                    html += `</div>`;
+                });
+                container.innerHTML = html;
+            } catch (err) {
+                container.innerHTML = '<div class="error">Failed to load sentiment detail</div>';
+                console.error('Failed to load sentiment detail:', err);
+            }
+        }
+
+        // ---- Trades ----
         async function loadTrades() {
             try {
                 const resp = await fetch('/api/trades?limit=30');
@@ -375,6 +673,7 @@
             }
         }
 
+        // ---- Signals ----
         async function loadSignals() {
             document.getElementById('signals-table').innerHTML = '<div class="loading">Analysing market data...</div>';
             try {
@@ -390,7 +689,7 @@
                 signals.forEach(s => {
                     const cls = s.signal === 'BUY' ? 'signal-buy' : s.signal === 'SELL' ? 'signal-sell' : 'signal-hold';
                     const confWidth = Math.round(s.confidence * 100);
-                    const reasons = s.reasons.slice(0, 2).join('; ');
+                    const reasons = s.reasons.slice(0, 3).join('; ');
                     html += `<tr>
                         <td><strong>${s.ticker}</strong></td>
                         <td><span class="${cls}">${s.signal}</span></td>
@@ -422,9 +721,10 @@
             loadStatus();
             loadTrades();
             loadBotLog();
+            loadNewsFeed();
         }
 
-        // ---------------- Bot Thinking Log ----------------
+        // ---- Bot Thinking Log (enhanced) ----
         async function loadBotLog() {
             try {
                 const resp = await fetch('/api/bot-log?limit=5');
@@ -432,7 +732,7 @@
                 const container = document.getElementById('bot-log');
 
                 if (!logs.length) {
-                    container.innerHTML = '<div class="loading">No cycles recorded yet — start the bot to see its reasoning</div>';
+                    container.innerHTML = '<div class="loading">No cycles recorded yet -- start the bot to see its reasoning</div>';
                     return;
                 }
 
@@ -444,7 +744,7 @@
                     cycle.entries.forEach(e => {
                         if (e.type === 'signal') {
                             const sigCls = e.signal === 'BUY' ? 'signal-buy' : e.signal === 'SELL' ? 'signal-sell' : 'signal-hold';
-                            const price = e.price !== null ? ` @ £${e.price.toFixed(2)}` : '';
+                            const price = e.price !== null ? ` @ \u00a3${e.price.toFixed(2)}` : '';
                             html += `<div class="log-entry">
                                 <span class="tag tag-signal">signal</span>
                                 <strong>${e.ticker}</strong>${price} &rarr;
@@ -459,21 +759,53 @@
                             html += `<div class="log-entry">
                                 <span class="tag tag-trade">trade</span>
                                 <span class="${cls}">${e.side}</span>
-                                <strong>${e.ticker}</strong> x${e.shares} @ £${e.price.toFixed(2)} = £${e.total.toFixed(2)}
+                                <strong>${e.ticker}</strong> x${e.shares} @ \u00a3${e.price.toFixed(2)} = \u00a3${e.total.toFixed(2)}
                             </div>`;
                         } else if (e.type === 'exit') {
                             html += `<div class="log-entry">
                                 <span class="tag tag-exit">exit</span>
-                                <strong>${e.ticker}</strong> — ${e.reason}
+                                <strong>${e.ticker}</strong> -- ${e.reason}
                             </div>`;
                         } else if (e.type === 'sentiment') {
                             const dir = e.direction;
+                            const scoreCls = sentColour(e.score);
+
+                            // Enhanced: show source breakdown if available
+                            let sourceInfo = `${e.num_articles} articles`;
+                            if (e.news_count !== undefined || e.reddit_count !== undefined) {
+                                const parts = [];
+                                if (e.news_count > 0) parts.push(`<span style="color:var(--blue)">${e.news_count} news</span>`);
+                                if (e.reddit_count > 0) parts.push(`<span style="color:var(--orange)">${e.reddit_count} reddit</span>`);
+                                if (e.broad_count > 0) parts.push(`<span style="color:var(--purple)">${e.broad_count} market</span>`);
+                                sourceInfo = parts.join(', ') || 'no matches';
+                            }
+
                             html += `<div class="log-entry">
                                 <span class="tag tag-sentiment">news</span>
-                                <strong>${e.ticker}</strong> sentiment: ${e.score > 0 ? '+' : ''}${e.score.toFixed(4)} (${dir}, ${e.num_articles} articles)
+                                <strong>${e.ticker}</strong>
+                                <span class="sent-pill ${scoreCls}">${e.score > 0 ? '+' : ''}${e.score.toFixed(4)} ${dir}</span>
+                                <span style="font-size:0.8rem">(${sourceInfo})</span>
                             </div>`;
-                            if (e.headlines && e.headlines.length) {
-                                html += `<div class="log-reasons">${e.headlines.slice(0,2).join(' &bull; ')}</div>`;
+
+                            // Show individual articles if available
+                            if (e.articles && e.articles.length) {
+                                let articlesHtml = '<div class="log-reasons">';
+                                e.articles.slice(0, 5).forEach(a => {
+                                    const aSentCls = sentColour(a.sentiment);
+                                    articlesHtml += `<div style="padding:0.15rem 0">
+                                        ${sourceTag(a.source)}
+                                        <span class="sent-pill ${aSentCls}" style="font-size:0.65rem">${a.sentiment > 0 ? '+' : ''}${a.sentiment.toFixed(3)}</span>
+                                        ${a.title}
+                                    </div>`;
+                                });
+                                if (e.articles.length > 5) {
+                                    articlesHtml += `<div style="color:var(--text-dim);padding:0.15rem 0">... and ${e.articles.length - 5} more</div>`;
+                                }
+                                articlesHtml += '</div>';
+                                html += articlesHtml;
+                            } else if (e.headlines && e.headlines.length) {
+                                // Fallback to old-style headlines
+                                html += `<div class="log-reasons">${e.headlines.slice(0,3).join(' &bull; ')}</div>`;
                             }
                         }
                     });
@@ -485,7 +817,7 @@
             }
         }
 
-        // ---------------- Charts ----------------
+        // ---- Charts ----
         const chartDefaults = {
             responsive: true,
             maintainAspectRatio: false,
