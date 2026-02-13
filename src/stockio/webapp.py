@@ -35,16 +35,14 @@ app = Flask(
     static_folder=str(config.PROJECT_ROOT / "src" / "stockio" / "static"),
 )
 
-# Pre-load the FinBERT model in the background so the first sentiment
-# request doesn't time out waiting for a ~400 MB download + load.
-def _warmup_sentiment_model():
-    try:
-        from stockio.sentiment import warmup_model
-        warmup_model()
-    except Exception:
-        pass  # logged inside warmup_model
-
-threading.Thread(target=_warmup_sentiment_model, daemon=True).start()
+# Pre-load the FinBERT model at import time.  With gunicorn --preload this
+# runs once in the master process before forking, so the ~440 MB model is
+# loaded into memory only once and shared with the worker via copy-on-write.
+try:
+    from stockio.sentiment import warmup_model
+    warmup_model()
+except Exception:
+    pass  # logged inside warmup_model
 
 # Reference to the bot thread (set by run_webapp)
 _bot_thread: threading.Thread | None = None
