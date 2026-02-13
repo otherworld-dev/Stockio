@@ -75,9 +75,37 @@ class StockioBot:
             log.warning("Sentiment analysis failed (%s) — continuing without it", exc)
             sentiments = {}
 
+        if sentiments:
+            for ticker, sent in sentiments.items():
+                if sent.num_articles > 0:
+                    direction = "bullish" if sent.score > 0.05 else "bearish" if sent.score < -0.05 else "neutral"
+                    log.info(
+                        "  %s sentiment: %+.4f (%s, %d articles)",
+                        ticker, sent.score, direction, sent.num_articles,
+                    )
+                    for hl in sent.headlines[:3]:
+                        log.info("    - %s", hl)
+                else:
+                    log.info("  %s sentiment: no articles found", ticker)
+
         # 4. Generate signals
         log.info("Generating trade signals ...")
         signals = generate_signals(list(prices.keys()), sentiments=sentiments)
+
+        # 4b. Log the bot's reasoning for each ticker
+        log.info("-" * 50)
+        log.info("SIGNAL ANALYSIS")
+        log.info("-" * 50)
+        for sig in signals:
+            price = prices.get(sig.ticker)
+            price_str = f" @ £{price:.2f}" if price is not None else ""
+            log.info(
+                "  %s%s → %s (confidence=%.2f)",
+                sig.ticker, price_str, sig.signal.value, sig.confidence,
+            )
+            for reason in sig.reasons:
+                log.info("    • %s", reason)
+        log.info("-" * 50)
 
         # 5. Execute trades
         buy_count = sell_count = 0
