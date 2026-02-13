@@ -4,9 +4,11 @@ Scans multiple news sources for stories that could affect stock prices:
   - Per-ticker Yahoo Finance feeds (region-aware)
   - Built-in UK & global financial news feeds (BBC, Guardian, Reuters, etc.)
   - User-configured RSS feeds
+  - Reddit posts from finance subreddits (cashtag + company name matching)
 
 Matches headlines to tickers by:
   - Ticker symbol (e.g. "VOD.L", "AAPL")
+  - Cashtag (e.g. "$AAPL", "$VOD")
   - Company name (e.g. "Vodafone", "Rolls-Royce")
   - Broad market keywords (e.g. "Bank of England", "interest rate")
 
@@ -23,6 +25,7 @@ from dataclasses import dataclass, field
 import feedparser
 import requests
 
+from stockio import config
 from stockio.config import NEWS_FEEDS, get_logger
 
 log = get_logger(__name__)
@@ -300,9 +303,10 @@ def fetch_news(tickers: list[str], max_per_source: int = 20) -> dict[str, list[N
       1. Per-ticker Yahoo Finance RSS (region-aware)
       2. Built-in UK/global financial news feeds
       3. User-configured feeds from STOCKIO_NEWS_FEEDS
+      4. Reddit posts from configured subreddits (cashtag + name matching)
 
     Matches headlines against:
-      - Ticker symbols
+      - Ticker symbols and cashtags ($AAPL, $VOD)
       - Company names (from market discovery cache)
       - Broad market keywords (applied to all tickers)
 
@@ -385,6 +389,17 @@ def fetch_news(tickers: list[str], max_per_source: int = 20) -> dict[str, list[N
                     result[ticker].append(broad_item)
                     seen[ticker].add(item.title)
 
+    # 4. Reddit posts
+    reddit_items = fetch_reddit_posts(tickers, name_index)
+    for ticker, items in reddit_items.items():
+        if ticker in result:
+            # Track already-seen titles to avoid duplicates
+            existing_titles = {it.title for it in result[ticker]}
+            for item in items:
+                if item.title not in existing_titles:
+                    result[ticker].append(item)
+                    existing_titles.add(item.title)
+
     # Log summary
     name_matches = sum(
         1 for items in result.values()
@@ -398,10 +413,14 @@ def fetch_news(tickers: list[str], max_per_source: int = 20) -> dict[str, list[N
         1 for items in result.values()
         for it in items if it.match_type == "ticker"
     )
+    reddit_matches = sum(
+        1 for items in result.values()
+        for it in items if it.source.startswith("reddit/")
+    )
 
     log.info(
-        "News matched: %d by ticker, %d by company name, %d broad market",
-        ticker_matches, name_matches, broad_matches,
+        "News matched: %d by ticker, %d by company name, %d broad market, %d from Reddit",
+        ticker_matches, name_matches, broad_matches, reddit_matches,
     )
 
     for t, items in result.items():
@@ -433,6 +452,152 @@ def _parse_feed(url: str, source: str, max_items: int) -> list[NewsItem]:
         return []
 
 
+# ---------------------------------------------------------------------------
+# Reddit / Social media fetching
+# ---------------------------------------------------------------------------
+
+_REDDIT_USER_AGENT = "Stockio/1.0 (stock sentiment bot)"
+
+# Cashtag pattern: $AAPL, $VOD, $TSLA etc. (1-6 uppercase letters after $)
+_CASHTAG_RE = re.compile(r"\$([A-Z]{1,6})\b")
+
+
+def _fetch_subreddit_posts(subreddit: str, limit: int = 25) -> list[dict]:
+    """Fetch hot posts from a subreddit using the public JSON API (no auth needed)."""
+    url = f"https://www.reddit.com/r/{subreddit}/hot.json"
+    try:
+        resp = requests.get(
+            url,
+            params={"limit": limit, "raw_json": 1},
+            headers={"User-Agent": _REDDIT_USER_AGENT},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        posts = []
+        for child in data.get("data", {}).get("children", []):
+            post = child.get("data", {})
+            if post.get("stickied"):
+                continue
+            posts.append({
+                "title": post.get("title", ""),
+                "selftext": post.get("selftext", "")[:500],
+                "score": post.get("score", 0),
+                "url": f"https://www.reddit.com{post.get('permalink', '')}",
+                "subreddit": subreddit,
+            })
+        return posts
+    except Exception as exc:
+        log.warning("Failed to fetch r/%s: %s", subreddit, exc)
+        return []
+
+
+def _extract_cashtags(text: str) -> list[str]:
+    """Extract cashtags like $AAPL from text. Returns base symbols (no suffix)."""
+    return _CASHTAG_RE.findall(text)
+
+
+def fetch_reddit_posts(
+    tickers: list[str],
+    name_index: dict[str, list[str]],
+) -> dict[str, list[NewsItem]]:
+    """Fetch Reddit posts from configured subreddits and match to tickers.
+
+    Matches by:
+      - Cashtag ($AAPL, $VOD etc.)
+      - Ticker symbol mention
+      - Company name mention
+      - Broad market keywords
+
+    Posts are weighted by Reddit score (upvotes) — higher-scored posts
+    carry more influence.
+
+    Returns ``{ticker: [NewsItem, ...]}``.
+    """
+    if not config.REDDIT_ENABLED:
+        return {}
+
+    result: dict[str, list[NewsItem]] = {t: [] for t in tickers}
+    seen: dict[str, set[str]] = {t: set() for t in tickers}
+
+    # Build a lookup of base symbol → ticker(s) for cashtag matching
+    # e.g. "AAPL" → ["AAPL"], "VOD" → ["VOD.L"]
+    base_to_tickers: dict[str, list[str]] = {}
+    for ticker in tickers:
+        base = ticker.split(".")[0].upper()
+        base_to_tickers.setdefault(base, []).append(ticker)
+
+    all_posts: list[dict] = []
+    for subreddit in config.REDDIT_SUBREDDITS:
+        posts = _fetch_subreddit_posts(subreddit, limit=config.REDDIT_MAX_POSTS)
+        all_posts.extend(posts)
+        if posts:
+            log.info("  r/%s: fetched %d posts", subreddit, len(posts))
+        time.sleep(0.5)  # polite delay between subreddits
+
+    log.info("Fetched %d Reddit posts from %d subreddits",
+             len(all_posts), len(config.REDDIT_SUBREDDITS))
+
+    for post in all_posts:
+        title = post["title"]
+        text = title + " " + post.get("selftext", "")
+        matched_tickers: set[str] = set()
+
+        # 1. Cashtag matching (highest confidence for Reddit)
+        cashtags = _extract_cashtags(text)
+        for tag in cashtags:
+            for t in base_to_tickers.get(tag, []):
+                if t in result and title not in seen[t]:
+                    result[t].append(NewsItem(
+                        title=title,
+                        link=post["url"],
+                        published="",
+                        source=f"reddit/r/{post['subreddit']}",
+                        match_type="ticker",
+                    ))
+                    seen[t].add(title)
+                    matched_tickers.add(t)
+
+        # 2. Company name / ticker symbol matching (reuse existing name index)
+        for search_term, mapped_tickers in name_index.items():
+            if _headline_matches_name(title, search_term):
+                for t in mapped_tickers:
+                    if t in result and t not in matched_tickers and title not in seen[t]:
+                        result[t].append(NewsItem(
+                            title=title,
+                            link=post["url"],
+                            published="",
+                            source=f"reddit/r/{post['subreddit']}",
+                            match_type="name" if len(search_term) >= _MIN_NAME_LENGTH else "ticker",
+                        ))
+                        seen[t].add(title)
+                        matched_tickers.add(t)
+
+        # 3. Broad market keywords
+        if _is_broad_market_story(title):
+            for ticker in tickers:
+                if ticker not in matched_tickers and title not in seen[ticker]:
+                    result[ticker].append(NewsItem(
+                        title=title,
+                        link=post["url"],
+                        published="",
+                        source=f"reddit/r/{post['subreddit']}",
+                        match_type="broad_market",
+                    ))
+                    seen[ticker].add(title)
+
+    # Log summary
+    reddit_matches = sum(len(items) for items in result.values())
+    tickers_with_reddit = sum(1 for items in result.values() if items)
+    if reddit_matches:
+        log.info(
+            "Reddit matched: %d posts to %d tickers",
+            reddit_matches, tickers_with_reddit,
+        )
+
+    return result
+
+
 def _headline_mentions(headline: str, ticker: str) -> bool:
     """Check whether *headline* plausibly mentions *ticker*."""
     pattern = rf"\b{re.escape(ticker)}\b"
@@ -455,9 +620,10 @@ def analyse_sentiment(news: dict[str, list[NewsItem]]) -> dict[str, SentimentSco
     """Score sentiment for each ticker based on fetched headlines.
 
     Weights different match types differently:
-      - ticker match: full weight (1.0)
+      - ticker match (news): full weight (1.0)
       - company name match: 0.8 weight
       - broad market story: 0.3 weight
+      - Reddit source: scaled by REDDIT_WEIGHT (default 0.3)
 
     Returns ``{ticker: SentimentScore}``.
     """
@@ -526,8 +692,12 @@ def analyse_sentiment(news: dict[str, list[NewsItem]]) -> dict[str, SentimentSco
                     label = res["label"].lower()
                     conf = res["score"]
                     # Weight by match type
-                    match_type = specific_items[i].match_type if i < len(specific_items) else "ticker"
+                    item = specific_items[i] if i < len(specific_items) else None
+                    match_type = item.match_type if item else "ticker"
                     type_weight = _NAME_MATCH_WEIGHT if match_type == "name" else 1.0
+                    # Scale down Reddit sources
+                    if item and item.source.startswith("reddit/"):
+                        type_weight *= config.REDDIT_WEIGHT
                     w = conf * type_weight
                     specific_score += _LABEL_MAP.get(label, 0.0) * w
                     specific_weight += w

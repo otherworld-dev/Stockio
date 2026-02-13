@@ -67,6 +67,30 @@ INCLUDE_PENNY_STOCKS = os.getenv("STOCKIO_INCLUDE_PENNY_STOCKS", "true").lower()
 MAX_TICKERS_PER_MARKET = int(os.getenv("STOCKIO_MAX_TICKERS_PER_MARKET", "5000"))
 
 # ---------------------------------------------------------------------------
+# Reddit / Social Media
+# ---------------------------------------------------------------------------
+
+REDDIT_ENABLED = os.getenv("STOCKIO_REDDIT_ENABLED", "true").lower() in (
+    "true", "1", "yes",
+)
+
+# Subreddits to monitor (comma-separated)
+REDDIT_SUBREDDITS = [
+    s.strip()
+    for s in os.getenv(
+        "STOCKIO_SUBREDDITS",
+        "wallstreetbets,stocks,investing,UKInvesting,pennystocks,StockMarket",
+    ).split(",")
+    if s.strip()
+]
+
+# Max posts to fetch per subreddit
+REDDIT_MAX_POSTS = int(os.getenv("STOCKIO_REDDIT_MAX_POSTS", "25"))
+
+# How much weight Reddit sentiment gets vs news (0.0–1.0)
+REDDIT_WEIGHT = float(os.getenv("STOCKIO_REDDIT_WEIGHT", "0.3"))
+
+# ---------------------------------------------------------------------------
 # Scheduling
 # ---------------------------------------------------------------------------
 
