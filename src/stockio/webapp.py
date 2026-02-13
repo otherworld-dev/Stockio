@@ -364,7 +364,8 @@ def api_trump_feed():
     """Return Trump/political stories from the most recent bot cycle.
 
     Filters the news feed for trump-related items (match_type=trump or
-    source in truth_social, white_house, trump_news).
+    source in truth_social, white_house, trump_news).  If the bot hasn't
+    completed a cycle yet, fetches the feeds live so the tab isn't empty.
     """
     try:
         if not config.TRUMP_MONITORING_ENABLED:
@@ -405,6 +406,23 @@ def api_trump_feed():
                         "matched_ticker": ticker if ticker != "_MARKET" else "",
                         "sentiment": article.get("sentiment", 0),
                         "label": article.get("label", ""),
+                    })
+
+        # Fallback: if no bot cycle has completed yet, fetch feeds live so
+        # the Trump tab isn't blank on first load / after an OOM restart.
+        if not items:
+            from stockio.sentiment import fetch_trump_feeds
+            for news_item in fetch_trump_feeds():
+                if news_item.title not in seen_titles:
+                    seen_titles.add(news_item.title)
+                    items.append({
+                        "title": news_item.title,
+                        "source": news_item.source,
+                        "link": news_item.link,
+                        "match_type": "trump",
+                        "matched_ticker": "",
+                        "sentiment": 0,
+                        "label": "pending",
                     })
 
         # Sort by absolute sentiment (most impactful first)
