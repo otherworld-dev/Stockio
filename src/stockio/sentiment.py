@@ -35,12 +35,33 @@ log = get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 _sentiment_pipeline = None
+_model_loading = False
+_model_error: str | None = None
+
+
+def warmup_model() -> None:
+    """Pre-load the FinBERT model in the background so it's ready for requests.
+
+    Safe to call from a background thread at app startup.
+    """
+    try:
+        _get_pipeline()
+    except Exception as exc:
+        log.warning("Background model warmup failed (will retry on demand): %s", exc)
 
 
 def _get_pipeline():
     """Lazy-load the FinBERT sentiment analysis pipeline."""
-    global _sentiment_pipeline
-    if _sentiment_pipeline is None:
+    global _sentiment_pipeline, _model_loading, _model_error
+    if _sentiment_pipeline is not None:
+        return _sentiment_pipeline
+    if _model_loading:
+        raise RuntimeError(
+            "Sentiment model is still loading — please wait a moment and try again"
+        )
+    _model_loading = True
+    _model_error = None
+    try:
         log.info("Loading FinBERT sentiment model (first call — may take a moment) ...")
         from transformers import pipeline
 
@@ -51,6 +72,11 @@ def _get_pipeline():
             device=-1,  # CPU — set to 0 for GPU
         )
         log.info("Sentiment model loaded.")
+    except Exception as exc:
+        _model_error = str(exc)
+        _model_loading = False
+        raise
+    _model_loading = False
     return _sentiment_pipeline
 
 

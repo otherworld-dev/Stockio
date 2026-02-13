@@ -35,6 +35,17 @@ app = Flask(
     static_folder=str(config.PROJECT_ROOT / "src" / "stockio" / "static"),
 )
 
+# Pre-load the FinBERT model in the background so the first sentiment
+# request doesn't time out waiting for a ~400 MB download + load.
+def _warmup_sentiment_model():
+    try:
+        from stockio.sentiment import warmup_model
+        warmup_model()
+    except Exception:
+        pass  # logged inside warmup_model
+
+threading.Thread(target=_warmup_sentiment_model, daemon=True).start()
+
 # Reference to the bot thread (set by run_webapp)
 _bot_thread: threading.Thread | None = None
 _bot_instance = None
@@ -298,6 +309,7 @@ def api_sentiment_detail():
         result.sort(key=lambda x: (-x["num_articles"], -abs(x["score"])))
         return jsonify(result)
     except Exception as exc:
+        log.exception("Sentiment detail request failed")
         return jsonify({"error": str(exc)}), 500
 
 

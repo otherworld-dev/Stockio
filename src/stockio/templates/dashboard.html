@@ -667,6 +667,12 @@
             container.innerHTML = '<div class="loading">Analysing sentiment (this may take a moment)...</div>';
             try {
                 const resp = await fetch('/api/sentiment-detail');
+                if (!resp.ok) {
+                    let msg = `HTTP ${resp.status}`;
+                    try { const j = await resp.json(); if (j.error) msg = j.error; } catch {}
+                    container.innerHTML = `<div class="error">Sentiment error: ${msg}</div>`;
+                    return;
+                }
                 const data = await resp.json();
 
                 if (data.error) {
