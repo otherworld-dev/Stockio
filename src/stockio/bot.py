@@ -22,7 +22,7 @@ from stockio import config
 from stockio.config import get_logger
 from stockio.executor import get_executor
 from stockio.market_data import get_current_prices
-from stockio.portfolio import get_positions, portfolio_summary
+from stockio.portfolio import get_positions, portfolio_summary, record_snapshot
 from stockio.sentiment import get_sentiment_scores
 from stockio.strategy import Signal, generate_signals, train_model
 
@@ -122,9 +122,10 @@ class StockioBot:
 
         log.info("Executed %d buys, %d sells this cycle", buy_count, sell_count)
 
-        # 6. Portfolio summary
+        # 6. Portfolio summary + snapshot for charts
         summary = portfolio_summary(prices)
         self._log_summary(summary)
+        record_snapshot(prices)
 
     # ------------------------------------------------------------------
     # ML model retraining

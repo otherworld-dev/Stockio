@@ -73,6 +73,17 @@ def _init_db(conn: sqlite3.Connection) -> None:
             key   TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS snapshots (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp       TEXT NOT NULL,
+            cash            REAL NOT NULL,
+            holdings_value  REAL NOT NULL,
+            total_value     REAL NOT NULL,
+            pnl             REAL NOT NULL,
+            pnl_pct         REAL NOT NULL,
+            num_positions   INTEGER NOT NULL DEFAULT 0
+        );
         """
     )
     # Seed initial cash balance if not yet set
@@ -252,6 +263,49 @@ def record_sell(ticker: str, shares: float, price: float, reason: str = "") -> T
         id=None, ticker=ticker, side="SELL", shares=shares,
         price=price, total=total, timestamp=now, reason=reason,
     )
+
+
+def record_snapshot(current_prices: dict[str, float]) -> None:
+    """Save a point-in-time snapshot of portfolio value for charting."""
+    summary = portfolio_summary(current_prices)
+    now = dt.datetime.utcnow().isoformat()
+    with _get_conn() as conn:
+        conn.execute(
+            "INSERT INTO snapshots "
+            "(timestamp, cash, holdings_value, total_value, pnl, pnl_pct, num_positions) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                now,
+                summary["cash"],
+                summary["holdings_value"],
+                summary["total_value"],
+                summary["total_pnl"],
+                summary["total_pnl_pct"],
+                summary["num_positions"],
+            ),
+        )
+
+
+def get_snapshots(limit: int = 500) -> list[dict]:
+    """Return recent portfolio snapshots for charting."""
+    with _get_conn() as conn:
+        rows = conn.execute(
+            "SELECT timestamp, cash, holdings_value, total_value, pnl, pnl_pct, num_positions "
+            "FROM snapshots ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [
+            {
+                "timestamp": r["timestamp"],
+                "cash": r["cash"],
+                "holdings_value": r["holdings_value"],
+                "total_value": r["total_value"],
+                "pnl": r["pnl"],
+                "pnl_pct": r["pnl_pct"],
+                "num_positions": r["num_positions"],
+            }
+            for r in reversed(rows)  # chronological order
+        ]
 
 
 def get_trade_history(limit: int = 50) -> list[TradeRecord]:

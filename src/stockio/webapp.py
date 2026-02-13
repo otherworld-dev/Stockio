@@ -13,6 +13,7 @@ from stockio.market_data import get_current_prices
 from stockio.portfolio import (
     get_cash,
     get_positions,
+    get_snapshots,
     get_trade_history,
     portfolio_summary,
 )
@@ -136,6 +137,14 @@ def api_bot_stop():
     global _bot_running
     _bot_running = False
     return jsonify({"status": "stopped"})
+
+
+@app.route("/api/snapshots")
+def api_snapshots():
+    """Return portfolio value snapshots for charting."""
+    limit = request.args.get("limit", 500, type=int)
+    snapshots = get_snapshots(limit=limit)
+    return jsonify(snapshots)
 
 
 @app.route("/api/config")
