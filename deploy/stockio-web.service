@@ -13,6 +13,7 @@ ExecStart=/opt/stockio/.venv/bin/gunicorn \
     --bind 0.0.0.0:5000 \
     --workers 2 \
     --timeout 120 \
+    --worker-tmp-dir /tmp \
     --access-logfile /var/log/stockio/access.log \
     --error-logfile /var/log/stockio/error.log \
     "stockio.webapp:app"
@@ -22,6 +23,7 @@ RestartSec=10
 # Security hardening
 NoNewPrivileges=true
 ProtectSystem=strict
+PrivateTmp=true
 ReadWritePaths=/opt/stockio/data /var/log/stockio
 ProtectHome=true
 
