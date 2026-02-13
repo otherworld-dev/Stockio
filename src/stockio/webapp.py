@@ -349,6 +349,66 @@ def api_news_feed():
         return jsonify({"error": str(exc)}), 500
 
 
+@app.route("/api/trump-feed")
+def api_trump_feed():
+    """Return Trump/political stories from the most recent bot cycle.
+
+    Filters the news feed for trump-related items (match_type=trump or
+    source in truth_social, white_house, trump_news).
+    """
+    try:
+        if not config.TRUMP_MONITORING_ENABLED:
+            return jsonify({
+                "enabled": False,
+                "weight": config.TRUMP_WEIGHT,
+                "items": [],
+            })
+
+        logs = get_bot_logs(limit=1)
+        items = []
+        seen_titles: set = set()
+
+        if logs:
+            entries = logs[0].get("entries", [])
+            for entry in entries:
+                if entry.get("type") != "sentiment":
+                    continue
+                ticker = entry.get("ticker", "")
+
+                for article in entry.get("articles", []):
+                    title = article.get("title", "")
+                    if title in seen_titles:
+                        continue
+                    # Include if it's a trump match_type or from a trump source
+                    is_trump = (
+                        article.get("match_type") == "trump"
+                        or article.get("source") in ("truth_social", "white_house", "trump_news")
+                    )
+                    if not is_trump:
+                        continue
+                    seen_titles.add(title)
+                    items.append({
+                        "title": title,
+                        "source": article.get("source", ""),
+                        "link": article.get("link", ""),
+                        "match_type": article.get("match_type", ""),
+                        "matched_ticker": ticker if ticker != "_MARKET" else "",
+                        "sentiment": article.get("sentiment", 0),
+                        "label": article.get("label", ""),
+                    })
+
+        # Sort by absolute sentiment (most impactful first)
+        items.sort(key=lambda a: -abs(a["sentiment"]))
+
+        return jsonify({
+            "enabled": True,
+            "weight": config.TRUMP_WEIGHT,
+            "items": items[:50],
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 @app.route("/api/config")
 def api_config():
     """Return current configuration (non-sensitive)."""

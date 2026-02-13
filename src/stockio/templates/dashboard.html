@@ -459,18 +459,22 @@
             </div>
         </div>
 
-        <!-- News & Reddit Feed + Sentiment Breakdown (tabbed) -->
+        <!-- News & Reddit Feed + Trump/Political + Sentiment Breakdown (tabbed) -->
         <div class="panel">
             <div class="panel-header">
                 <h2>Intelligence Feed</h2>
-                <button class="btn btn-refresh" onclick="loadNewsFeed(); loadSentimentDetail();" style="font-size:0.75rem;padding:0.3rem 0.8rem;">Scan Now</button>
+                <button class="btn btn-refresh" onclick="loadNewsFeed(); loadTrumpFeed(); loadSentimentDetail();" style="font-size:0.75rem;padding:0.3rem 0.8rem;">Scan Now</button>
             </div>
             <div class="tab-bar">
                 <button class="tab-btn active" onclick="switchTab(this, 'tab-feed')">News &amp; Reddit</button>
+                <button class="tab-btn" onclick="switchTab(this, 'tab-trump')">Trump / Political</button>
                 <button class="tab-btn" onclick="switchTab(this, 'tab-sentiment')">Sentiment Breakdown</button>
             </div>
             <div id="tab-feed" class="tab-content active" style="max-height:500px;overflow-y:auto">
                 <div class="loading">Start the bot or click "Scan Now" to see matched stories</div>
+            </div>
+            <div id="tab-trump" class="tab-content" style="max-height:500px;overflow-y:auto">
+                <div class="loading">Start the bot or click "Scan Now" to see Trump/political activity</div>
             </div>
             <div id="tab-sentiment" class="tab-content" style="max-height:500px;overflow-y:auto">
                 <div class="loading">Click "Scan Now" to run sentiment analysis</div>
@@ -579,6 +583,81 @@
             } catch (err) {
                 container.innerHTML = '<div class="error">Failed to load news feed</div>';
                 console.error('Failed to load news feed:', err);
+            }
+        }
+
+        // ---- Trump / Political Feed ----
+        async function loadTrumpFeed() {
+            const container = document.getElementById('tab-trump');
+            container.innerHTML = '<div class="loading">Loading Trump/political activity...</div>';
+            try {
+                const resp = await fetch('/api/trump-feed');
+                const data = await resp.json();
+
+                if (data.error) {
+                    container.innerHTML = `<div class="error">${data.error}</div>`;
+                    return;
+                }
+
+                if (!data.items || !data.items.length) {
+                    container.innerHTML = `<div class="loading" style="text-align:center;padding:2rem">
+                        <div style="font-size:1.2rem;margin-bottom:0.5rem">No Trump/political activity detected yet</div>
+                        <div style="font-size:0.8rem;color:var(--text-dim)">
+                            Monitoring: Truth Social, White House, political news<br>
+                            Detection: tariffs, executive orders, sanctions, trade deals + 50 more patterns<br>
+                            Weight boost: ${data.weight || 1.5}x on market sentiment
+                        </div>
+                    </div>`;
+                    return;
+                }
+
+                // Summary bar
+                const posCount = data.items.filter(a => a.sentiment > 0.05).length;
+                const negCount = data.items.filter(a => a.sentiment < -0.05).length;
+                const neuCount = data.items.length - posCount - negCount;
+                const avgSent = data.items.reduce((s, a) => s + a.sentiment, 0) / data.items.length;
+                const avgCls = sentColour(avgSent);
+
+                let html = `<div style="padding:0.8rem 1.2rem;border-bottom:1px solid var(--border);display:flex;gap:1.5rem;align-items:center;flex-wrap:wrap">
+                    <span style="font-weight:600;color:var(--red)">Trump/Political Monitor</span>
+                    <span class="sent-pill ${avgCls}">Overall: ${avgSent > 0 ? '+' : ''}${avgSent.toFixed(3)}</span>
+                    <span style="font-size:0.8rem;color:var(--text-dim)">${data.items.length} stories</span>
+                    <span style="font-size:0.8rem;color:var(--green)">${posCount} bullish</span>
+                    <span style="font-size:0.8rem;color:var(--red)">${negCount} bearish</span>
+                    <span style="font-size:0.8rem;color:var(--text-dim)">${neuCount} neutral</span>
+                    <span style="font-size:0.75rem;color:var(--text-dim);margin-left:auto">Weight: ${data.weight}x</span>
+                </div>`;
+
+                data.items.forEach(a => {
+                    const sentCls = sentColour(a.sentiment);
+                    const sentVal = a.sentiment > 0 ? '+' + a.sentiment.toFixed(3) : a.sentiment.toFixed(3);
+                    const linkHtml = a.link ? `<a href="${a.link}" target="_blank" style="color:var(--text);text-decoration:none">${a.title}</a>` : a.title;
+
+                    html += `<div class="feed-item" style="border-left:3px solid var(--red)">
+                        <div class="feed-meta">
+                            ${sourceTag(a.source)}
+                            <span class="sent-pill ${sentCls}">${sentVal}</span>
+                        </div>
+                        <div class="feed-content">
+                            <div class="feed-title">${linkHtml}</div>
+                            <div class="feed-ticker">
+                                ${matchTag(a.match_type)}
+                                ${a.matched_ticker ? `matched <strong>${a.matched_ticker}</strong>` : '<span style="color:var(--text-dim)">market-wide impact</span>'}
+                            </div>
+                        </div>
+                    </div>`;
+                });
+                container.innerHTML = html;
+
+                // Pulse the tab if there are trump stories
+                const trumpTab = document.querySelector('.tab-btn[onclick*="tab-trump"]');
+                if (trumpTab && data.items.length > 0) {
+                    trumpTab.style.color = 'var(--red)';
+                    trumpTab.textContent = `Trump / Political (${data.items.length})`;
+                }
+            } catch (err) {
+                container.innerHTML = '<div class="error">Failed to load Trump feed</div>';
+                console.error('Failed to load Trump feed:', err);
             }
         }
 
@@ -733,6 +812,7 @@
             loadTrades();
             loadBotLog();
             loadNewsFeed();
+            loadTrumpFeed();
         }
 
         // ---- Bot Thinking Log (enhanced) ----
