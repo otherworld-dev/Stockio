@@ -80,7 +80,7 @@ systemctl enable stockio-bot.service
 # 9. Start services
 echo "[8/8] Starting services..."
 systemctl start stockio-web.service
-echo "    Web dashboard started on http://$(hostname -I | awk '{print $1}'):8080"
+echo "    Web dashboard started on http://$(hostname -I | awk '{print $1}')"
 
 # 9. Add stockio venv to system PATH
 echo "[8/8] Adding stockio to PATH..."
