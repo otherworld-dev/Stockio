@@ -846,10 +846,11 @@
             }
         }
 
+        // Track current mode from API data (updated by loadStatus)
+        let _currentMode = 'paper';
+
         async function toggleMode() {
-            const badge = document.getElementById('mode-badge');
-            const current = badge.textContent.trim().toLowerCase();
-            const next = current === 'paper' ? 'live' : 'paper';
+            const next = _currentMode === 'live' ? 'paper' : 'live';
             const label = next === 'live' ? 'Alpaca paper trading' : 'simulated (local) trading';
             if (!confirm(`Switch to ${label}?` + (next === 'live' ? '\n\nThis will use your Alpaca API keys to place real orders on Alpaca\'s paper trading sandbox.' : ''))) return;
             try {
@@ -862,8 +863,7 @@
                 if (data.error) {
                     alert('Mode switch failed: ' + data.error);
                 } else {
-                    badge.textContent = next.toUpperCase();
-                    badge.className = 'status-badge ' + (next === 'live' ? 'running' : 'paper');
+                    _currentMode = next;
                     loadStatus();
                     loadAlpaca();
                 }
@@ -873,7 +873,15 @@
         }
 
         async function startBot() {
-            await fetch('/api/bot/start', { method: 'POST' });
+            try {
+                const resp = await fetch('/api/bot/start', { method: 'POST' });
+                const data = await resp.json();
+                if (data.error) {
+                    alert('Bot failed to start: ' + data.error);
+                }
+            } catch (err) {
+                alert('Bot failed to start: ' + err);
+            }
             loadStatus();
         }
 
@@ -1208,6 +1216,7 @@
                 document.getElementById('positions-count').textContent = data.num_positions;
 
                 const modeBadge = document.getElementById('mode-badge');
+                _currentMode = data.mode;
                 if (data.mode === 'live') {
                     modeBadge.textContent = data.alpaca_paper ? 'ALPACA PAPER' : 'ALPACA LIVE';
                     modeBadge.className = 'status-badge running';

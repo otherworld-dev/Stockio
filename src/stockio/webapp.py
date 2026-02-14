@@ -203,13 +203,17 @@ def api_bot_start():
     if _bot_running:
         return jsonify({"status": "already_running"})
 
-    from stockio.bot import StockioBot
+    try:
+        from stockio.bot import StockioBot
+        _bot_instance = StockioBot()
+    except Exception as exc:
+        log.exception("Failed to initialise bot")
+        return jsonify({"error": str(exc)}), 500
 
-    _bot_instance = StockioBot()
     _bot_thread = threading.Thread(target=_run_bot, daemon=True)
     _bot_thread.start()
     _bot_running = True
-    return jsonify({"status": "started", "via": "thread"})
+    return jsonify({"status": "started", "via": "thread", "mode": config.MODE})
 
 
 @app.route("/api/bot/stop", methods=["POST"])
