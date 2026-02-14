@@ -1,8 +1,11 @@
 """ML-based trading strategy engine.
 
 Trains a Gradient Boosting classifier on technical indicators + sentiment to
-predict whether a stock's price will rise over the next N days.  The model is
+predict whether an asset's price will rise over the next N days.  The model is
 periodically retrained on fresh data so it improves over time.
+
+Supports multiple asset types (equities, forex, commodities, crypto) with
+per-asset-type thresholds tuned to different volatility profiles.
 """
 
 from __future__ import annotations
@@ -21,7 +24,7 @@ from sklearn.model_selection import TimeSeriesSplit, cross_val_score
 from sklearn.preprocessing import StandardScaler
 
 from stockio import config
-from stockio.config import get_logger
+from stockio.config import AssetType, get_logger
 from stockio.market_data import (
     add_technical_indicators,
     build_feature_matrix,
@@ -215,18 +218,30 @@ def predict(
     composite = ml_score * 0.5 + sentiment_adj + (0.2 if macd_diff > 0 else -0.2 if macd_diff < 0 else 0.0)
     composite = max(-1.0, min(1.0, composite))
 
-    # Decision thresholds
-    BUY_THRESHOLD = 0.25
-    SELL_THRESHOLD = -0.25
+    # Decision thresholds — tuned per asset type to account for different
+    # volatility profiles.  Crypto needs wider thresholds to avoid noise.
+    asset_type = config.get_asset_type(ticker)
+    if asset_type == AssetType.CRYPTO:
+        BUY_THRESHOLD = 0.35   # higher bar — crypto is noisy
+        SELL_THRESHOLD = -0.35
+    elif asset_type == AssetType.FOREX:
+        BUY_THRESHOLD = 0.20   # forex moves are smaller but more reliable
+        SELL_THRESHOLD = -0.20
+    elif asset_type == AssetType.COMMODITY:
+        BUY_THRESHOLD = 0.25
+        SELL_THRESHOLD = -0.25
+    else:
+        BUY_THRESHOLD = 0.25
+        SELL_THRESHOLD = -0.25
 
     if held_direction == "long":
-        # We hold shares — only question is exit (SELL) or HOLD
+        # We hold — only question is exit (SELL) or HOLD
         if composite <= SELL_THRESHOLD:
             signal = Signal.SELL
         else:
             signal = Signal.HOLD
     elif held_direction == "short":
-        # We owe shares — only question is cover (COVER) or HOLD
+        # We owe — only question is cover (COVER) or HOLD
         if composite >= BUY_THRESHOLD:
             signal = Signal.COVER
             reasons.append("Bullish reversal — covering short")

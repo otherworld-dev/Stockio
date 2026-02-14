@@ -455,9 +455,33 @@ def api_config():
         "interval_minutes": config.INTERVAL_MINUTES,
         "retrain_hours": config.RETRAIN_HOURS,
         "market_refresh_hours": config.MARKET_REFRESH_HOURS,
+        # Equity risk params
         "max_position_pct": config.MAX_POSITION_PCT,
         "stop_loss_pct": config.STOP_LOSS_PCT,
         "take_profit_pct": config.TAKE_PROFIT_PCT,
+        # Multi-asset settings
+        "forex_enabled": config.FOREX_ENABLED,
+        "forex_pairs": len(config.FOREX_PAIRS),
+        "forex_risk": {
+            "max_position_pct": config.FOREX_MAX_POSITION_PCT,
+            "stop_loss_pct": config.FOREX_STOP_LOSS_PCT,
+            "take_profit_pct": config.FOREX_TAKE_PROFIT_PCT,
+        },
+        "commodities_enabled": config.COMMODITIES_ENABLED,
+        "commodity_symbols": len(config.COMMODITY_SYMBOLS),
+        "commodity_risk": {
+            "max_position_pct": config.COMMODITY_MAX_POSITION_PCT,
+            "stop_loss_pct": config.COMMODITY_STOP_LOSS_PCT,
+            "take_profit_pct": config.COMMODITY_TAKE_PROFIT_PCT,
+        },
+        "crypto_enabled": config.CRYPTO_ENABLED,
+        "crypto_symbols": len(config.CRYPTO_SYMBOLS),
+        "crypto_risk": {
+            "max_position_pct": config.CRYPTO_MAX_POSITION_PCT,
+            "stop_loss_pct": config.CRYPTO_STOP_LOSS_PCT,
+            "take_profit_pct": config.CRYPTO_TAKE_PROFIT_PCT,
+        },
+        # Social / news
         "reddit_enabled": config.REDDIT_ENABLED,
         "reddit_subreddits": config.REDDIT_SUBREDDITS,
         "reddit_weight": config.REDDIT_WEIGHT,

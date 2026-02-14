@@ -1,19 +1,23 @@
 """News fetching and financial sentiment analysis.
 
-Scans multiple news sources for stories that could affect stock prices:
+Scans multiple news sources for stories that could affect asset prices:
   - Per-ticker Yahoo Finance feeds (region-aware)
   - Built-in UK & global financial news feeds (BBC, Guardian, Reuters, etc.)
   - User-configured RSS feeds
   - Reddit posts from finance subreddits (cashtag + company name matching)
+  - Crypto-specific subreddits (r/CryptoCurrency, r/Bitcoin, etc.)
 
 Matches headlines to tickers by:
   - Ticker symbol (e.g. "VOD.L", "AAPL")
   - Cashtag (e.g. "$AAPL", "$VOD")
   - Company name (e.g. "Vodafone", "Rolls-Royce")
+  - Forex pair names (e.g. "euro", "dollar", "yen")
+  - Commodity names (e.g. "gold", "crude oil", "silver")
+  - Crypto names (e.g. "bitcoin", "ethereum")
   - Broad market keywords (e.g. "Bank of England", "interest rate")
 
 Uses a FinBERT transformer model to score sentiment as bullish / bearish /
-neutral for each stock.
+neutral for each asset.
 """
 
 from __future__ import annotations
@@ -309,15 +313,113 @@ _BROAD_MARKET_KEYWORDS: list[tuple[str, str]] = [
     (r"\bwti\b", "ALL"),
     (r"\bopec\b", "ALL"),
     (r"\bgold price", "ALL"),
+    (r"\bsilver price", "ALL"),
     (r"\bcopper price", "ALL"),
     (r"\bnatural gas price", "ALL"),
+    (r"\bplatinum\b", "ALL"),
+    (r"\bpalladium\b", "ALL"),
     (r"\blithium price", "ALL"),
     (r"\biron ore\b", "ALL"),
     (r"\bcommodit", "ALL"),
-    # --- Crypto / fintech (market sentiment proxy) ---
+    (r"\bwheat price", "ALL"),
+    (r"\bcorn price", "ALL"),
+    (r"\bsoybean", "ALL"),
+    (r"\bcoffee price", "ALL"),
+    (r"\bcotton price", "ALL"),
+    (r"\bprecious metal", "ALL"),
+    # --- Forex / Currencies ---
+    (r"\bforex\b", "ALL"),
+    (r"\bcurrency market", "ALL"),
+    (r"\bdollar index\b", "ALL"),
+    (r"\bdxy\b", "ALL"),
+    (r"\beuro.{0,5}dollar", "ALL"),
+    (r"\bpound.{0,5}dollar", "ALL"),
+    (r"\bsterling\b", "ALL"),
+    (r"\byen\b", "ALL"),
+    (r"\byuan\b", "ALL"),
+    (r"\bcurrency war", "ALL"),
+    (r"\bfx market", "ALL"),
+    (r"\bexchange rate", "ALL"),
+    # --- Crypto ---
     (r"\bbitcoin\b", "ALL"),
+    (r"\bethereum\b", "ALL"),
     (r"\bcrypto crash\b", "ALL"),
     (r"\bcrypto rall", "ALL"),
+    (r"\bcryptocurrenc", "ALL"),
+    (r"\bdefi\b", "ALL"),
+    (r"\bnft\b", "ALL"),
+    (r"\bblockchain\b", "ALL"),
+    (r"\bstablecoin\b", "ALL"),
+    (r"\bbinance\b", "ALL"),
+    (r"\bcoinbase\b", "ALL"),
+    (r"\bsec.{0,5}crypto", "ALL"),
+    (r"\bcrypto.{0,5}regulation", "ALL"),
+]
+
+# ---------------------------------------------------------------------------
+# Asset-specific keyword matching (for forex, commodities, crypto)
+# ---------------------------------------------------------------------------
+
+# Maps keyword patterns → list of ticker symbols they're relevant to.
+# This allows non-equity assets to be matched by name in headlines.
+_ASSET_KEYWORD_MAP: list[tuple[str, list[str]]] = [
+    # --- Forex ---
+    (r"\beur/?usd\b", ["EURUSD=X"]),
+    (r"\beuro\b.{0,15}dollar\b", ["EURUSD=X"]),
+    (r"\bgbp/?usd\b", ["GBPUSD=X"]),
+    (r"\bpound\b.{0,15}dollar\b", ["GBPUSD=X"]),
+    (r"\bcable\b", ["GBPUSD=X"]),
+    (r"\busd/?jpy\b", ["USDJPY=X"]),
+    (r"\bdollar\b.{0,15}yen\b", ["USDJPY=X"]),
+    (r"\busd/?chf\b", ["USDCHF=X"]),
+    (r"\baud/?usd\b", ["AUDUSD=X"]),
+    (r"\baustrailian\s+dollar\b", ["AUDUSD=X"]),
+    (r"\busd/?cad\b", ["USDCAD=X"]),
+    (r"\bnzd/?usd\b", ["NZDUSD=X"]),
+    (r"\beur/?gbp\b", ["EURGBP=X"]),
+    (r"\beur/?jpy\b", ["EURJPY=X"]),
+    (r"\bgbp/?jpy\b", ["GBPJPY=X"]),
+    # --- Commodities ---
+    (r"\bgold\b", ["GC=F"]),
+    (r"\bxau\b", ["GC=F"]),
+    (r"\bsilver\b", ["SI=F"]),
+    (r"\bxag\b", ["SI=F"]),
+    (r"\bcrude\s*oil\b", ["CL=F"]),
+    (r"\bwti\b", ["CL=F"]),
+    (r"\bbrent\b", ["CL=F"]),
+    (r"\boil\s*price", ["CL=F"]),
+    (r"\bnatural\s*gas\b", ["NG=F"]),
+    (r"\bcopper\b", ["HG=F"]),
+    (r"\bplatinum\b", ["PL=F"]),
+    (r"\bpalladium\b", ["PA=F"]),
+    (r"\bwheat\b", ["ZW=F"]),
+    (r"\bcorn\b", ["ZC=F"]),
+    (r"\bsoybean", ["ZS=F"]),
+    (r"\bcoffee\b", ["KC=F"]),
+    (r"\bcotton\b", ["CT=F"]),
+    # --- Crypto ---
+    (r"\bbitcoin\b", ["BTC-USD"]),
+    (r"\bbtc\b", ["BTC-USD"]),
+    (r"\bethereum\b", ["ETH-USD"]),
+    (r"\beth\b", ["ETH-USD"]),
+    (r"\bbnb\b", ["BNB-USD"]),
+    (r"\bbinance\s*coin\b", ["BNB-USD"]),
+    (r"\bsolana\b", ["SOL-USD"]),
+    (r"\bsol\b", ["SOL-USD"]),
+    (r"\bripple\b", ["XRP-USD"]),
+    (r"\bxrp\b", ["XRP-USD"]),
+    (r"\bcardano\b", ["ADA-USD"]),
+    (r"\bada\b", ["ADA-USD"]),
+    (r"\bdogecoin\b", ["DOGE-USD"]),
+    (r"\bdoge\b", ["DOGE-USD"]),
+    (r"\bavalanche\b", ["AVAX-USD"]),
+    (r"\bpolkadot\b", ["DOT-USD"]),
+    (r"\bpolygon\b", ["MATIC-USD"]),
+    (r"\bmatic\b", ["MATIC-USD"]),
+    (r"\bchainlink\b", ["LINK-USD"]),
+    (r"\buniswap\b", ["UNI-USD"]),
+    (r"\blitecoin\b", ["LTC-USD"]),
+    (r"\bcosmos\b", ["ATOM-USD"]),
 ]
 
 # ---------------------------------------------------------------------------
@@ -367,6 +469,7 @@ def _build_name_index(tickers: list[str]) -> dict[str, list[str]]:
       - The ticker symbol itself (stripped of exchange suffix)
       - The cleaned company name
       - The first word of the company name (if long enough)
+      - Forex pair names, commodity names, crypto names (from config)
     """
     try:
         from stockio.market_discovery import get_ticker_names
@@ -374,14 +477,23 @@ def _build_name_index(tickers: list[str]) -> dict[str, list[str]]:
     except (ImportError, Exception):
         names = {}
 
+    # Add display names for non-equity assets
+    from stockio.config import COMMODITY_NAMES, CRYPTO_NAMES, get_asset_display_name
+    for ticker in tickers:
+        if ticker not in names or not names[ticker]:
+            display = get_asset_display_name(ticker)
+            if display != ticker:
+                names[ticker] = display
+
     index: dict[str, list[str]] = {}
 
     for ticker in tickers:
-        # Always index by ticker symbol (without exchange suffix)
-        base = ticker.split(".")[0].lower()
-        index.setdefault(base, []).append(ticker)
+        # Always index by ticker symbol (without exchange suffix and special chars)
+        base = ticker.split(".")[0].split("=")[0].split("-")[0].lower()
+        if len(base) >= 2:
+            index.setdefault(base, []).append(ticker)
 
-        # Index by company name if we have it
+        # Index by company/asset name if we have it
         raw_name = names.get(ticker, "")
         if not raw_name:
             continue
@@ -483,6 +595,12 @@ def fetch_news(tickers: list[str], max_per_source: int = 20) -> dict[str, list[N
     # 3. Match general headlines to tickers
     seen: dict[str, set[str]] = {t: set() for t in tickers}  # avoid duplicates
 
+    # Pre-compile asset keyword patterns for efficiency
+    _compiled_asset_keywords = [
+        (re.compile(pattern, re.IGNORECASE), asset_tickers)
+        for pattern, asset_tickers in _ASSET_KEYWORD_MAP
+    ]
+
     for item in all_general_items:
         hl_lower = item.title.lower()
         matched_tickers: set[str] = set()
@@ -500,6 +618,21 @@ def fetch_news(tickers: list[str], max_per_source: int = 20) -> dict[str, list[N
                             match_type="name" if len(search_term) >= _MIN_NAME_LENGTH else "ticker",
                         )
                         result[t].append(news_item)
+                        seen[t].add(item.title)
+                        matched_tickers.add(t)
+
+        # 3a2. Match by asset keyword patterns (forex, commodities, crypto)
+        for pat, asset_tickers in _compiled_asset_keywords:
+            if pat.search(item.title):
+                for t in asset_tickers:
+                    if t in result and t not in matched_tickers and item.title not in seen[t]:
+                        result[t].append(NewsItem(
+                            title=item.title,
+                            link=item.link,
+                            published=item.published,
+                            source=item.source,
+                            match_type="name",
+                        ))
                         seen[t].add(item.title)
                         matched_tickers.add(t)
 
@@ -745,8 +878,18 @@ def fetch_reddit_posts(
         base = ticker.split(".")[0].upper()
         base_to_tickers.setdefault(base, []).append(ticker)
 
+    # Determine which subreddits to fetch (include crypto subs if crypto tickers present)
+    subreddits = list(config.REDDIT_SUBREDDITS)
+    has_crypto = any(
+        t.endswith("-USD") and t not in ("USD",) for t in tickers
+    )
+    if has_crypto and config.CRYPTO_ENABLED:
+        for sub in config.CRYPTO_SUBREDDITS:
+            if sub not in subreddits:
+                subreddits.append(sub)
+
     all_posts: list[dict] = []
-    for subreddit in config.REDDIT_SUBREDDITS:
+    for subreddit in subreddits:
         posts = _fetch_subreddit_posts(subreddit, limit=config.REDDIT_MAX_POSTS)
         all_posts.extend(posts)
         if posts:
@@ -754,7 +897,13 @@ def fetch_reddit_posts(
         time.sleep(0.5)  # polite delay between subreddits
 
     log.info("Fetched %d Reddit posts from %d subreddits",
-             len(all_posts), len(config.REDDIT_SUBREDDITS))
+             len(all_posts), len(subreddits))
+
+    # Pre-compile asset keyword patterns for Reddit matching too
+    _compiled_asset_kw = [
+        (re.compile(pattern, re.IGNORECASE), asset_tickers)
+        for pattern, asset_tickers in _ASSET_KEYWORD_MAP
+    ]
 
     for post in all_posts:
         title = post["title"]
@@ -787,6 +936,21 @@ def fetch_reddit_posts(
                             published="",
                             source=f"reddit/r/{post['subreddit']}",
                             match_type="name" if len(search_term) >= _MIN_NAME_LENGTH else "ticker",
+                        ))
+                        seen[t].add(title)
+                        matched_tickers.add(t)
+
+        # 2b. Asset keyword matching (forex, commodities, crypto)
+        for pat, asset_tickers in _compiled_asset_kw:
+            if pat.search(text):
+                for t in asset_tickers:
+                    if t in result and t not in matched_tickers and title not in seen[t]:
+                        result[t].append(NewsItem(
+                            title=title,
+                            link=post["url"],
+                            published="",
+                            source=f"reddit/r/{post['subreddit']}",
+                            match_type="name",
                         ))
                         seen[t].add(title)
                         matched_tickers.add(t)

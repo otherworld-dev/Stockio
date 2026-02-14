@@ -1,7 +1,8 @@
 """Portfolio manager — tracks holdings, cash, and trade history in SQLite.
 
 Enforces risk management rules (position sizing, stop-loss, take-profit) and
-provides P&L reporting.
+provides P&L reporting.  Supports multiple asset types with per-asset risk
+parameters.
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 
 from stockio import config
-from stockio.config import get_logger
+from stockio.config import AssetType, get_logger
 
 log = get_logger(__name__)
 
@@ -26,9 +27,10 @@ log = get_logger(__name__)
 class Position:
     ticker: str
     shares: float
-    avg_cost: float  # average cost per share (GBP)
+    avg_cost: float  # average cost per unit
     opened_at: str
     direction: str = "long"  # "long" or "short"
+    asset_type: str = "equity"  # "equity", "forex", "commodity", "crypto"
 
 
 @dataclass
@@ -100,6 +102,12 @@ def _init_db(conn: sqlite3.Connection) -> None:
     except sqlite3.OperationalError:
         conn.execute("ALTER TABLE portfolio ADD COLUMN direction TEXT NOT NULL DEFAULT 'long'")
 
+    # Add asset_type column if it doesn't exist
+    try:
+        conn.execute("SELECT asset_type FROM portfolio LIMIT 0")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE portfolio ADD COLUMN asset_type TEXT NOT NULL DEFAULT 'equity'")
+
     # Seed initial cash balance if not yet set
     row = conn.execute("SELECT value FROM account WHERE key = 'cash'").fetchone()
     if row is None:
@@ -155,7 +163,7 @@ def get_initial_budget() -> float:
 def get_positions() -> list[Position]:
     with _get_conn() as conn:
         rows = conn.execute(
-            "SELECT ticker, shares, avg_cost, opened_at, direction "
+            "SELECT ticker, shares, avg_cost, opened_at, direction, asset_type "
             "FROM portfolio WHERE shares > 0"
         ).fetchall()
         return [
@@ -165,6 +173,7 @@ def get_positions() -> list[Position]:
                 avg_cost=r["avg_cost"],
                 opened_at=r["opened_at"],
                 direction=r["direction"],
+                asset_type=r["asset_type"] if r["asset_type"] else "equity",
             )
             for r in rows
         ]
@@ -173,7 +182,7 @@ def get_positions() -> list[Position]:
 def get_position(ticker: str) -> Position | None:
     with _get_conn() as conn:
         row = conn.execute(
-            "SELECT ticker, shares, avg_cost, opened_at, direction "
+            "SELECT ticker, shares, avg_cost, opened_at, direction, asset_type "
             "FROM portfolio WHERE ticker = ?",
             (ticker,),
         ).fetchone()
@@ -184,6 +193,7 @@ def get_position(ticker: str) -> Position | None:
                 avg_cost=row["avg_cost"],
                 opened_at=row["opened_at"],
                 direction=row["direction"],
+                asset_type=row["asset_type"] if row["asset_type"] else "equity",
             )
         return None
 
@@ -198,6 +208,7 @@ def record_buy(ticker: str, shares: float, price: float, reason: str = "") -> Tr
         )
 
     now = dt.datetime.utcnow().isoformat()
+    asset_type = config.get_asset_type(ticker).value
 
     with _get_conn() as conn:
         # Update cash
@@ -220,9 +231,10 @@ def record_buy(ticker: str, shares: float, price: float, reason: str = "") -> Tr
             )
         else:
             conn.execute(
-                "INSERT OR REPLACE INTO portfolio (ticker, shares, avg_cost, opened_at) "
-                "VALUES (?, ?, ?, ?)",
-                (ticker, shares, price, now),
+                "INSERT OR REPLACE INTO portfolio "
+                "(ticker, shares, avg_cost, opened_at, asset_type) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (ticker, shares, price, now, asset_type),
             )
 
         # Record trade
@@ -292,6 +304,7 @@ def record_short(ticker: str, shares: float, price: float, reason: str = "") -> 
     """
     total = shares * price
     now = dt.datetime.utcnow().isoformat()
+    asset_type = config.get_asset_type(ticker).value
 
     with _get_conn() as conn:
         cash = float(conn.execute(
@@ -320,9 +333,9 @@ def record_short(ticker: str, shares: float, price: float, reason: str = "") -> 
         else:
             conn.execute(
                 "INSERT OR REPLACE INTO portfolio "
-                "(ticker, shares, avg_cost, opened_at, direction) "
-                "VALUES (?, ?, ?, ?, 'short')",
-                (ticker, shares, price, now),
+                "(ticker, shares, avg_cost, opened_at, direction, asset_type) "
+                "VALUES (?, ?, ?, ?, 'short', ?)",
+                (ticker, shares, price, now, asset_type),
             )
 
         conn.execute(
@@ -486,12 +499,17 @@ def get_trade_history(limit: int = 50) -> list[TradeRecord]:
 
 
 def check_position_limit(ticker: str, buy_total: float) -> bool:
-    """Return True if buying *buy_total* GBP of *ticker* is within risk limits."""
+    """Return True if buying *buy_total* of *ticker* is within risk limits.
+
+    Uses per-asset-type position limits.
+    """
     cash = get_cash()
     positions = get_positions()
     long_value = sum(p.shares * p.avg_cost for p in positions if p.direction == "long")
     portfolio_value = cash + long_value
-    max_allowed = portfolio_value * (config.MAX_POSITION_PCT / 100.0)
+    asset_type = config.get_asset_type(ticker)
+    risk = config.get_risk_params(asset_type)
+    max_allowed = portfolio_value * (risk["max_position_pct"] / 100.0)
 
     current_value = 0.0
     pos = get_position(ticker)
@@ -538,37 +556,45 @@ def check_short_limit(ticker: str, short_total: float) -> bool:
 def check_stop_loss(ticker: str, current_price: float) -> bool:
     """Return True if the position should be exited (stop-loss triggered).
 
-    For long positions: price dropped below entry by STOP_LOSS_PCT.
-    For short positions: price rose above entry by SHORT_STOP_LOSS_PCT.
+    Uses per-asset-type thresholds (crypto has wider thresholds than equities).
+    For long positions: price dropped below entry by stop_loss_pct.
+    For short positions: price rose above entry by stop_loss_pct.
     """
     pos = get_position(ticker)
     if pos is None:
         return False
+    asset_type = config.get_asset_type(ticker)
+    risk = config.get_risk_params(asset_type)
+    stop_pct = risk["stop_loss_pct"]
     if pos.direction == "short":
         # Short: we lose when price goes UP
         loss_pct = ((current_price - pos.avg_cost) / pos.avg_cost) * 100
-        return loss_pct >= config.SHORT_STOP_LOSS_PCT
+        return loss_pct >= stop_pct
     # Long: we lose when price goes DOWN
     loss_pct = ((pos.avg_cost - current_price) / pos.avg_cost) * 100
-    return loss_pct >= config.STOP_LOSS_PCT
+    return loss_pct >= stop_pct
 
 
 def check_take_profit(ticker: str, current_price: float) -> bool:
     """Return True if the position should be exited (take-profit triggered).
 
-    For long positions: price rose above entry by TAKE_PROFIT_PCT.
-    For short positions: price dropped below entry by SHORT_TAKE_PROFIT_PCT.
+    Uses per-asset-type thresholds.
+    For long positions: price rose above entry by take_profit_pct.
+    For short positions: price dropped below entry by take_profit_pct.
     """
     pos = get_position(ticker)
     if pos is None:
         return False
+    asset_type = config.get_asset_type(ticker)
+    risk = config.get_risk_params(asset_type)
+    tp_pct = risk["take_profit_pct"]
     if pos.direction == "short":
         # Short: we profit when price goes DOWN
         gain_pct = ((pos.avg_cost - current_price) / pos.avg_cost) * 100
-        return gain_pct >= config.SHORT_TAKE_PROFIT_PCT
+        return gain_pct >= tp_pct
     # Long: we profit when price goes UP
     gain_pct = ((current_price - pos.avg_cost) / pos.avg_cost) * 100
-    return gain_pct >= config.TAKE_PROFIT_PCT
+    return gain_pct >= tp_pct
 
 
 # ---------------------------------------------------------------------------
@@ -617,6 +643,8 @@ def portfolio_summary(current_prices: dict[str, float]) -> dict:
             "pnl": round(pnl, 2),
             "pnl_pct": round(pnl_pct, 2),
             "direction": pos.direction,
+            "asset_type": pos.asset_type,
+            "display_name": config.get_asset_display_name(pos.ticker),
         })
 
     holdings_value = long_value - short_liability

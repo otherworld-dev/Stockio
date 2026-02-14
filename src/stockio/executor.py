@@ -5,7 +5,7 @@ Provides a unified interface with two backends:
   - AlpacaExecutor — real trades via the Alpaca brokerage API
 
 Both executors share the same interface so the rest of the system is
-broker-agnostic.
+broker-agnostic.  Supports all asset types with per-asset position sizing.
 """
 
 from __future__ import annotations
@@ -89,9 +89,11 @@ class PaperExecutor(Executor):
             log.info("No cash available to buy %s", ticker)
             return None
 
-        # Size the position: allocate up to MAX_POSITION_PCT of portfolio,
+        # Size the position: allocate up to per-asset MAX_POSITION_PCT of portfolio,
         # scaled by signal confidence
-        max_spend = cash * (config.MAX_POSITION_PCT / 100.0) * signal.confidence
+        asset_type = config.get_asset_type(ticker)
+        risk = config.get_risk_params(asset_type)
+        max_spend = cash * (risk["max_position_pct"] / 100.0) * signal.confidence
         max_spend = min(max_spend, cash)  # never exceed available cash
 
         if max_spend < 1.0:
@@ -144,8 +146,10 @@ class PaperExecutor(Executor):
             return None
 
         cash = get_cash()
-        # Size: use MAX_SHORT_POSITION_PCT, scaled by confidence
-        max_exposure = cash * (config.MAX_SHORT_POSITION_PCT / 100.0) * signal.confidence
+        # Size: use per-asset max position pct, scaled by confidence
+        asset_type = config.get_asset_type(ticker)
+        risk = config.get_risk_params(asset_type)
+        max_exposure = cash * (risk["max_position_pct"] / 100.0) * signal.confidence
         if max_exposure < 1.0:
             log.info("Short position too small for %s", ticker)
             return None
@@ -220,8 +224,11 @@ class PaperExecutor(Executor):
         if pos is None:
             return None
 
+        asset_type = config.get_asset_type(ticker)
+        risk = config.get_risk_params(asset_type)
+
         if pos.direction == "short":
-            return self._check_short_exits(pos, current_price)
+            return self._check_short_exits(pos, current_price, risk)
 
         # Long position exits
         if check_stop_loss(ticker, current_price):
@@ -232,7 +239,7 @@ class PaperExecutor(Executor):
             try:
                 return record_sell(
                     ticker, pos.shares, current_price,
-                    reason=f"Stop-loss at {config.STOP_LOSS_PCT}%",
+                    reason=f"Stop-loss at {risk['stop_loss_pct']}%",
                 )
             except ValueError:
                 return None
@@ -245,7 +252,7 @@ class PaperExecutor(Executor):
             try:
                 return record_sell(
                     ticker, pos.shares, current_price,
-                    reason=f"Take-profit at {config.TAKE_PROFIT_PCT}%",
+                    reason=f"Take-profit at {risk['take_profit_pct']}%",
                 )
             except ValueError:
                 return None
@@ -253,10 +260,13 @@ class PaperExecutor(Executor):
         return None
 
     def _check_short_exits(
-        self, pos: Position, current_price: float
+        self, pos: Position, current_price: float, risk: dict | None = None,
     ) -> TradeRecord | None:
         """Check stop-loss, take-profit, and the critical safety guard for shorts."""
         ticker = pos.ticker
+        if risk is None:
+            asset_type = config.get_asset_type(ticker)
+            risk = config.get_risk_params(asset_type)
 
         # SAFETY GUARD: auto-cover if portfolio value is dangerously low.
         # This prevents ever going into negative money.
@@ -293,7 +303,7 @@ class PaperExecutor(Executor):
             try:
                 return record_cover(
                     ticker, pos.shares, current_price,
-                    reason=f"Short stop-loss at {config.SHORT_STOP_LOSS_PCT}%",
+                    reason=f"Short stop-loss at {risk['stop_loss_pct']}%",
                 )
             except ValueError:
                 return None
@@ -307,7 +317,7 @@ class PaperExecutor(Executor):
             try:
                 return record_cover(
                     ticker, pos.shares, current_price,
-                    reason=f"Short take-profit at {config.SHORT_TAKE_PROFIT_PCT}%",
+                    reason=f"Short take-profit at {risk['take_profit_pct']}%",
                 )
             except ValueError:
                 return None

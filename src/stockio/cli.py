@@ -15,7 +15,7 @@ log = get_logger("stockio.cli")
 @click.group()
 @click.version_option(__version__, prog_name="stockio")
 def main() -> None:
-    """Stockio — AI-powered stock trading bot."""
+    """Stockio — AI-powered multi-asset trading bot (stocks, forex, commodities, crypto)."""
 
 
 # ------------------------------------------------------------------
@@ -103,11 +103,13 @@ def status() -> None:
     click.echo(f"{'=' * 50}")
 
     if summary["holdings"]:
-        click.echo(f"  {'Ticker':<8} {'Shares':>10} {'Avg Cost':>10} {'Price':>10} {'Value':>10} {'P&L':>10}")
-        click.echo(f"  {'-' * 58}")
+        click.echo(f"  {'Type':<6} {'Ticker':<12} {'Shares':>10} {'Avg Cost':>10} {'Price':>10} {'Value':>10} {'P&L':>10}")
+        click.echo(f"  {'-' * 70}")
         for h in summary["holdings"]:
+            asset_tag = h.get('asset_type', 'equity')[:5].upper()
+            display = h.get('display_name', h['ticker'])
             click.echo(
-                f"  {h['ticker']:<8} {h['shares']:>10.4f} "
+                f"  {asset_tag:<6} {display:<12} {h['shares']:>10.4f} "
                 f"£{h['avg_cost']:>8.2f} £{h['current_price']:>8.2f} "
                 f"£{h['market_value']:>8.2f} £{h['pnl']:>+8.2f}"
             )
@@ -184,10 +186,14 @@ def signals() -> None:
     click.echo(f"  TRADE SIGNALS")
     click.echo(f"{'=' * 60}")
     for s in sigs:
-        icon = {"BUY": "+", "SELL": "-", "HOLD": " "}[s.signal.value]
-        click.echo(f"  [{icon}] {s.ticker:<12} {s.signal.value:<5} conf={s.confidence:.2f}")
+        icon = {"BUY": "+", "SELL": "-", "SHORT": "v", "COVER": "^", "HOLD": " "}.get(s.signal.value, " ")
+        from stockio.config import get_asset_type, get_asset_display_name
+        asset_tag = get_asset_type(s.ticker).value[:3].upper()
+        display = get_asset_display_name(s.ticker)
+        label = f"{display} ({s.ticker})" if display != s.ticker else s.ticker
+        click.echo(f"  [{icon}] [{asset_tag}] {label:<25} {s.signal.value:<6} conf={s.confidence:.2f}")
         for r in s.reasons:
-            click.echo(f"        {r}")
+            click.echo(f"         {r}")
     click.echo()
 
 
@@ -212,14 +218,26 @@ def markets(refresh: bool, list_supported: bool) -> None:
     if list_supported:
         click.echo()
         click.echo(f"{'=' * 60}")
-        click.echo(f"  SUPPORTED MARKETS")
+        click.echo(f"  SUPPORTED MARKETS & ASSET TYPES")
         click.echo(f"{'=' * 60}")
         for key, info in SUPPORTED_MARKETS.items():
-            active = " [ACTIVE]" if key in config.MARKETS else ""
-            click.echo(f"  {key:<10} {info['name']:<40} {info['currency']}{active}")
+            asset_type = info.get("asset_type", "equity")
+            at_str = str(asset_type.value if hasattr(asset_type, "value") else asset_type)
+            # Check if active
+            is_active = key in config.MARKETS
+            if key == "FOREX":
+                is_active = config.FOREX_ENABLED
+            elif key == "COMMODITIES":
+                is_active = config.COMMODITIES_ENABLED
+            elif key == "CRYPTO":
+                is_active = config.CRYPTO_ENABLED
+            active = " [ACTIVE]" if is_active else ""
+            click.echo(f"  {key:<14} {info['name']:<38} {at_str:<10}{active}")
         click.echo()
-        click.echo(f"  Set STOCKIO_MARKETS in .env to activate markets.")
-        click.echo(f"  e.g. STOCKIO_MARKETS=LSE,AIM,NASDAQ")
+        click.echo(f"  Equity markets: STOCKIO_MARKETS=LSE,AIM,NASDAQ")
+        click.echo(f"  Forex:          STOCKIO_FOREX_ENABLED=true")
+        click.echo(f"  Commodities:    STOCKIO_COMMODITIES_ENABLED=true")
+        click.echo(f"  Crypto:         STOCKIO_CRYPTO_ENABLED=true")
         click.echo()
         return
 

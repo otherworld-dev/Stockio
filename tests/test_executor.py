@@ -96,3 +96,44 @@ class TestPaperExecutor:
         record_buy("AAPL", shares=2.0, price=100.0)
         result = executor.check_exits("AAPL", current_price=105.0)
         assert result is None
+
+    def test_buy_crypto_uses_smaller_position(self):
+        """Crypto max position is 10% vs equity 20%, so smaller buy."""
+        executor = PaperExecutor()
+        sig_equity = TradeSignal(
+            ticker="AAPL", signal=Signal.BUY, confidence=1.0,
+            reasons=["test"],
+        )
+        result_eq = executor.execute(sig_equity, current_price=50.0)
+        assert result_eq is not None
+        equity_spend = result_eq.total
+
+        # Reset
+        from stockio.portfolio import record_sell
+        record_sell("AAPL", result_eq.shares, 50.0)
+
+        sig_crypto = TradeSignal(
+            ticker="BTC-USD", signal=Signal.BUY, confidence=1.0,
+            reasons=["test"],
+        )
+        result_cr = executor.execute(sig_crypto, current_price=50000.0)
+        assert result_cr is not None
+        # Crypto position should be smaller (10% vs 20% of portfolio)
+        assert result_cr.total < equity_spend
+
+    def test_crypto_stop_loss_wider(self):
+        """Crypto uses 8% stop-loss, so 6% drop shouldn't trigger."""
+        executor = PaperExecutor()
+        record_buy("BTC-USD", shares=0.001, price=50000.0)
+        # 6% drop is within crypto threshold
+        result = executor.check_exits("BTC-USD", current_price=47000.0)
+        assert result is None
+
+    def test_crypto_stop_loss_triggers(self):
+        """Crypto 8% stop-loss should trigger at >8% drop."""
+        executor = PaperExecutor()
+        record_buy("BTC-USD", shares=0.001, price=50000.0)
+        # 9% drop exceeds crypto 8% threshold
+        result = executor.check_exits("BTC-USD", current_price=45500.0)
+        assert result is not None
+        assert result.side == "SELL"

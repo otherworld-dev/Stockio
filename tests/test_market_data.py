@@ -11,6 +11,7 @@ def _make_ohlcv(n: int = 120) -> pd.DataFrame:
     """Generate a synthetic OHLCV DataFrame."""
     np.random.seed(42)
     dates = pd.bdate_range(end=pd.Timestamp.today(), periods=n)
+    n = len(dates)  # use actual number of business days
     close = 100 + np.cumsum(np.random.randn(n) * 0.5)
     high = close + np.abs(np.random.randn(n))
     low = close - np.abs(np.random.randn(n))
@@ -39,6 +40,31 @@ class TestTechnicalIndicators:
         df = add_technical_indicators(df)
         assert df["rsi"].between(0, 100).all()
         assert (df["bb_upper"] >= df["bb_lower"]).all()
+
+
+class TestTechnicalIndicatorsWithoutVolume:
+    """Test that indicators work for assets without volume data (forex, some commodities)."""
+
+    def test_no_volume_column(self):
+        df = _make_ohlcv()
+        df["Volume"] = 0  # simulate no volume data
+        df = add_technical_indicators(df)
+        assert "obv" in df.columns
+        assert not df.isnull().any().any()
+
+    def test_zero_volume_uses_close_for_vwap(self):
+        df = _make_ohlcv()
+        df["Volume"] = 0
+        df = add_technical_indicators(df)
+        # vwap should be equal to close when no volume
+        assert (df["vwap"] == df["Close"]).all()
+        assert (df["volume_pct"] == 0.0).all()
+
+    def test_normal_volume_computes_obv(self):
+        df = _make_ohlcv()
+        df = add_technical_indicators(df)
+        # OBV should not be all zeros when volume exists
+        assert df["obv"].abs().sum() > 0
 
 
 class TestFeatureMatrix:

@@ -132,6 +132,51 @@ class TestRiskManagement:
         assert check_position_limit("AAPL", 101.0) is False
 
 
+class TestMultiAssetRiskManagement:
+    """Test per-asset-type risk parameters for forex, commodities, and crypto."""
+
+    def test_crypto_stop_loss_uses_wider_threshold(self):
+        """Crypto has 8% stop-loss, not the equity default 5%."""
+        record_buy("BTC-USD", shares=0.01, price=100.0)
+        # 6% drop → within crypto threshold (8%), should NOT trigger
+        assert check_stop_loss("BTC-USD", 94.0) is False
+        # 9% drop → beyond crypto threshold, should trigger
+        assert check_stop_loss("BTC-USD", 91.0) is True
+
+    def test_forex_stop_loss_uses_tighter_threshold(self):
+        """Forex has 2% stop-loss."""
+        record_buy("EURUSD=X", shares=100.0, price=1.10)
+        # 1.5% drop → within forex threshold, should NOT trigger
+        assert check_stop_loss("EURUSD=X", 1.0835) is False
+        # 2.5% drop → beyond forex threshold, should trigger
+        assert check_stop_loss("EURUSD=X", 1.072) is True
+
+    def test_commodity_take_profit(self):
+        """Commodities have 10% take-profit."""
+        record_buy("GC=F", shares=1.0, price=100.0)
+        assert check_take_profit("GC=F", 109.0) is False
+        assert check_take_profit("GC=F", 111.0) is True
+
+    def test_crypto_take_profit_uses_wider_threshold(self):
+        """Crypto has 20% take-profit."""
+        record_buy("ETH-USD", shares=0.1, price=100.0)
+        assert check_take_profit("ETH-USD", 119.0) is False
+        assert check_take_profit("ETH-USD", 121.0) is True
+
+    def test_forex_position_limit(self):
+        """Forex max position is 10% (vs equity 20%)."""
+        # Portfolio = 500, forex limit = 50
+        assert check_position_limit("EURUSD=X", 49.0) is True
+        assert check_position_limit("EURUSD=X", 51.0) is False
+
+    def test_position_asset_type_stored(self):
+        """Positions should store asset_type."""
+        record_buy("BTC-USD", shares=0.01, price=50000.0)
+        pos = get_position("BTC-USD")
+        assert pos is not None
+        assert pos.asset_type == "crypto"
+
+
 class TestPortfolioSummary:
     def test_summary_no_positions(self):
         summary = portfolio_summary({})
@@ -148,3 +193,11 @@ class TestPortfolioSummary:
         assert summary["holdings_value"] == pytest.approx(120.0)
         assert summary["total_value"] == pytest.approx(520.0)
         assert summary["total_pnl"] == pytest.approx(20.0)
+        # Holdings should include asset_type
+        assert summary["holdings"][0]["asset_type"] == "equity"
+
+    def test_summary_with_crypto_position(self):
+        record_buy("BTC-USD", shares=0.001, price=50000.0)
+        summary = portfolio_summary({"BTC-USD": 55000.0})
+        assert summary["holdings"][0]["asset_type"] == "crypto"
+        assert summary["holdings"][0]["display_name"] == "Bitcoin"

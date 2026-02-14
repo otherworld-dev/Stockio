@@ -17,6 +17,55 @@ class TestSignalEnum:
         assert Signal.BUY == "BUY"
         assert Signal.SELL == "SELL"
         assert Signal.HOLD == "HOLD"
+        assert Signal.SHORT == "SHORT"
+        assert Signal.COVER == "COVER"
+
+
+class TestAssetTypeDetection:
+    """Test that asset types are correctly detected from ticker symbols."""
+
+    def test_equity_detection(self):
+        from stockio.config import AssetType, get_asset_type
+        assert get_asset_type("AAPL") == AssetType.EQUITY
+        assert get_asset_type("VOD.L") == AssetType.EQUITY
+        assert get_asset_type("SAP.DE") == AssetType.EQUITY
+
+    def test_forex_detection(self):
+        from stockio.config import AssetType, get_asset_type
+        assert get_asset_type("EURUSD=X") == AssetType.FOREX
+        assert get_asset_type("GBPUSD=X") == AssetType.FOREX
+        assert get_asset_type("USDJPY=X") == AssetType.FOREX
+
+    def test_commodity_detection(self):
+        from stockio.config import AssetType, get_asset_type
+        assert get_asset_type("GC=F") == AssetType.COMMODITY
+        assert get_asset_type("CL=F") == AssetType.COMMODITY
+        assert get_asset_type("SI=F") == AssetType.COMMODITY
+
+    def test_crypto_detection(self):
+        from stockio.config import AssetType, get_asset_type
+        assert get_asset_type("BTC-USD") == AssetType.CRYPTO
+        assert get_asset_type("ETH-USD") == AssetType.CRYPTO
+        assert get_asset_type("SOL-USD") == AssetType.CRYPTO
+
+    def test_risk_params_differ_by_asset(self):
+        from stockio.config import AssetType, get_risk_params
+        equity = get_risk_params(AssetType.EQUITY)
+        crypto = get_risk_params(AssetType.CRYPTO)
+        forex = get_risk_params(AssetType.FOREX)
+        # Crypto has wider thresholds
+        assert crypto["stop_loss_pct"] > equity["stop_loss_pct"]
+        assert crypto["take_profit_pct"] > equity["take_profit_pct"]
+        # Forex has tighter thresholds
+        assert forex["stop_loss_pct"] < equity["stop_loss_pct"]
+        assert forex["take_profit_pct"] < equity["take_profit_pct"]
+
+    def test_display_names(self):
+        from stockio.config import get_asset_display_name
+        assert get_asset_display_name("GC=F") == "Gold"
+        assert get_asset_display_name("BTC-USD") == "Bitcoin"
+        assert get_asset_display_name("EURUSD=X") == "EUR/USD"
+        assert get_asset_display_name("AAPL") == "AAPL"  # no special name
 
 
 class TestTradeSignal:

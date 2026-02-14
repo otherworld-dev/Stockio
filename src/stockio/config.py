@@ -2,6 +2,7 @@
 
 import os
 import logging
+from enum import Enum
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -12,6 +13,19 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 MODEL_DIR = DATA_DIR / "models"
 DB_PATH = DATA_DIR / "stockio.db"
+
+
+# ---------------------------------------------------------------------------
+# Asset types
+# ---------------------------------------------------------------------------
+
+
+class AssetType(str, Enum):
+    EQUITY = "equity"
+    FOREX = "forex"
+    COMMODITY = "commodity"
+    CRYPTO = "crypto"
+
 
 # Budget
 INITIAL_BUDGET_GBP = float(os.getenv("STOCKIO_BUDGET", "500.00"))
@@ -65,6 +79,121 @@ INCLUDE_PENNY_STOCKS = os.getenv("STOCKIO_INCLUDE_PENNY_STOCKS", "true").lower()
 
 # Maximum number of tickers to discover per market (safety limit)
 MAX_TICKERS_PER_MARKET = int(os.getenv("STOCKIO_MAX_TICKERS_PER_MARKET", "5000"))
+
+# ---------------------------------------------------------------------------
+# Forex (currency pairs)
+# ---------------------------------------------------------------------------
+
+FOREX_ENABLED = os.getenv("STOCKIO_FOREX_ENABLED", "true").lower() in (
+    "true", "1", "yes",
+)
+
+# Major and minor forex pairs (Yahoo Finance format: EURUSD=X)
+FOREX_PAIRS = [
+    p.strip()
+    for p in os.getenv(
+        "STOCKIO_FOREX_PAIRS",
+        "EURUSD=X,GBPUSD=X,USDJPY=X,USDCHF=X,AUDUSD=X,USDCAD=X,NZDUSD=X,"
+        "EURGBP=X,EURJPY=X,GBPJPY=X,EURCHF=X,AUDJPY=X,EURAUD=X,GBPCHF=X",
+    ).split(",")
+    if p.strip()
+]
+
+# Risk management for forex (more conservative — leveraged markets)
+FOREX_MAX_POSITION_PCT = float(os.getenv("STOCKIO_FOREX_MAX_POSITION_PCT", "10"))
+FOREX_STOP_LOSS_PCT = float(os.getenv("STOCKIO_FOREX_STOP_LOSS_PCT", "2"))
+FOREX_TAKE_PROFIT_PCT = float(os.getenv("STOCKIO_FOREX_TAKE_PROFIT_PCT", "5"))
+
+# ---------------------------------------------------------------------------
+# Commodities (gold, silver, oil, etc.)
+# ---------------------------------------------------------------------------
+
+COMMODITIES_ENABLED = os.getenv("STOCKIO_COMMODITIES_ENABLED", "true").lower() in (
+    "true", "1", "yes",
+)
+
+# Major commodities (Yahoo Finance futures format: GC=F)
+COMMODITY_SYMBOLS = [
+    s.strip()
+    for s in os.getenv(
+        "STOCKIO_COMMODITY_SYMBOLS",
+        "GC=F,SI=F,CL=F,NG=F,HG=F,PL=F,PA=F,ZW=F,ZC=F,ZS=F,KC=F,CT=F",
+    ).split(",")
+    if s.strip()
+]
+
+# Friendly names for display
+COMMODITY_NAMES: dict[str, str] = {
+    "GC=F": "Gold",
+    "SI=F": "Silver",
+    "CL=F": "Crude Oil (WTI)",
+    "NG=F": "Natural Gas",
+    "HG=F": "Copper",
+    "PL=F": "Platinum",
+    "PA=F": "Palladium",
+    "ZW=F": "Wheat",
+    "ZC=F": "Corn",
+    "ZS=F": "Soybeans",
+    "KC=F": "Coffee",
+    "CT=F": "Cotton",
+}
+
+# Risk management for commodities
+COMMODITY_MAX_POSITION_PCT = float(os.getenv("STOCKIO_COMMODITY_MAX_POSITION_PCT", "15"))
+COMMODITY_STOP_LOSS_PCT = float(os.getenv("STOCKIO_COMMODITY_STOP_LOSS_PCT", "4"))
+COMMODITY_TAKE_PROFIT_PCT = float(os.getenv("STOCKIO_COMMODITY_TAKE_PROFIT_PCT", "10"))
+
+# ---------------------------------------------------------------------------
+# Cryptocurrency
+# ---------------------------------------------------------------------------
+
+CRYPTO_ENABLED = os.getenv("STOCKIO_CRYPTO_ENABLED", "true").lower() in (
+    "true", "1", "yes",
+)
+
+# Major crypto (Yahoo Finance format: BTC-USD)
+CRYPTO_SYMBOLS = [
+    s.strip()
+    for s in os.getenv(
+        "STOCKIO_CRYPTO_SYMBOLS",
+        "BTC-USD,ETH-USD,BNB-USD,SOL-USD,XRP-USD,ADA-USD,DOGE-USD,AVAX-USD,"
+        "DOT-USD,MATIC-USD,LINK-USD,UNI-USD,LTC-USD,ATOM-USD",
+    ).split(",")
+    if s.strip()
+]
+
+# Friendly names for display
+CRYPTO_NAMES: dict[str, str] = {
+    "BTC-USD": "Bitcoin",
+    "ETH-USD": "Ethereum",
+    "BNB-USD": "Binance Coin",
+    "SOL-USD": "Solana",
+    "XRP-USD": "Ripple",
+    "ADA-USD": "Cardano",
+    "DOGE-USD": "Dogecoin",
+    "AVAX-USD": "Avalanche",
+    "DOT-USD": "Polkadot",
+    "MATIC-USD": "Polygon",
+    "LINK-USD": "Chainlink",
+    "UNI-USD": "Uniswap",
+    "LTC-USD": "Litecoin",
+    "ATOM-USD": "Cosmos",
+}
+
+# Risk management for crypto (wider thresholds — high volatility)
+CRYPTO_MAX_POSITION_PCT = float(os.getenv("STOCKIO_CRYPTO_MAX_POSITION_PCT", "10"))
+CRYPTO_STOP_LOSS_PCT = float(os.getenv("STOCKIO_CRYPTO_STOP_LOSS_PCT", "8"))
+CRYPTO_TAKE_PROFIT_PCT = float(os.getenv("STOCKIO_CRYPTO_TAKE_PROFIT_PCT", "20"))
+
+# Crypto-specific subreddits
+CRYPTO_SUBREDDITS = [
+    s.strip()
+    for s in os.getenv(
+        "STOCKIO_CRYPTO_SUBREDDITS",
+        "CryptoCurrency,Bitcoin,ethereum,CryptoMarkets,altcoin",
+    ).split(",")
+    if s.strip()
+]
 
 # ---------------------------------------------------------------------------
 # Reddit / Social Media
@@ -142,3 +271,63 @@ def get_logger(name: str) -> logging.Logger:
         logger.addHandler(handler)
     logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
     return logger
+
+
+# ---------------------------------------------------------------------------
+# Asset type helpers
+# ---------------------------------------------------------------------------
+
+
+def get_asset_type(ticker: str) -> AssetType:
+    """Determine the asset type from a ticker symbol."""
+    if ticker in FOREX_PAIRS or ticker.endswith("=X"):
+        return AssetType.FOREX
+    if ticker in COMMODITY_SYMBOLS or (ticker.endswith("=F") and ticker not in FOREX_PAIRS):
+        return AssetType.COMMODITY
+    if ticker in CRYPTO_SYMBOLS or (
+        "-USD" in ticker and not ticker.endswith(".L") and not ticker.endswith("=X")
+    ):
+        return AssetType.CRYPTO
+    return AssetType.EQUITY
+
+
+def get_risk_params(asset_type: AssetType) -> dict:
+    """Return risk management parameters for a given asset type."""
+    if asset_type == AssetType.FOREX:
+        return {
+            "max_position_pct": FOREX_MAX_POSITION_PCT,
+            "stop_loss_pct": FOREX_STOP_LOSS_PCT,
+            "take_profit_pct": FOREX_TAKE_PROFIT_PCT,
+        }
+    if asset_type == AssetType.COMMODITY:
+        return {
+            "max_position_pct": COMMODITY_MAX_POSITION_PCT,
+            "stop_loss_pct": COMMODITY_STOP_LOSS_PCT,
+            "take_profit_pct": COMMODITY_TAKE_PROFIT_PCT,
+        }
+    if asset_type == AssetType.CRYPTO:
+        return {
+            "max_position_pct": CRYPTO_MAX_POSITION_PCT,
+            "stop_loss_pct": CRYPTO_STOP_LOSS_PCT,
+            "take_profit_pct": CRYPTO_TAKE_PROFIT_PCT,
+        }
+    # Default: equity
+    return {
+        "max_position_pct": MAX_POSITION_PCT,
+        "stop_loss_pct": STOP_LOSS_PCT,
+        "take_profit_pct": TAKE_PROFIT_PCT,
+    }
+
+
+def get_asset_display_name(ticker: str) -> str:
+    """Return a friendly display name for a ticker."""
+    if ticker in COMMODITY_NAMES:
+        return COMMODITY_NAMES[ticker]
+    if ticker in CRYPTO_NAMES:
+        return CRYPTO_NAMES[ticker]
+    # Forex: convert EURUSD=X → EUR/USD
+    if ticker.endswith("=X") and len(ticker) == 8:
+        base = ticker[:3]
+        quote = ticker[3:6]
+        return f"{base}/{quote}"
+    return ticker

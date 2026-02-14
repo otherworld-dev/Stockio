@@ -60,6 +60,13 @@ class TestAPI:
         assert data["budget"] == 500.0
         assert data["mode"] == "paper"
         assert isinstance(data["watchlist"], list)
+        # Multi-asset config fields
+        assert "forex_enabled" in data
+        assert "commodities_enabled" in data
+        assert "crypto_enabled" in data
+        assert "forex_risk" in data
+        assert "commodity_risk" in data
+        assert "crypto_risk" in data
 
     def test_trades_endpoint_empty(self, client):
         resp = client.get("/api/trades")

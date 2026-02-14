@@ -1,7 +1,12 @@
-"""Dynamic stock discovery across multiple markets/exchanges.
+"""Dynamic asset discovery across multiple markets and asset classes.
 
-Fetches comprehensive ticker lists from Yahoo Finance's screener API,
-caches them in SQLite, and provides the bot with a rotating batch of
+Supports:
+  - Equities: via Yahoo Finance screener API (LSE, AIM, NYSE, NASDAQ, etc.)
+  - Forex: predefined major/minor currency pairs (EURUSD=X, etc.)
+  - Commodities: predefined futures symbols (GC=F gold, CL=F oil, etc.)
+  - Crypto: predefined cryptocurrency pairs (BTC-USD, ETH-USD, etc.)
+
+Caches tickers in SQLite and provides the bot with a rotating batch of
 tickers to analyse each cycle.
 """
 
@@ -17,12 +22,12 @@ from dataclasses import dataclass
 import requests
 
 from stockio import config
-from stockio.config import get_logger
+from stockio.config import AssetType, get_logger
 
 log = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
-# Supported markets
+# Supported markets (equities)
 # ---------------------------------------------------------------------------
 
 SUPPORTED_MARKETS: dict[str, dict] = {
@@ -33,6 +38,7 @@ SUPPORTED_MARKETS: dict[str, dict] = {
         "region": "GB",
         "currency": "GBP",
         "news_lang": "en-GB",
+        "asset_type": AssetType.EQUITY,
     },
     "AIM": {
         "name": "AIM (Alternative Investment Market)",
@@ -41,6 +47,7 @@ SUPPORTED_MARKETS: dict[str, dict] = {
         "region": "GB",
         "currency": "GBP",
         "news_lang": "en-GB",
+        "asset_type": AssetType.EQUITY,
     },
     "NYSE": {
         "name": "New York Stock Exchange",
@@ -49,6 +56,7 @@ SUPPORTED_MARKETS: dict[str, dict] = {
         "region": "US",
         "currency": "USD",
         "news_lang": "en-US",
+        "asset_type": AssetType.EQUITY,
     },
     "NASDAQ": {
         "name": "NASDAQ",
@@ -57,6 +65,7 @@ SUPPORTED_MARKETS: dict[str, dict] = {
         "region": "US",
         "currency": "USD",
         "news_lang": "en-US",
+        "asset_type": AssetType.EQUITY,
     },
     "EURONEXT": {
         "name": "Euronext (Paris)",
@@ -65,6 +74,7 @@ SUPPORTED_MARKETS: dict[str, dict] = {
         "region": "FR",
         "currency": "EUR",
         "news_lang": "en-US",
+        "asset_type": AssetType.EQUITY,
     },
     "XETRA": {
         "name": "Deutsche Börse (Xetra)",
@@ -73,6 +83,37 @@ SUPPORTED_MARKETS: dict[str, dict] = {
         "region": "DE",
         "currency": "EUR",
         "news_lang": "en-US",
+        "asset_type": AssetType.EQUITY,
+    },
+    # ---- Forex ----
+    "FOREX": {
+        "name": "Foreign Exchange (Major & Minor Pairs)",
+        "yahoo_exchanges": [],
+        "suffix": "",
+        "region": "ALL",
+        "currency": "USD",
+        "news_lang": "en-US",
+        "asset_type": AssetType.FOREX,
+    },
+    # ---- Commodities ----
+    "COMMODITIES": {
+        "name": "Commodities (Futures)",
+        "yahoo_exchanges": [],
+        "suffix": "",
+        "region": "ALL",
+        "currency": "USD",
+        "news_lang": "en-US",
+        "asset_type": AssetType.COMMODITY,
+    },
+    # ---- Crypto ----
+    "CRYPTO": {
+        "name": "Cryptocurrency",
+        "yahoo_exchanges": [],
+        "suffix": "",
+        "region": "ALL",
+        "currency": "USD",
+        "news_lang": "en-US",
+        "asset_type": AssetType.CRYPTO,
     },
 }
 
@@ -85,6 +126,7 @@ class DiscoveredTicker:
     exchange: str
     currency: str
     market_cap: float | None
+    asset_type: str = "equity"
 
 
 # ---------------------------------------------------------------------------
@@ -103,6 +145,7 @@ def _init_market_tables(conn: sqlite3.Connection) -> None:
             currency     TEXT DEFAULT '',
             market_cap   REAL,
             last_updated TEXT NOT NULL,
+            asset_type   TEXT NOT NULL DEFAULT 'equity',
             PRIMARY KEY (symbol, market)
         );
 
@@ -113,6 +156,13 @@ def _init_market_tables(conn: sqlite3.Connection) -> None:
         );
         """
     )
+    # Migration: add asset_type column if missing
+    try:
+        conn.execute("SELECT asset_type FROM market_tickers LIMIT 0")
+    except sqlite3.OperationalError:
+        conn.execute(
+            "ALTER TABLE market_tickers ADD COLUMN asset_type TEXT NOT NULL DEFAULT 'equity'"
+        )
 
 
 @contextmanager
@@ -245,8 +295,72 @@ def _fetch_exchange_tickers(
 # ---------------------------------------------------------------------------
 
 
+def _discover_forex() -> list[DiscoveredTicker]:
+    """Return predefined forex pairs as DiscoveredTicker objects."""
+    if not config.FOREX_ENABLED:
+        return []
+    # Forex pair display names
+    tickers = []
+    for symbol in config.FOREX_PAIRS:
+        name = config.get_asset_display_name(symbol)
+        tickers.append(DiscoveredTicker(
+            symbol=symbol,
+            name=name,
+            market="FOREX",
+            exchange="CCY",
+            currency="USD",
+            market_cap=None,
+            asset_type=AssetType.FOREX.value,
+        ))
+    log.info("Forex: %d currency pairs configured", len(tickers))
+    return tickers
+
+
+def _discover_commodities() -> list[DiscoveredTicker]:
+    """Return predefined commodity futures as DiscoveredTicker objects."""
+    if not config.COMMODITIES_ENABLED:
+        return []
+    tickers = []
+    for symbol in config.COMMODITY_SYMBOLS:
+        name = config.COMMODITY_NAMES.get(symbol, symbol)
+        tickers.append(DiscoveredTicker(
+            symbol=symbol,
+            name=name,
+            market="COMMODITIES",
+            exchange="CME",
+            currency="USD",
+            market_cap=None,
+            asset_type=AssetType.COMMODITY.value,
+        ))
+    log.info("Commodities: %d symbols configured", len(tickers))
+    return tickers
+
+
+def _discover_crypto() -> list[DiscoveredTicker]:
+    """Return predefined crypto pairs as DiscoveredTicker objects."""
+    if not config.CRYPTO_ENABLED:
+        return []
+    tickers = []
+    for symbol in config.CRYPTO_SYMBOLS:
+        name = config.CRYPTO_NAMES.get(symbol, symbol)
+        tickers.append(DiscoveredTicker(
+            symbol=symbol,
+            name=name,
+            market="CRYPTO",
+            exchange="CCC",
+            currency="USD",
+            market_cap=None,
+            asset_type=AssetType.CRYPTO.value,
+        ))
+    log.info("Crypto: %d symbols configured", len(tickers))
+    return tickers
+
+
 def discover_market(market_key: str) -> list[DiscoveredTicker]:
-    """Discover all tickers on a single market using Yahoo Finance screener.
+    """Discover all tickers on a single market.
+
+    For equities: uses Yahoo Finance screener API.
+    For forex/commodities/crypto: uses predefined symbol lists.
 
     Returns the list of discovered tickers.
     """
@@ -255,6 +369,15 @@ def discover_market(market_key: str) -> list[DiscoveredTicker]:
         log.error("Unknown market: %s (supported: %s)",
                   market_key, ", ".join(SUPPORTED_MARKETS))
         return []
+
+    # Non-equity markets use predefined lists (no screener needed)
+    asset_type = market_def.get("asset_type", AssetType.EQUITY)
+    if asset_type == AssetType.FOREX:
+        return _discover_forex()
+    if asset_type == AssetType.COMMODITY:
+        return _discover_commodities()
+    if asset_type == AssetType.CRYPTO:
+        return _discover_crypto()
 
     log.info("Discovering tickers on %s (%s) ...", market_key, market_def["name"])
 
@@ -273,6 +396,7 @@ def discover_market(market_key: str) -> list[DiscoveredTicker]:
         )
         for t in tickers:
             t.market = market_key
+            t.asset_type = AssetType.EQUITY.value
         all_tickers.extend(tickers)
         log.info("  Found %d tickers on %s", len(tickers), exch_code)
 
@@ -297,10 +421,11 @@ def refresh_market(market_key: str) -> int:
         conn.execute("DELETE FROM market_tickers WHERE market = ?", (market_key,))
         conn.executemany(
             "INSERT INTO market_tickers "
-            "(symbol, market, name, exchange, currency, market_cap, last_updated) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "(symbol, market, name, exchange, currency, market_cap, last_updated, asset_type) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             [
-                (t.symbol, t.market, t.name, t.exchange, t.currency, t.market_cap, now)
+                (t.symbol, t.market, t.name, t.exchange, t.currency, t.market_cap, now,
+                 t.asset_type)
                 for t in tickers
             ],
         )
@@ -315,7 +440,7 @@ def refresh_market(market_key: str) -> int:
 
 
 def refresh_all_markets() -> dict[str, int]:
-    """Refresh ticker caches for all configured markets.
+    """Refresh ticker caches for all configured markets (equities + other asset types).
 
     Returns ``{market: ticker_count}``.
     """
@@ -323,7 +448,35 @@ def refresh_all_markets() -> dict[str, int]:
     for market_key in config.MARKETS:
         count = refresh_market(market_key)
         results[market_key] = count
+
+    # Refresh non-equity asset types if enabled
+    for extra_market in ("FOREX", "COMMODITIES", "CRYPTO"):
+        if extra_market in results:
+            continue  # already in config.MARKETS
+        market_def = SUPPORTED_MARKETS.get(extra_market, {})
+        asset_type = market_def.get("asset_type")
+        enabled = (
+            (asset_type == AssetType.FOREX and config.FOREX_ENABLED)
+            or (asset_type == AssetType.COMMODITY and config.COMMODITIES_ENABLED)
+            or (asset_type == AssetType.CRYPTO and config.CRYPTO_ENABLED)
+        )
+        if enabled:
+            count = refresh_market(extra_market)
+            results[extra_market] = count
+
     return results
+
+
+def _all_enabled_markets() -> list[str]:
+    """Return all market keys that should be active (equities + enabled asset types)."""
+    markets = list(config.MARKETS)
+    if config.FOREX_ENABLED and "FOREX" not in markets:
+        markets.append("FOREX")
+    if config.COMMODITIES_ENABLED and "COMMODITIES" not in markets:
+        markets.append("COMMODITIES")
+    if config.CRYPTO_ENABLED and "CRYPTO" not in markets:
+        markets.append("CRYPTO")
+    return markets
 
 
 def maybe_refresh() -> None:
@@ -331,8 +484,10 @@ def maybe_refresh() -> None:
     now = dt.datetime.utcnow()
     needs_refresh: list[str] = []
 
+    all_markets = _all_enabled_markets()
+
     with _get_conn() as conn:
-        for market_key in config.MARKETS:
+        for market_key in all_markets:
             row = conn.execute(
                 "SELECT last_refresh FROM market_refresh WHERE market = ?",
                 (market_key,),
@@ -357,11 +512,12 @@ def maybe_refresh() -> None:
 
 
 def get_cached_tickers(markets: list[str] | None = None) -> list[str]:
-    """Return all cached ticker symbols for the given (or configured) markets.
+    """Return all cached ticker symbols for the given (or all enabled) markets.
 
-    Returns symbols in descending market-cap order.
+    Returns symbols in descending market-cap order (equities first, then
+    forex/commodities/crypto).
     """
-    markets = markets or config.MARKETS
+    markets = markets or _all_enabled_markets()
     if not markets:
         return list(config.WATCHLIST)
 
@@ -403,15 +559,16 @@ def get_market_summary() -> list[dict]:
 
 
 def get_ticker_count() -> int:
-    """Return total number of cached tickers across all configured markets."""
+    """Return total number of cached tickers across all enabled markets."""
+    all_markets = _all_enabled_markets()
+    if not all_markets:
+        return len(config.WATCHLIST)
     with _get_conn() as conn:
-        placeholders = ",".join("?" for _ in config.MARKETS)
-        if not config.MARKETS:
-            return len(config.WATCHLIST)
+        placeholders = ",".join("?" for _ in all_markets)
         row = conn.execute(
             f"SELECT COUNT(*) as cnt FROM market_tickers "
             f"WHERE market IN ({placeholders})",
-            config.MARKETS,
+            all_markets,
         ).fetchone()
     return (row["cnt"] if row else 0) + len(config.WATCHLIST)
 
@@ -474,3 +631,15 @@ def get_news_lang(ticker: str) -> str:
     if ticker.endswith(".L"):
         return "en-GB"
     return "en-US"
+
+
+def get_ticker_asset_type(ticker: str) -> str:
+    """Return the asset type for a ticker from the cache, falling back to config."""
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT asset_type FROM market_tickers WHERE symbol = ? LIMIT 1",
+            (ticker,),
+        ).fetchone()
+    if row and row["asset_type"]:
+        return row["asset_type"]
+    return config.get_asset_type(ticker).value

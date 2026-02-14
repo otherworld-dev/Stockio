@@ -1,4 +1,9 @@
-"""Fetch and prepare market data for analysis and ML training."""
+"""Fetch and prepare market data for analysis and ML training.
+
+Supports all asset types (equities, forex, commodities, crypto) via Yahoo
+Finance.  Technical indicators gracefully handle assets with zero or missing
+volume data (common for forex pairs).
+"""
 
 from __future__ import annotations
 
@@ -44,9 +49,14 @@ def fetch_history(
 def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """Add a rich set of technical indicators used as ML features.
 
-    Operates in-place on *df* (which must have OHLCV columns) and returns it.
+    Operates in-place on *df* (which must have OHLC columns, Volume is
+    optional) and returns it.  For assets without meaningful volume data
+    (forex pairs, some commodities), volume-based indicators are filled
+    with zeros instead of causing errors.
     """
-    c, h, l, v = df["Close"], df["High"], df["Low"], df["Volume"]
+    c, h, l = df["Close"], df["High"], df["Low"]
+    has_volume = "Volume" in df.columns and df["Volume"].sum() > 0
+    v = df["Volume"] if has_volume else pd.Series(0, index=df.index)
 
     # --- Trend ---
     df["sma_10"] = ta.trend.sma_indicator(c, window=10)
@@ -74,13 +84,18 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df["bb_width"] = bb.bollinger_wband()
     df["atr"] = ta.volatility.AverageTrueRange(h, l, c).average_true_range()
 
-    # --- Volume ---
-    df["obv"] = ta.volume.on_balance_volume(c, v)
-    df["vwap"] = ta.volume.volume_weighted_average_price(h, l, c, v)
+    # --- Volume (gracefully handle assets without volume data) ---
+    if has_volume:
+        df["obv"] = ta.volume.on_balance_volume(c, v)
+        df["vwap"] = ta.volume.volume_weighted_average_price(h, l, c, v)
+        df["volume_pct"] = v.pct_change()
+    else:
+        df["obv"] = 0.0
+        df["vwap"] = c  # use close as a proxy when no volume
+        df["volume_pct"] = 0.0
 
     # --- Derived ---
     df["close_pct"] = c.pct_change()
-    df["volume_pct"] = v.pct_change()
     df["high_low_range"] = (h - l) / c
 
     df.dropna(inplace=True)

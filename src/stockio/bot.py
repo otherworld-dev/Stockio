@@ -1,7 +1,7 @@
 """Main bot orchestrator — ties all modules together into a trading loop.
 
-The bot:
-  1. Refreshes the market ticker cache (if stale)
+Supports equities, forex, commodities, and crypto.  The bot:
+  1. Refreshes market ticker caches (equities + enabled asset types)
   2. Selects the next batch of tickers to analyse (rotating through all)
   3. Fetches current prices for the batch
   4. Checks existing positions for stop-loss / take-profit exits
@@ -68,9 +68,7 @@ class StockioBot:
             log.error("Trading cycle failed:\n%s", traceback.format_exc())
 
     def _maybe_refresh_markets(self) -> None:
-        """Refresh market ticker caches if they are stale."""
-        if not config.MARKETS:
-            return
+        """Refresh market ticker caches if they are stale (equities + other assets)."""
         try:
             maybe_refresh()
         except Exception:
@@ -378,7 +376,10 @@ class StockioBot:
         markets_str = ", ".join(config.MARKETS) if config.MARKETS else "none (watchlist only)"
 
         log.info("Stockio bot starting (mode=%s, interval=%dm)", config.MODE, config.INTERVAL_MINUTES)
-        log.info("Markets: %s", markets_str)
+        log.info("Equity markets: %s", markets_str)
+        log.info("Forex: %s (%d pairs)", "ENABLED" if config.FOREX_ENABLED else "DISABLED", len(config.FOREX_PAIRS))
+        log.info("Commodities: %s (%d symbols)", "ENABLED" if config.COMMODITIES_ENABLED else "DISABLED", len(config.COMMODITY_SYMBOLS))
+        log.info("Crypto: %s (%d symbols)", "ENABLED" if config.CRYPTO_ENABLED else "DISABLED", len(config.CRYPTO_SYMBOLS))
         log.info("Total tickers in universe: %d", total_tickers)
         log.info("Batch size: %d tickers per cycle", config.BATCH_SIZE)
         log.info("Budget: £%.2f", config.INITIAL_BUDGET_GBP)
