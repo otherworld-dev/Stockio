@@ -33,6 +33,7 @@ from stockio.portfolio import (
     record_cover,
     record_sell,
     record_short,
+    remove_position,
     set_cash,
 )
 from stockio.strategy import Signal, TradeSignal
@@ -718,9 +719,11 @@ class AlpacaExecutor(Executor):
             set_cash(broker_cash)
 
         alpaca_positions = self.client.get_all_positions()
+        alpaca_tickers = set()
         log.info("Alpaca has %d open positions", len(alpaca_positions))
         for ap in alpaca_positions:
             ticker = ap.symbol
+            alpaca_tickers.add(ticker)
             qty = abs(float(ap.qty))
             avg_entry = float(ap.avg_entry_price)
             # Alpaca: negative qty = short position
@@ -736,6 +739,16 @@ class AlpacaExecutor(Executor):
                     record_buy(ticker, qty, avg_entry, reason="Synced from Alpaca")
                 else:
                     record_short(ticker, qty, avg_entry, reason="Synced from Alpaca")
+
+        # Remove local positions that no longer exist on Alpaca
+        # (e.g. stale paper-trading positions from before switching to live)
+        for pos in get_positions():
+            if pos.ticker not in alpaca_tickers:
+                log.info(
+                    "Removing stale local position: %s %s x%.4f (not on Alpaca)",
+                    pos.direction.upper(), pos.ticker, pos.shares,
+                )
+                remove_position(pos.ticker)
 
 
 # ---------------------------------------------------------------------------

@@ -217,6 +217,12 @@ def get_position(ticker: str) -> Position | None:
         return None
 
 
+def remove_position(ticker: str) -> None:
+    """Remove a position from the local DB (used during Alpaca sync)."""
+    with _get_conn() as conn:
+        conn.execute("DELETE FROM portfolio WHERE ticker = ?", (ticker,))
+
+
 def record_buy(ticker: str, shares: float, price: float, reason: str = "") -> TradeRecord:
     """Record a purchase, update portfolio and cash."""
     total = shares * price
