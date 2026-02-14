@@ -123,10 +123,15 @@ def index():
 def api_status():
     """Return current portfolio status as JSON."""
     try:
-        # Use held positions for status (not the full universe)
-        held_tickers = [p.ticker for p in get_positions()]
-        prices = get_current_prices(held_tickers) if held_tickers else {}
-        summary = portfolio_summary(prices)
+        # In live mode, pull data directly from Alpaca instead of local DB
+        if config.MODE == "live" and config.ALPACA_API_KEY and config.ALPACA_SECRET_KEY:
+            summary = _alpaca_portfolio_summary()
+        else:
+            # Paper mode: use local DB
+            held_tickers = [p.ticker for p in get_positions()]
+            prices = get_current_prices(held_tickers) if held_tickers else {}
+            summary = portfolio_summary(prices)
+
         summary["bot_running"] = _bot_running or _systemd_bot_running()
         summary["mode"] = config.MODE
         summary["executor"] = (type(_bot_instance.executor).__name__
@@ -140,6 +145,75 @@ def api_status():
         return jsonify(summary)
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
+
+
+def _alpaca_portfolio_summary() -> dict:
+    """Build a portfolio summary dict from Alpaca account data.
+
+    Returns the same shape as portfolio_summary() so the frontend
+    works identically regardless of data source.
+    """
+    from alpaca.trading.client import TradingClient
+
+    is_paper = "paper" in config.ALPACA_BASE_URL
+    client = TradingClient(
+        config.ALPACA_API_KEY,
+        config.ALPACA_SECRET_KEY,
+        paper=is_paper,
+    )
+
+    acct = client.get_account()
+    positions = client.get_all_positions()
+
+    equity = float(acct.equity)
+    cash = float(acct.cash)
+    long_value = float(acct.long_market_value)
+    short_value = abs(float(acct.short_market_value))
+    # Alpaca doesn't track an "initial budget" — use last_equity as baseline
+    initial = float(acct.last_equity) if acct.last_equity else equity
+
+    holdings = []
+    for p in positions:
+        qty = float(p.qty)
+        avg_cost = float(p.avg_entry_price)
+        price = float(p.current_price)
+        mkt_val = float(p.market_value)
+        pnl = float(p.unrealized_pl)
+        pnl_pct = float(p.unrealized_plpc) * 100
+        direction = "short" if qty < 0 else "long"
+
+        holdings.append({
+            "ticker": p.symbol,
+            "shares": abs(qty),
+            "avg_cost": round(avg_cost, 2),
+            "current_price": round(price, 2),
+            "market_value": round(mkt_val, 2),
+            "pnl": round(pnl, 2),
+            "pnl_pct": round(pnl_pct, 2),
+            "direction": direction,
+            "asset_type": "equity",
+            "display_name": p.symbol,
+        })
+
+    num_long = sum(1 for h in holdings if h["direction"] != "short")
+    num_short = sum(1 for h in holdings if h["direction"] == "short")
+    total_pnl = equity - initial
+    total_pnl_pct = (total_pnl / initial * 100) if initial else 0
+
+    return {
+        "cash": round(cash, 2),
+        "holdings_value": round(equity - cash, 2),
+        "long_value": round(long_value, 2),
+        "short_value": round(short_value, 2),
+        "num_long": num_long,
+        "num_short": num_short,
+        "total_value": round(equity, 2),
+        "initial_budget": round(initial, 2),
+        "total_pnl": round(total_pnl, 2),
+        "total_pnl_pct": round(total_pnl_pct, 2),
+        "num_positions": len(holdings),
+        "holdings": holdings,
+    }
 
 
 @app.route("/api/trades")
