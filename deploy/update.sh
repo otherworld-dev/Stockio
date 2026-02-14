@@ -47,4 +47,4 @@ fi
 
 echo ""
 echo "=== Update Complete ==="
-echo "Web dashboard: http://$(hostname -I | awk '{print $1}'):5000"
+echo "Web dashboard: http://$(hostname -I | awk '{print $1}')"
