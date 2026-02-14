@@ -476,6 +476,28 @@ def get_snapshots(limit: int = 500) -> list[dict]:
         ]
 
 
+def reset_all_data() -> None:
+    """Wipe all portfolio data and reset cash to the configured initial budget.
+
+    Clears: positions, trades, snapshots, bot logs, and account balances.
+    """
+    with _get_conn() as conn:
+        conn.execute("DELETE FROM portfolio")
+        conn.execute("DELETE FROM trades")
+        conn.execute("DELETE FROM snapshots")
+        conn.execute("DELETE FROM bot_log")
+        conn.execute("DELETE FROM account")
+        conn.execute(
+            "INSERT INTO account (key, value) VALUES ('cash', ?)",
+            (str(config.INITIAL_BUDGET_GBP),),
+        )
+        conn.execute(
+            "INSERT INTO account (key, value) VALUES ('initial_budget', ?)",
+            (str(config.INITIAL_BUDGET_GBP),),
+        )
+    log.info("All data reset — cash restored to £%.2f", config.INITIAL_BUDGET_GBP)
+
+
 def get_trade_history(limit: int = 50) -> list[TradeRecord]:
     with _get_conn() as conn:
         rows = conn.execute(

@@ -25,6 +25,7 @@ from stockio.portfolio import (
     get_snapshots,
     get_trade_history,
     portfolio_summary,
+    reset_all_data,
 )
 
 log = get_logger(__name__)
@@ -219,6 +220,27 @@ def api_bot_stop():
 
     _bot_running = False
     return jsonify({"status": "stopped", "via": "thread"})
+
+
+@app.route("/api/reset", methods=["POST"])
+def api_reset():
+    """Reset all portfolio data (positions, trades, snapshots, logs).
+
+    Resets cash back to the configured STOCKIO_BUDGET.
+    Requires the bot to be stopped first.
+    """
+    if _bot_running or _systemd_bot_running():
+        return jsonify({"error": "Stop the bot before resetting data"}), 400
+
+    try:
+        reset_all_data()
+        return jsonify({
+            "status": "reset",
+            "cash": config.INITIAL_BUDGET_GBP,
+        })
+    except Exception as exc:
+        log.exception("Reset failed")
+        return jsonify({"error": str(exc)}), 500
 
 
 @app.route("/api/bot-log")

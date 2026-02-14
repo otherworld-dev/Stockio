@@ -389,6 +389,7 @@
             <button class="btn btn-start" id="btn-start" onclick="startBot()">Start Bot</button>
             <button class="btn btn-stop" id="btn-stop" onclick="stopBot()" style="display:none">Stop Bot</button>
             <button class="btn btn-refresh" onclick="refreshAll()">Refresh</button>
+            <button class="btn" onclick="confirmReset()" style="background:var(--border);color:var(--red);font-size:0.75rem">Reset Data</button>
         </div>
     </header>
 
@@ -848,6 +849,24 @@
         async function stopBot() {
             await fetch('/api/bot/stop', { method: 'POST' });
             loadStatus();
+        }
+
+        async function confirmReset() {
+            if (!confirm('Reset ALL data? This will delete all positions, trades, snapshots, and bot logs, and reset cash to the initial budget. This cannot be undone.')) return;
+            if (!confirm('Are you sure? This will permanently erase all trading history.')) return;
+            try {
+                const resp = await fetch('/api/reset', { method: 'POST' });
+                const data = await resp.json();
+                if (data.error) {
+                    alert('Reset failed: ' + data.error);
+                } else {
+                    alert('Data reset. Cash restored to \u00a3' + data.cash.toFixed(2));
+                    refreshAll();
+                    loadCharts();
+                }
+            } catch (err) {
+                alert('Reset failed: ' + err);
+            }
         }
 
         // ---- Alpaca Broker Account ----
