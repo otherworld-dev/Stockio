@@ -860,10 +860,12 @@
                 if (data.error) {
                     alert('Reset failed: ' + data.error);
                 } else {
+                    // Refresh everything after reset
+                    await loadStatus();
+                    await loadCharts();
+                    loadTrades();
+                    loadBotLog();
                     alert('Data reset. Cash restored to \u00a3' + data.cash.toFixed(2));
-                    refreshAll();
-                    loadCharts();
-                    loadStatus();
                 }
             } catch (err) {
                 alert('Reset failed: ' + err);

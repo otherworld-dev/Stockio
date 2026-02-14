@@ -227,15 +227,19 @@ def api_reset():
     """Reset all portfolio data (positions, trades, snapshots, logs).
 
     Resets cash back to the configured STOCKIO_BUDGET.
-    Stops the bot automatically if it is running.
+    Stops the bot automatically if it is running and waits for it to finish.
     """
     global _bot_running
 
-    # Stop bot if running
+    # Stop bot if running and wait for thread to finish its current cycle
     if _bot_running:
         _bot_running = False
+        if _bot_thread is not None:
+            _bot_thread.join(timeout=30)
     if _systemd_bot_running():
         _try_systemctl("stop")
+        import time
+        time.sleep(2)  # give systemd a moment to stop
 
     try:
         reset_all_data()
