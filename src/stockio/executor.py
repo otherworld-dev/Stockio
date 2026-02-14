@@ -432,6 +432,13 @@ class AlpacaExecutor(Executor):
     def execute(self, signal: TradeSignal, current_price: float) -> TradeRecord | None:
         ticker = signal.ticker
 
+        # Alpaca only supports US equities (and some crypto).
+        # Skip forex (=X), commodity futures (=F), etc.
+        asset_type = config.get_asset_type(ticker)
+        if asset_type not in (config.AssetType.EQUITY, config.AssetType.CRYPTO):
+            log.debug("Skipping %s — %s not supported on Alpaca", ticker, asset_type.value)
+            return None
+
         if signal.signal == Signal.HOLD:
             return None
         if signal.signal == Signal.BUY:

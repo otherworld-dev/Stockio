@@ -218,8 +218,19 @@ def _alpaca_portfolio_summary() -> dict:
 
 @app.route("/api/trades")
 def api_trades():
-    """Return recent trade history as JSON."""
+    """Return recent trade history as JSON.
+
+    In live mode, fetches recent orders from Alpaca so the dashboard
+    reflects real broker activity rather than stale local paper trades.
+    """
     limit = request.args.get("limit", 50, type=int)
+
+    if config.MODE == "live" and config.ALPACA_API_KEY and config.ALPACA_SECRET_KEY:
+        try:
+            return jsonify(_alpaca_trade_history(limit))
+        except Exception as exc:
+            log.warning("Failed to fetch Alpaca orders, falling back to local: %s", exc)
+
     trades = get_trade_history(limit=limit)
     return jsonify([
         {
@@ -234,6 +245,43 @@ def api_trades():
         }
         for t in trades
     ])
+
+
+def _alpaca_trade_history(limit: int = 50) -> list[dict]:
+    """Fetch recent filled orders from Alpaca."""
+    from alpaca.trading.client import TradingClient
+    from alpaca.trading.requests import GetOrdersRequest
+    from alpaca.trading.enums import QueryOrderStatus
+
+    is_paper = "paper" in config.ALPACA_BASE_URL
+    client = TradingClient(
+        config.ALPACA_API_KEY,
+        config.ALPACA_SECRET_KEY,
+        paper=is_paper,
+    )
+
+    req = GetOrdersRequest(
+        status=QueryOrderStatus.CLOSED,
+        limit=limit,
+    )
+    orders = client.get_orders(req)
+
+    result = []
+    for o in orders:
+        if o.filled_qty and float(o.filled_qty) > 0:
+            qty = float(o.filled_qty)
+            price = float(o.filled_avg_price) if o.filled_avg_price else 0
+            result.append({
+                "id": str(o.id),
+                "ticker": o.symbol,
+                "side": o.side.value,
+                "shares": qty,
+                "price": round(price, 2),
+                "total": round(qty * price, 2),
+                "timestamp": o.filled_at.isoformat() if o.filled_at else o.submitted_at.isoformat(),
+                "reason": f"Alpaca order ({o.type.value})",
+            })
+    return result
 
 
 @app.route("/api/signals")
