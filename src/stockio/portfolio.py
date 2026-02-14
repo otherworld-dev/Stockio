@@ -152,6 +152,25 @@ def set_cash(amount: float) -> None:
         conn.execute("UPDATE account SET value = ? WHERE key = 'cash'", (str(amount),))
 
 
+def get_setting(key: str, default: str = "") -> str:
+    """Read a setting from the account table."""
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT value FROM account WHERE key = ?", (key,)
+        ).fetchone()
+        return row["value"] if row else default
+
+
+def set_setting(key: str, value: str) -> None:
+    """Write a setting to the account table (upsert)."""
+    with _get_conn() as conn:
+        conn.execute(
+            "INSERT INTO account (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
+
+
 def get_initial_budget() -> float:
     with _get_conn() as conn:
         row = conn.execute(

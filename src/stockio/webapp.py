@@ -22,10 +22,12 @@ from stockio.portfolio import (
     get_bot_logs,
     get_cash,
     get_positions,
+    get_setting,
     get_snapshots,
     get_trade_history,
     portfolio_summary,
     reset_all_data,
+    set_setting,
 )
 
 log = get_logger(__name__)
@@ -44,6 +46,14 @@ try:
     warmup_model()
 except Exception:
     pass  # logged inside warmup_model
+
+# Restore saved trading mode from the database (survives restarts).
+try:
+    saved_mode = get_setting("trading_mode")
+    if saved_mode in ("paper", "live"):
+        config.MODE = saved_mode
+except Exception:
+    pass  # DB might not exist yet on first run
 
 # Reference to the bot thread (set by run_webapp)
 _bot_thread: threading.Thread | None = None
@@ -258,8 +268,9 @@ def api_mode():
     if _systemd_bot_running():
         _try_systemctl("stop")
 
-    # Update mode
+    # Update mode in memory and persist to DB
     config.MODE = mode
+    set_setting("trading_mode", mode)
     log.info("Trading mode switched to: %s", mode)
 
     # Restart bot if it was running
@@ -267,12 +278,16 @@ def api_mode():
         if _try_systemctl("start"):
             return jsonify({"status": "ok", "mode": mode, "bot": "restarted (systemd)"})
 
-        from stockio.bot import StockioBot
-        _bot_instance = StockioBot()
-        _bot_thread = threading.Thread(target=_run_bot, daemon=True)
-        _bot_thread.start()
-        _bot_running = True
-        return jsonify({"status": "ok", "mode": mode, "bot": "restarted"})
+        try:
+            from stockio.bot import StockioBot
+            _bot_instance = StockioBot()
+            _bot_thread = threading.Thread(target=_run_bot, daemon=True)
+            _bot_thread.start()
+            _bot_running = True
+            return jsonify({"status": "ok", "mode": mode, "bot": "restarted"})
+        except Exception as exc:
+            log.exception("Failed to restart bot in %s mode", mode)
+            return jsonify({"error": f"Mode set to {mode} but bot failed to restart: {exc}"}), 500
 
     return jsonify({"status": "ok", "mode": mode, "bot": "stopped"})
 
