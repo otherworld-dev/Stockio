@@ -674,9 +674,17 @@ def portfolio_summary(current_prices: dict[str, float]) -> dict:
     total_pnl = total_value - initial
     total_pnl_pct = (total_pnl / initial * 100) if initial else 0
 
+    # Count long vs short positions
+    num_long = sum(1 for h in holdings if h["direction"] != "short")
+    num_short = sum(1 for h in holdings if h["direction"] == "short")
+
     return {
         "cash": round(cash, 2),
         "holdings_value": round(holdings_value, 2),
+        "long_value": round(long_value, 2),
+        "short_value": round(short_liability, 2),
+        "num_long": num_long,
+        "num_short": num_short,
         "total_value": round(total_value, 2),
         "initial_budget": round(initial, 2),
         "total_pnl": round(total_pnl, 2),
