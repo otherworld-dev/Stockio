@@ -98,6 +98,7 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df["close_pct"] = c.pct_change()
     df["high_low_range"] = (h - l) / c
 
+    df.replace([np.inf, -np.inf], np.nan, inplace=True)
     df.dropna(inplace=True)
     return df
 
