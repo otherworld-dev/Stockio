@@ -17,6 +17,9 @@ transformers>=4.35.0
 # Live trading (Alpaca brokerage)
 alpaca-py>=0.21.0
 
+# Live trading (OANDA forex)
+oandapyV20>=0.7.0
+
 # Storage
 # (sqlite3 is in the Python standard library)
 

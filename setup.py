@@ -17,6 +17,7 @@ setup(
         "requests>=2.31.0",
         "transformers>=4.35.0",
         "alpaca-py>=0.21.0",
+        "oandapyV20>=0.7.0",
         "schedule>=1.2.0",
         "click>=8.1.0",
         "flask>=3.0.0",

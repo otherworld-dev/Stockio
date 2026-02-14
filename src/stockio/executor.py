@@ -1,10 +1,12 @@
 """Trade execution module.
 
-Provides a unified interface with two backends:
+Provides a unified interface with multiple backends:
   - PaperExecutor  — simulated trades using live market prices (default)
-  - AlpacaExecutor — real trades via the Alpaca brokerage API
+  - AlpacaExecutor — real trades via the Alpaca brokerage API (equities + crypto)
+  - OandaExecutor  — real trades via the OANDA v20 REST API (forex)
+  - MultiExecutor  — routes signals to the correct broker by asset type
 
-Both executors share the same interface so the rest of the system is
+All executors share the same interface so the rest of the system is
 broker-agnostic.  Supports all asset types with per-asset position sizing.
 """
 
@@ -759,12 +761,434 @@ class AlpacaExecutor(Executor):
 
 
 # ---------------------------------------------------------------------------
+# OANDA (forex) executor — real trades via OANDA v20 REST API
+# ---------------------------------------------------------------------------
+
+# OANDA API URLs
+_OANDA_PRACTICE_URL = "https://api-fxpractice.oanda.com"
+_OANDA_LIVE_URL = "https://api-fxtrade.oanda.com"
+
+
+def _yahoo_to_oanda(ticker: str) -> str:
+    """Convert Yahoo Finance forex ticker to OANDA instrument.
+
+    EURUSD=X → EUR_USD
+    """
+    if ticker.endswith("=X") and len(ticker) == 8:
+        return f"{ticker[:3]}_{ticker[3:6]}"
+    return ticker
+
+
+def _oanda_to_yahoo(instrument: str) -> str:
+    """Convert OANDA instrument back to Yahoo Finance ticker.
+
+    EUR_USD → EURUSD=X
+    """
+    if "_" in instrument and len(instrument) == 7:
+        return f"{instrument[:3]}{instrument[4:]}=X"
+    return instrument
+
+
+class OandaExecutor(Executor):
+    """Execute real forex trades via the OANDA v20 REST API.
+
+    Uses the ``oandapyV20`` SDK.  Requires OANDA_API_KEY and
+    OANDA_ACCOUNT_ID in the environment.
+
+    Every trade submitted to OANDA is also mirrored into the local
+    SQLite portfolio DB so the dashboard and risk checks stay in sync.
+    """
+
+    def __init__(self) -> None:
+        if not config.OANDA_API_KEY or not config.OANDA_ACCOUNT_ID:
+            raise RuntimeError(
+                "OANDA API credentials not configured. "
+                "Set OANDA_API_KEY and OANDA_ACCOUNT_ID in .env"
+            )
+
+        import oandapyV20
+
+        env = "practice" if config.OANDA_PRACTICE else "live"
+        self.client = oandapyV20.API(
+            access_token=config.OANDA_API_KEY,
+            environment=env,
+        )
+        self.account_id = config.OANDA_ACCOUNT_ID
+
+        # Verify credentials
+        self._get_account_summary()
+        log.info(
+            "OANDA executor initialised (practice=%s, account=%s)",
+            config.OANDA_PRACTICE, self.account_id,
+        )
+
+    def _get_account_summary(self) -> dict:
+        """Fetch account summary from OANDA."""
+        from oandapyV20.endpoints.accounts import AccountSummary
+
+        r = AccountSummary(self.account_id)
+        self.client.request(r)
+        return r.response.get("account", {})
+
+    def get_account_details(self) -> dict:
+        """Fetch full account details including positions."""
+        from oandapyV20.endpoints.accounts import AccountDetails
+
+        r = AccountDetails(self.account_id)
+        self.client.request(r)
+        return r.response.get("account", {})
+
+    def _submit_market_order(
+        self, ticker: str, units: int, side: str
+    ) -> dict | None:
+        """Submit a market order to OANDA.
+
+        *units* is positive for buy, negative for sell/short.
+        Returns the filled order response or None on failure.
+        """
+        from oandapyV20.endpoints.orders import OrderCreate
+
+        instrument = _yahoo_to_oanda(ticker)
+        # OANDA: positive units = buy, negative = sell
+        if side in ("sell", "short"):
+            units = -abs(units)
+        else:
+            units = abs(units)
+
+        data = {
+            "order": {
+                "type": "MARKET",
+                "instrument": instrument,
+                "units": str(units),
+                "timeInForce": "FOK",  # Fill Or Kill
+                "positionFill": "DEFAULT",
+            }
+        }
+
+        log.info("OANDA ORDER: %s %s x%d (market)", side.upper(), instrument, abs(units))
+
+        try:
+            r = OrderCreate(self.account_id, data=data)
+            self.client.request(r)
+            response = r.response
+
+            # Check if order was filled
+            if "orderFillTransaction" in response:
+                return response["orderFillTransaction"]
+            # Check for cancel/reject
+            if "orderCancelTransaction" in response:
+                reason = response["orderCancelTransaction"].get("reason", "unknown")
+                log.warning("OANDA order cancelled: %s", reason)
+                return None
+
+            log.warning("OANDA order response has no fill: %s", response)
+            return None
+        except Exception as exc:
+            log.error("OANDA order failed for %s: %s", instrument, exc)
+            return None
+
+    # ------------------------------------------------------------------
+    # Execute trades
+    # ------------------------------------------------------------------
+
+    def execute(self, signal: TradeSignal, current_price: float) -> TradeRecord | None:
+        ticker = signal.ticker
+
+        # Only handle forex pairs
+        asset_type = config.get_asset_type(ticker)
+        if asset_type != config.AssetType.FOREX:
+            log.debug("Skipping %s — %s not handled by OANDA", ticker, asset_type.value)
+            return None
+
+        if signal.signal == Signal.HOLD:
+            return None
+        if signal.signal == Signal.BUY:
+            return self._buy(ticker, current_price, signal)
+        if signal.signal == Signal.SELL:
+            return self._sell(ticker, current_price, signal)
+        if signal.signal == Signal.SHORT:
+            return self._short(ticker, current_price, signal)
+        if signal.signal == Signal.COVER:
+            return self._cover(ticker, current_price, signal)
+        return None
+
+    def _buy(
+        self, ticker: str, price: float, signal: TradeSignal
+    ) -> TradeRecord | None:
+        cash = get_cash()
+        if cash < 1.0:
+            return None
+
+        risk = config.get_risk_params(config.AssetType.FOREX)
+        max_spend = cash * (risk["max_position_pct"] / 100.0) * signal.confidence
+        max_spend = min(max_spend, cash)
+        if max_spend < 1.0:
+            return None
+        if not check_position_limit(ticker, max_spend):
+            return None
+
+        # OANDA trades in whole units (1 unit = 1 unit of base currency)
+        units = int(max_spend / price)
+        if units <= 0:
+            return None
+
+        filled = self._submit_market_order(ticker, units, "buy")
+        if filled is None:
+            return None
+
+        fill_price = float(filled.get("price", price))
+        fill_units = abs(int(float(filled.get("units", units))))
+        reason = "; ".join(signal.reasons)
+
+        try:
+            return record_buy(ticker, fill_units, fill_price, reason=reason)
+        except ValueError as exc:
+            log.warning("Local record_buy failed for %s: %s", ticker, exc)
+            return None
+
+    def _sell(
+        self, ticker: str, price: float, signal: TradeSignal
+    ) -> TradeRecord | None:
+        pos = get_position(ticker)
+        if pos is None or pos.direction != "long":
+            return None
+
+        filled = self._submit_market_order(ticker, int(pos.shares), "sell")
+        if filled is None:
+            return None
+
+        fill_price = float(filled.get("price", price))
+        fill_units = abs(int(float(filled.get("units", pos.shares))))
+        reason = "; ".join(signal.reasons)
+
+        try:
+            return record_sell(ticker, fill_units, fill_price, reason=reason)
+        except ValueError as exc:
+            log.warning("Local record_sell failed for %s: %s", ticker, exc)
+            return None
+
+    def _short(
+        self, ticker: str, price: float, signal: TradeSignal
+    ) -> TradeRecord | None:
+        if not config.SHORT_SELLING_ENABLED:
+            return None
+
+        cash = get_cash()
+        risk = config.get_risk_params(config.AssetType.FOREX)
+        max_exposure = cash * (risk["max_position_pct"] / 100.0) * signal.confidence
+        if max_exposure < 1.0:
+            return None
+        if not check_short_limit(ticker, max_exposure):
+            return None
+
+        units = int(max_exposure / price)
+        if units <= 0:
+            return None
+
+        # OANDA: short = sell with negative units
+        filled = self._submit_market_order(ticker, units, "short")
+        if filled is None:
+            return None
+
+        fill_price = float(filled.get("price", price))
+        fill_units = abs(int(float(filled.get("units", units))))
+        reason = "; ".join(signal.reasons)
+
+        try:
+            return record_short(ticker, fill_units, fill_price, reason=reason)
+        except ValueError as exc:
+            log.warning("Local record_short failed for %s: %s", ticker, exc)
+            return None
+
+    def _cover(
+        self, ticker: str, price: float, signal: TradeSignal
+    ) -> TradeRecord | None:
+        pos = get_position(ticker)
+        if pos is None or pos.direction != "short":
+            return None
+
+        # Cover = buy back the units
+        filled = self._submit_market_order(ticker, int(pos.shares), "buy")
+        if filled is None:
+            return None
+
+        fill_price = float(filled.get("price", price))
+        fill_units = abs(int(float(filled.get("units", pos.shares))))
+        reason = "; ".join(signal.reasons)
+
+        try:
+            return record_cover(ticker, fill_units, fill_price, reason=reason)
+        except ValueError as exc:
+            log.warning("Local record_cover failed for %s: %s", ticker, exc)
+            return None
+
+    def check_exits(self, ticker: str, current_price: float) -> TradeRecord | None:
+        pos = get_position(ticker)
+        if pos is None:
+            return None
+
+        risk = config.get_risk_params(config.AssetType.FOREX)
+
+        if pos.direction == "short":
+            # Short stop-loss
+            if check_stop_loss(ticker, current_price):
+                log.warning("OANDA SHORT STOP-LOSS for %s", ticker)
+                filled = self._submit_market_order(ticker, int(pos.shares), "buy")
+                if filled is None:
+                    return None
+                fp = float(filled.get("price", current_price))
+                try:
+                    return record_cover(
+                        ticker, pos.shares, fp,
+                        reason=f"Short stop-loss at {risk['stop_loss_pct']}%",
+                    )
+                except ValueError:
+                    return None
+            # Short take-profit
+            if check_take_profit(ticker, current_price):
+                log.info("OANDA SHORT TAKE-PROFIT for %s", ticker)
+                filled = self._submit_market_order(ticker, int(pos.shares), "buy")
+                if filled is None:
+                    return None
+                fp = float(filled.get("price", current_price))
+                try:
+                    return record_cover(
+                        ticker, pos.shares, fp,
+                        reason=f"Short take-profit at {risk['take_profit_pct']}%",
+                    )
+                except ValueError:
+                    return None
+            return None
+
+        # Long stop-loss
+        if check_stop_loss(ticker, current_price):
+            log.warning("OANDA STOP-LOSS for %s", ticker)
+            filled = self._submit_market_order(ticker, int(pos.shares), "sell")
+            if filled is None:
+                return None
+            fp = float(filled.get("price", current_price))
+            try:
+                return record_sell(
+                    ticker, pos.shares, fp,
+                    reason=f"Stop-loss at {risk['stop_loss_pct']}%",
+                )
+            except ValueError:
+                return None
+
+        # Long take-profit
+        if check_take_profit(ticker, current_price):
+            log.info("OANDA TAKE-PROFIT for %s", ticker)
+            filled = self._submit_market_order(ticker, int(pos.shares), "sell")
+            if filled is None:
+                return None
+            fp = float(filled.get("price", current_price))
+            try:
+                return record_sell(
+                    ticker, pos.shares, fp,
+                    reason=f"Take-profit at {risk['take_profit_pct']}%",
+                )
+            except ValueError:
+                return None
+
+        return None
+
+    def get_open_positions(self) -> list[dict]:
+        """Fetch open positions from OANDA."""
+        from oandapyV20.endpoints.positions import OpenPositions
+
+        r = OpenPositions(self.account_id)
+        self.client.request(r)
+        return r.response.get("positions", [])
+
+    def get_order_history(self, count: int = 50) -> list[dict]:
+        """Fetch recent filled transactions from OANDA."""
+        from oandapyV20.endpoints.transactions import TransactionList
+
+        r = TransactionList(self.account_id, params={"count": count, "type": "ORDER_FILL"})
+        self.client.request(r)
+        return r.response.get("transactions", [])
+
+
+# ---------------------------------------------------------------------------
+# Multi-broker executor — routes signals to the right broker
+# ---------------------------------------------------------------------------
+
+
+class MultiExecutor(Executor):
+    """Route trade signals to the correct broker based on asset type.
+
+    - Forex → OANDA
+    - Equities / Crypto → Alpaca
+    - Commodities → skipped (no broker integration yet)
+    """
+
+    def __init__(self, executors: dict[str, Executor]) -> None:
+        self.executors = executors
+        names = ", ".join(f"{k}={type(v).__name__}" for k, v in executors.items())
+        log.info("MultiExecutor initialised: %s", names)
+
+    def _get_executor(self, ticker: str) -> Executor | None:
+        asset_type = config.get_asset_type(ticker)
+        if asset_type == config.AssetType.FOREX:
+            return self.executors.get("forex")
+        if asset_type == config.AssetType.COMMODITY:
+            return self.executors.get("commodity")
+        if asset_type == config.AssetType.CRYPTO:
+            return self.executors.get("crypto") or self.executors.get("equity")
+        return self.executors.get("equity")
+
+    def execute(self, signal: TradeSignal, current_price: float) -> TradeRecord | None:
+        executor = self._get_executor(signal.ticker)
+        if executor is None:
+            asset_type = config.get_asset_type(signal.ticker)
+            log.debug("No executor for %s (%s) — skipping", signal.ticker, asset_type.value)
+            return None
+        return executor.execute(signal, current_price)
+
+    def check_exits(self, ticker: str, current_price: float) -> TradeRecord | None:
+        executor = self._get_executor(ticker)
+        if executor is None:
+            return None
+        return executor.check_exits(ticker, current_price)
+
+
+# ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
 
 
 def get_executor() -> Executor:
-    """Return the appropriate executor based on config."""
-    if config.MODE == "live":
-        return AlpacaExecutor()
-    return PaperExecutor()
+    """Return the appropriate executor based on config.
+
+    In live mode, builds a MultiExecutor that routes to the right
+    broker for each asset type.  Falls back to PaperExecutor for
+    asset types without a configured broker.
+    """
+    if config.MODE != "live":
+        return PaperExecutor()
+
+    executors: dict[str, Executor] = {}
+
+    # Alpaca for equities + crypto
+    if config.ALPACA_API_KEY and config.ALPACA_SECRET_KEY:
+        try:
+            executors["equity"] = AlpacaExecutor()
+        except Exception as exc:
+            log.error("Failed to initialise AlpacaExecutor: %s", exc)
+
+    # OANDA for forex
+    if config.OANDA_API_KEY and config.OANDA_ACCOUNT_ID:
+        try:
+            executors["forex"] = OandaExecutor()
+        except Exception as exc:
+            log.error("Failed to initialise OandaExecutor: %s", exc)
+
+    if not executors:
+        log.warning("Live mode but no brokers configured — falling back to PaperExecutor")
+        return PaperExecutor()
+
+    if len(executors) == 1 and "equity" in executors:
+        # Only Alpaca — return it directly (preserves sync_account etc.)
+        return executors["equity"]
+
+    return MultiExecutor(executors)

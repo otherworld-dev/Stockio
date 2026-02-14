@@ -455,6 +455,34 @@
             </div>
         </div>
 
+        <!-- OANDA Forex Account -->
+        <div class="panel" id="oanda-panel" style="display:none">
+            <div class="panel-header">
+                <h2>OANDA Forex Account <span id="oanda-badge" class="status-badge" style="font-size:0.7rem;margin-left:0.5rem">--</span></h2>
+                <button class="btn btn-refresh" onclick="loadOanda()" style="font-size:0.75rem;padding:0.3rem 0.8rem;">Sync</button>
+            </div>
+            <div class="cards" style="padding:1rem 1.2rem;margin-bottom:0">
+                <div class="card" style="padding:0.8rem">
+                    <div class="card-label">Balance</div>
+                    <div class="card-value" id="oanda-balance" style="font-size:1.3rem">--</div>
+                </div>
+                <div class="card" style="padding:0.8rem">
+                    <div class="card-label">NAV</div>
+                    <div class="card-value" id="oanda-nav" style="font-size:1.3rem">--</div>
+                </div>
+                <div class="card" style="padding:0.8rem">
+                    <div class="card-label">Unrealised P&L</div>
+                    <div class="card-value" id="oanda-unrealised-pl" style="font-size:1.3rem">--</div>
+                </div>
+                <div class="card" style="padding:0.8rem">
+                    <div class="card-label">Open Trades</div>
+                    <div class="card-value" id="oanda-open-trades" style="font-size:1.3rem">--</div>
+                </div>
+            </div>
+            <div id="oanda-positions">
+            </div>
+        </div>
+
         <!-- Charts -->
         <div class="grid-3">
             <div class="panel">
@@ -978,6 +1006,68 @@
             }
         }
 
+        async function loadOanda() {
+            try {
+                const resp = await fetch('/api/oanda');
+                const data = await resp.json();
+                const panel = document.getElementById('oanda-panel');
+
+                if (!data.connected) {
+                    if (_currentMode === 'live') {
+                        panel.style.display = '';
+                        const badge = document.getElementById('oanda-badge');
+                        badge.textContent = 'ERROR';
+                        badge.className = 'status-badge stopped';
+                        document.getElementById('oanda-balance').textContent = '--';
+                        document.getElementById('oanda-nav').textContent = '--';
+                        document.getElementById('oanda-unrealised-pl').textContent = '--';
+                        document.getElementById('oanda-open-trades').textContent = '--';
+                        document.getElementById('oanda-positions').innerHTML =
+                            '<div class="loading" style="color:#e74c3c">' + (data.error || 'Failed to connect to OANDA') + '</div>';
+                    } else {
+                        panel.style.display = 'none';
+                    }
+                    return;
+                }
+
+                panel.style.display = '';
+                const badge = document.getElementById('oanda-badge');
+                badge.textContent = data.practice ? 'PRACTICE' : 'LIVE';
+                badge.className = 'status-badge ' + (data.practice ? 'paper' : 'running');
+
+                document.getElementById('oanda-balance').textContent = fmtUsd(data.balance);
+                document.getElementById('oanda-nav').textContent = fmtUsd(data.nav);
+                const plEl = document.getElementById('oanda-unrealised-pl');
+                plEl.textContent = (data.unrealised_pl >= 0 ? '+' : '') + fmtUsd(data.unrealised_pl);
+                plEl.className = 'card-value ' + (data.unrealised_pl >= 0 ? 'positive' : 'negative');
+                document.getElementById('oanda-open-trades').textContent = data.open_trades;
+
+                const container = document.getElementById('oanda-positions');
+                if (data.positions.length === 0) {
+                    container.innerHTML = '<div class="loading">No open positions on OANDA</div>';
+                    return;
+                }
+
+                let html = '<table><thead><tr><th>Pair</th><th>Type</th><th>Units</th><th>Avg Price</th><th>P&L</th></tr></thead><tbody>';
+                data.positions.forEach(p => {
+                    const cls = p.unrealized_pl >= 0 ? 'positive' : 'negative';
+                    const dirCls = p.direction === 'short' ? 'dir-short' : 'dir-long';
+                    const dirLabel = p.direction === 'short' ? 'SHORT' : 'LONG';
+                    html += `<tr>
+                        <td><strong>${p.instrument}</strong></td>
+                        <td><span class="${dirCls}">${dirLabel}</span></td>
+                        <td>${p.units}</td>
+                        <td>${p.avg_price.toFixed(5)}</td>
+                        <td class="${cls}">${(p.unrealized_pl >= 0 ? '+' : '') + fmtUsd(p.unrealized_pl)}</td>
+                    </tr>`;
+                });
+                html += '</tbody></table>';
+                container.innerHTML = html;
+            } catch (err) {
+                console.error('Failed to load OANDA data:', err);
+            }
+        }
+
         function refreshAll() {
             loadStatus();
             loadTrades();
@@ -985,6 +1075,7 @@
             loadNewsFeed();
             loadTrumpFeed();
             loadAlpaca();
+            loadOanda();
         }
 
         // ---- Bot Thinking Log (enhanced) ----

@@ -35,12 +35,19 @@ ALPACA_API_KEY = os.getenv("ALPACA_API_KEY", "")
 ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY", "")
 ALPACA_BASE_URL = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
 
-# Trading mode — auto-detect "live" when Alpaca keys are present
+# OANDA (forex trading)
+OANDA_API_KEY = os.getenv("OANDA_API_KEY", "")
+OANDA_ACCOUNT_ID = os.getenv("OANDA_ACCOUNT_ID", "")
+OANDA_PRACTICE = os.getenv("OANDA_PRACTICE", "true").lower() in ("true", "1", "yes")
+
+# Trading mode — auto-detect "live" when broker keys are present
 _explicit_mode = os.getenv("STOCKIO_MODE")
 if _explicit_mode:
     MODE = _explicit_mode
 elif ALPACA_API_KEY and ALPACA_SECRET_KEY:
     MODE = "live"  # Alpaca keys present → use AlpacaExecutor
+elif OANDA_API_KEY and OANDA_ACCOUNT_ID:
+    MODE = "live"  # OANDA keys present → use OandaExecutor for forex
 else:
     MODE = "paper"
 

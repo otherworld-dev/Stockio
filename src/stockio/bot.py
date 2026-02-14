@@ -45,10 +45,13 @@ class StockioBot:
         self._batch_offset: int = 0
 
         # If using Alpaca live trading, sync local DB with broker state
-        from stockio.executor import AlpacaExecutor
-        if isinstance(self.executor, AlpacaExecutor):
+        from stockio.executor import AlpacaExecutor, MultiExecutor
+        executor = self.executor
+        if isinstance(executor, MultiExecutor):
+            executor = executor.executors.get("equity")
+        if isinstance(executor, AlpacaExecutor):
             log.info("Live mode — syncing local portfolio with Alpaca...")
-            self.executor.sync_account()
+            executor.sync_account()
 
     # ------------------------------------------------------------------
     # Core trading cycle

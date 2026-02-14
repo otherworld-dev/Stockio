@@ -138,6 +138,7 @@ def api_status():
                                 if _bot_instance else "none")
         summary["alpaca_paper"] = "paper" in config.ALPACA_BASE_URL
         summary["alpaca_keys_set"] = bool(config.ALPACA_API_KEY and config.ALPACA_SECRET_KEY)
+        summary["oanda_keys_set"] = bool(config.OANDA_API_KEY and config.OANDA_ACCOUNT_ID)
         summary["markets"] = config.MARKETS
         summary["total_tickers"] = get_ticker_count()
         summary["batch_size"] = config.BATCH_SIZE
@@ -381,10 +382,13 @@ def api_mode():
     if mode not in ("paper", "live"):
         return jsonify({"error": "Invalid mode — must be 'paper' or 'live'"}), 400
 
-    if mode == "live" and (not config.ALPACA_API_KEY or not config.ALPACA_SECRET_KEY):
+    has_alpaca = bool(config.ALPACA_API_KEY and config.ALPACA_SECRET_KEY)
+    has_oanda = bool(config.OANDA_API_KEY and config.OANDA_ACCOUNT_ID)
+    if mode == "live" and not has_alpaca and not has_oanda:
         return jsonify({
             "error": "Cannot switch to live mode — "
-                     "ALPACA_API_KEY and ALPACA_SECRET_KEY must be set"
+                     "set ALPACA_API_KEY/ALPACA_SECRET_KEY and/or "
+                     "OANDA_API_KEY/OANDA_ACCOUNT_ID"
         }), 400
 
     was_running = _bot_running or _systemd_bot_running()
@@ -733,6 +737,72 @@ def api_alpaca():
             "long_market_value": float(acct.long_market_value),
             "short_market_value": float(acct.short_market_value),
             "positions": pos_list,
+            "timestamp": dt.datetime.utcnow().isoformat(),
+        })
+    except Exception as exc:
+        return jsonify({"connected": False, "error": str(exc)})
+
+
+@app.route("/api/oanda")
+def api_oanda():
+    """Return OANDA account status and positions (read-only)."""
+    if not config.OANDA_API_KEY or not config.OANDA_ACCOUNT_ID:
+        return jsonify({"connected": False, "error": "No OANDA API keys configured"})
+
+    try:
+        import oandapyV20
+        from oandapyV20.endpoints.accounts import AccountDetails
+
+        env = "practice" if config.OANDA_PRACTICE else "live"
+        client = oandapyV20.API(
+            access_token=config.OANDA_API_KEY,
+            environment=env,
+        )
+        r = AccountDetails(config.OANDA_ACCOUNT_ID)
+        client.request(r)
+        acct = r.response.get("account", {})
+
+        balance = float(acct.get("balance", 0))
+        nav = float(acct.get("NAV", 0))
+        unrealised_pl = float(acct.get("unrealizedPL", 0))
+        open_trade_count = int(acct.get("openTradeCount", 0))
+
+        positions = []
+        for p in acct.get("positions", []):
+            long_units = int(float(p.get("long", {}).get("units", 0)))
+            short_units = int(float(p.get("short", {}).get("units", 0)))
+            if long_units == 0 and short_units == 0:
+                continue
+
+            if long_units > 0:
+                avg_price = float(p["long"].get("averagePrice", 0))
+                pl = float(p["long"].get("unrealizedPL", 0))
+                positions.append({
+                    "instrument": p["instrument"],
+                    "direction": "long",
+                    "units": long_units,
+                    "avg_price": avg_price,
+                    "unrealized_pl": pl,
+                })
+            if short_units < 0:
+                avg_price = float(p["short"].get("averagePrice", 0))
+                pl = float(p["short"].get("unrealizedPL", 0))
+                positions.append({
+                    "instrument": p["instrument"],
+                    "direction": "short",
+                    "units": abs(short_units),
+                    "avg_price": avg_price,
+                    "unrealized_pl": pl,
+                })
+
+        return jsonify({
+            "connected": True,
+            "practice": config.OANDA_PRACTICE,
+            "balance": balance,
+            "nav": nav,
+            "unrealised_pl": unrealised_pl,
+            "open_trades": open_trade_count,
+            "positions": positions,
             "timestamp": dt.datetime.utcnow().isoformat(),
         })
     except Exception as exc:
