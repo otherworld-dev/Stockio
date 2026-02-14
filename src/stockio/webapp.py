@@ -59,6 +59,7 @@ except Exception:
 _bot_thread: threading.Thread | None = None
 _bot_instance = None
 _bot_running = False
+_bot_generation = 0  # incremented on each start; old threads self-terminate
 
 
 # ------------------------------------------------------------------
@@ -128,6 +129,8 @@ def api_status():
         summary = portfolio_summary(prices)
         summary["bot_running"] = _bot_running or _systemd_bot_running()
         summary["mode"] = config.MODE
+        summary["executor"] = (type(_bot_instance.executor).__name__
+                                if _bot_instance else "none")
         summary["alpaca_paper"] = "paper" in config.ALPACA_BASE_URL
         summary["alpaca_keys_set"] = bool(config.ALPACA_API_KEY and config.ALPACA_SECRET_KEY)
         summary["markets"] = config.MARKETS
@@ -203,7 +206,7 @@ def api_signals():
 @app.route("/api/bot/start", methods=["POST"])
 def api_bot_start():
     """Start the trading bot — prefers systemd, falls back to in-process thread."""
-    global _bot_thread, _bot_instance, _bot_running
+    global _bot_thread, _bot_instance, _bot_running, _bot_generation
 
     # Try systemd first (works when deployed)
     if _try_systemctl("start"):
@@ -220,20 +223,24 @@ def api_bot_start():
         log.exception("Failed to initialise bot")
         return jsonify({"error": str(exc)}), 500
 
-    _bot_thread = threading.Thread(target=_run_bot, daemon=True)
-    _bot_thread.start()
+    _bot_generation += 1
     _bot_running = True
-    return jsonify({"status": "started", "via": "thread", "mode": config.MODE})
+    _bot_thread = threading.Thread(target=_run_bot, args=(_bot_generation,), daemon=True)
+    _bot_thread.start()
+    executor_name = type(_bot_instance.executor).__name__
+    return jsonify({"status": "started", "via": "thread", "mode": config.MODE,
+                    "executor": executor_name})
 
 
 @app.route("/api/bot/stop", methods=["POST"])
 def api_bot_stop():
     """Stop the trading bot."""
-    global _bot_running
+    global _bot_running, _bot_generation
 
     if _try_systemctl("stop"):
         return jsonify({"status": "stopped", "via": "systemd"})
 
+    _bot_generation += 1  # force any lingering thread to exit
     _bot_running = False
     return jsonify({"status": "stopped", "via": "thread"})
 
@@ -245,7 +252,7 @@ def api_mode():
     If the bot is running it will be stopped, the mode changed, and the
     bot restarted with the new executor.
     """
-    global _bot_running, _bot_thread, _bot_instance
+    global _bot_running, _bot_thread, _bot_instance, _bot_generation
 
     data = request.get_json(silent=True) or {}
     mode = data.get("mode", "").lower()
@@ -260,7 +267,9 @@ def api_mode():
 
     was_running = _bot_running or _systemd_bot_running()
 
-    # Stop bot if running
+    # Stop bot if running — bump generation so any lingering old thread
+    # self-terminates even if the join times out.
+    _bot_generation += 1
     if _bot_running:
         _bot_running = False
         if _bot_thread is not None:
@@ -281,10 +290,15 @@ def api_mode():
         try:
             from stockio.bot import StockioBot
             _bot_instance = StockioBot()
-            _bot_thread = threading.Thread(target=_run_bot, daemon=True)
-            _bot_thread.start()
+            _bot_generation += 1
             _bot_running = True
-            return jsonify({"status": "ok", "mode": mode, "bot": "restarted"})
+            _bot_thread = threading.Thread(
+                target=_run_bot, args=(_bot_generation,), daemon=True)
+            _bot_thread.start()
+            executor_name = type(_bot_instance.executor).__name__
+            log.info("Bot restarted in %s mode with %s", mode, executor_name)
+            return jsonify({"status": "ok", "mode": mode, "bot": "restarted",
+                            "executor": executor_name})
         except Exception as exc:
             log.exception("Failed to restart bot in %s mode", mode)
             return jsonify({"error": f"Mode set to {mode} but bot failed to restart: {exc}"}), 500
@@ -657,26 +671,29 @@ def api_config():
 # ------------------------------------------------------------------
 
 
-def _run_bot():
+def _run_bot(gen: int):
     global _bot_running
     import time
     import traceback
 
-    log.info("Bot thread started")
+    log.info("Bot thread started (generation %d, executor=%s)",
+             gen, type(_bot_instance.executor).__name__)
     try:
-        while _bot_running:
+        while _bot_running and gen == _bot_generation:
             try:
                 _bot_instance.run_cycle()
             except Exception:
                 log.error("Cycle error:\n%s", traceback.format_exc())
             # Wait for the interval, checking stop flag every 10s
             for _ in range(config.INTERVAL_MINUTES * 6):
-                if not _bot_running:
+                if not _bot_running or gen != _bot_generation:
                     break
                 time.sleep(10)
     finally:
-        _bot_running = False
-        log.info("Bot thread stopped")
+        # Only clear _bot_running if we're still the current generation
+        if gen == _bot_generation:
+            _bot_running = False
+        log.info("Bot thread stopped (generation %d)", gen)
 
 
 # ------------------------------------------------------------------
