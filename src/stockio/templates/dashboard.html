@@ -421,6 +421,34 @@
             </div>
         </div>
 
+        <!-- Alpaca Broker Account -->
+        <div class="panel" id="alpaca-panel" style="display:none">
+            <div class="panel-header">
+                <h2>Alpaca Broker Account <span id="alpaca-badge" class="status-badge" style="font-size:0.7rem;margin-left:0.5rem">--</span></h2>
+                <button class="btn btn-refresh" onclick="loadAlpaca()" style="font-size:0.75rem;padding:0.3rem 0.8rem;">Sync</button>
+            </div>
+            <div class="cards" style="padding:1rem 1.2rem;margin-bottom:0">
+                <div class="card" style="padding:0.8rem">
+                    <div class="card-label">Equity</div>
+                    <div class="card-value" id="alpaca-equity" style="font-size:1.3rem">--</div>
+                </div>
+                <div class="card" style="padding:0.8rem">
+                    <div class="card-label">Cash</div>
+                    <div class="card-value" id="alpaca-cash" style="font-size:1.3rem">--</div>
+                </div>
+                <div class="card" style="padding:0.8rem">
+                    <div class="card-label">Buying Power</div>
+                    <div class="card-value" id="alpaca-buying-power" style="font-size:1.3rem">--</div>
+                </div>
+                <div class="card" style="padding:0.8rem">
+                    <div class="card-label">Positions</div>
+                    <div class="card-value" id="alpaca-positions-count" style="font-size:1.3rem">--</div>
+                </div>
+            </div>
+            <div id="alpaca-positions">
+            </div>
+        </div>
+
         <!-- Charts -->
         <div class="grid-3">
             <div class="panel">
@@ -822,12 +850,66 @@
             loadStatus();
         }
 
+        // ---- Alpaca Broker Account ----
+        function fmtUsd(n) { return '$' + n.toFixed(2); }
+
+        async function loadAlpaca() {
+            try {
+                const resp = await fetch('/api/alpaca');
+                const data = await resp.json();
+                const panel = document.getElementById('alpaca-panel');
+
+                if (!data.connected) {
+                    panel.style.display = 'none';
+                    return;
+                }
+
+                panel.style.display = '';
+
+                const badge = document.getElementById('alpaca-badge');
+                badge.textContent = data.paper ? 'PAPER' : 'LIVE';
+                badge.className = 'status-badge ' + (data.paper ? 'paper' : 'running');
+
+                document.getElementById('alpaca-equity').textContent = fmtUsd(data.equity);
+                document.getElementById('alpaca-cash').textContent = fmtUsd(data.cash);
+                document.getElementById('alpaca-buying-power').textContent = fmtUsd(data.buying_power);
+                document.getElementById('alpaca-positions-count').textContent = data.positions.length;
+
+                const container = document.getElementById('alpaca-positions');
+                if (data.positions.length === 0) {
+                    container.innerHTML = '<div class="loading">No open positions on Alpaca</div>';
+                    return;
+                }
+
+                let html = '<table><thead><tr><th>Ticker</th><th>Type</th><th>Qty</th><th>Entry</th><th>Price</th><th>Value</th><th>P&L</th></tr></thead><tbody>';
+                data.positions.forEach(p => {
+                    const cls = p.unrealized_pl >= 0 ? 'positive' : 'negative';
+                    const dirCls = p.direction === 'short' ? 'dir-short' : 'dir-long';
+                    const dirLabel = p.direction === 'short' ? 'SHORT' : 'LONG';
+                    html += `<tr>
+                        <td><strong>${p.ticker}</strong></td>
+                        <td><span class="${dirCls}">${dirLabel}</span></td>
+                        <td>${p.qty.toFixed(4)}</td>
+                        <td>${fmtUsd(p.avg_entry)}</td>
+                        <td>${fmtUsd(p.current_price)}</td>
+                        <td>${fmtUsd(p.market_value)}</td>
+                        <td class="${cls}">${(p.unrealized_pl >= 0 ? '+' : '') + fmtUsd(p.unrealized_pl)} (${fmtPct(p.unrealized_plpc)})</td>
+                    </tr>`;
+                });
+                html += '</tbody></table>';
+                container.innerHTML = html;
+            } catch (err) {
+                console.error('Failed to load Alpaca data:', err);
+            }
+        }
+
         function refreshAll() {
             loadStatus();
             loadTrades();
             loadBotLog();
             loadNewsFeed();
             loadTrumpFeed();
+            loadAlpaca();
         }
 
         // ---- Bot Thinking Log (enhanced) ----

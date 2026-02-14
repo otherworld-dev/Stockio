@@ -447,6 +447,61 @@ def api_trump_feed():
         return jsonify({"error": str(exc)}), 500
 
 
+@app.route("/api/alpaca")
+def api_alpaca():
+    """Return Alpaca account status and positions (read-only).
+
+    Works regardless of MODE — just needs valid API keys.
+    """
+    if not config.ALPACA_API_KEY or not config.ALPACA_SECRET_KEY:
+        return jsonify({"connected": False, "error": "No Alpaca API keys configured"})
+
+    try:
+        from alpaca.trading.client import TradingClient
+
+        is_paper = "paper" in config.ALPACA_BASE_URL
+        client = TradingClient(
+            config.ALPACA_API_KEY,
+            config.ALPACA_SECRET_KEY,
+            paper=is_paper,
+        )
+
+        acct = client.get_account()
+        positions = client.get_all_positions()
+
+        pos_list = []
+        for p in positions:
+            qty = float(p.qty)
+            market_value = float(p.market_value)
+            unrealized_pl = float(p.unrealized_pl)
+            unrealized_plpc = float(p.unrealized_plpc) * 100
+            pos_list.append({
+                "ticker": p.symbol,
+                "qty": abs(qty),
+                "direction": "short" if qty < 0 else "long",
+                "avg_entry": float(p.avg_entry_price),
+                "current_price": float(p.current_price),
+                "market_value": abs(market_value),
+                "unrealized_pl": unrealized_pl,
+                "unrealized_plpc": unrealized_plpc,
+            })
+
+        return jsonify({
+            "connected": True,
+            "paper": is_paper,
+            "equity": float(acct.equity),
+            "cash": float(acct.cash),
+            "buying_power": float(acct.buying_power),
+            "portfolio_value": float(acct.portfolio_value),
+            "long_market_value": float(acct.long_market_value),
+            "short_market_value": float(acct.short_market_value),
+            "positions": pos_list,
+            "timestamp": dt.datetime.utcnow().isoformat(),
+        })
+    except Exception as exc:
+        return jsonify({"connected": False, "error": str(exc)})
+
+
 @app.route("/api/config")
 def api_config():
     """Return current configuration (non-sensitive)."""
