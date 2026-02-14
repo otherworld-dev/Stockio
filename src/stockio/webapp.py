@@ -118,6 +118,8 @@ def api_status():
         summary = portfolio_summary(prices)
         summary["bot_running"] = _bot_running or _systemd_bot_running()
         summary["mode"] = config.MODE
+        summary["alpaca_paper"] = "paper" in config.ALPACA_BASE_URL
+        summary["alpaca_keys_set"] = bool(config.ALPACA_API_KEY and config.ALPACA_SECRET_KEY)
         summary["markets"] = config.MARKETS
         summary["total_tickers"] = get_ticker_count()
         summary["batch_size"] = config.BATCH_SIZE
@@ -220,6 +222,55 @@ def api_bot_stop():
 
     _bot_running = False
     return jsonify({"status": "stopped", "via": "thread"})
+
+
+@app.route("/api/mode", methods=["POST"])
+def api_mode():
+    """Switch trading mode between paper and live (Alpaca).
+
+    If the bot is running it will be stopped, the mode changed, and the
+    bot restarted with the new executor.
+    """
+    global _bot_running, _bot_thread, _bot_instance
+
+    data = request.get_json(silent=True) or {}
+    mode = data.get("mode", "").lower()
+    if mode not in ("paper", "live"):
+        return jsonify({"error": "Invalid mode — must be 'paper' or 'live'"}), 400
+
+    if mode == "live" and (not config.ALPACA_API_KEY or not config.ALPACA_SECRET_KEY):
+        return jsonify({
+            "error": "Cannot switch to live mode — "
+                     "ALPACA_API_KEY and ALPACA_SECRET_KEY must be set"
+        }), 400
+
+    was_running = _bot_running or _systemd_bot_running()
+
+    # Stop bot if running
+    if _bot_running:
+        _bot_running = False
+        if _bot_thread is not None:
+            _bot_thread.join(timeout=30)
+    if _systemd_bot_running():
+        _try_systemctl("stop")
+
+    # Update mode
+    config.MODE = mode
+    log.info("Trading mode switched to: %s", mode)
+
+    # Restart bot if it was running
+    if was_running:
+        if _try_systemctl("start"):
+            return jsonify({"status": "ok", "mode": mode, "bot": "restarted (systemd)"})
+
+        from stockio.bot import StockioBot
+        _bot_instance = StockioBot()
+        _bot_thread = threading.Thread(target=_run_bot, daemon=True)
+        _bot_thread.start()
+        _bot_running = True
+        return jsonify({"status": "ok", "mode": mode, "bot": "restarted"})
+
+    return jsonify({"status": "ok", "mode": mode, "bot": "stopped"})
 
 
 @app.route("/api/reset", methods=["POST"])

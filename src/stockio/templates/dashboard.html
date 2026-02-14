@@ -384,7 +384,7 @@
     <header>
         <h1><span>Stockio</span> Dashboard</h1>
         <div class="header-controls">
-            <span class="status-badge paper" id="mode-badge">PAPER</span>
+            <span class="status-badge paper" id="mode-badge" style="cursor:pointer" onclick="toggleMode()" title="Click to switch mode">PAPER</span>
             <span class="status-badge stopped" id="bot-badge">STOPPED</span>
             <button class="btn btn-start" id="btn-start" onclick="startBot()">Start Bot</button>
             <button class="btn btn-stop" id="btn-stop" onclick="stopBot()" style="display:none">Stop Bot</button>
@@ -841,6 +841,32 @@
             }
         }
 
+        async function toggleMode() {
+            const badge = document.getElementById('mode-badge');
+            const current = badge.textContent.trim().toLowerCase();
+            const next = current === 'paper' ? 'live' : 'paper';
+            const label = next === 'live' ? 'Alpaca paper trading' : 'simulated (local) trading';
+            if (!confirm(`Switch to ${label}?` + (next === 'live' ? '\n\nThis will use your Alpaca API keys to place real orders on Alpaca\'s paper trading sandbox.' : ''))) return;
+            try {
+                const resp = await fetch('/api/mode', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({mode: next}),
+                });
+                const data = await resp.json();
+                if (data.error) {
+                    alert('Mode switch failed: ' + data.error);
+                } else {
+                    badge.textContent = next.toUpperCase();
+                    badge.className = 'status-badge ' + (next === 'live' ? 'running' : 'paper');
+                    loadStatus();
+                    loadAlpaca();
+                }
+            } catch (err) {
+                alert('Mode switch failed: ' + err);
+            }
+        }
+
         async function startBot() {
             await fetch('/api/bot/start', { method: 'POST' });
             loadStatus();
@@ -1155,8 +1181,17 @@
                 pctEl.className = 'card-value ' + (data.total_pnl_pct >= 0 ? 'positive' : 'negative');
 
                 const modeBadge = document.getElementById('mode-badge');
-                modeBadge.textContent = data.mode.toUpperCase();
-                modeBadge.className = 'status-badge ' + (data.mode === 'live' ? 'running' : 'paper');
+                if (data.mode === 'live') {
+                    modeBadge.textContent = data.alpaca_paper ? 'ALPACA PAPER' : 'ALPACA LIVE';
+                    modeBadge.className = 'status-badge running';
+                    modeBadge.title = 'Click to switch to simulated mode';
+                } else {
+                    modeBadge.textContent = 'SIMULATED';
+                    modeBadge.className = 'status-badge paper';
+                    modeBadge.title = data.alpaca_keys_set
+                        ? 'Click to switch to Alpaca paper trading'
+                        : 'Set ALPACA_API_KEY and ALPACA_SECRET_KEY to enable Alpaca';
+                }
 
                 const botBadge = document.getElementById('bot-badge');
                 const btnStart = document.getElementById('btn-start');

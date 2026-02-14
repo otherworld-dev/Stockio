@@ -30,13 +30,19 @@ class AssetType(str, Enum):
 # Budget
 INITIAL_BUDGET_GBP = float(os.getenv("STOCKIO_BUDGET", "500.00"))
 
-# Trading mode
-MODE = os.getenv("STOCKIO_MODE", "paper")  # "paper" or "live"
-
 # Alpaca (live trading)
 ALPACA_API_KEY = os.getenv("ALPACA_API_KEY", "")
 ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY", "")
 ALPACA_BASE_URL = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
+
+# Trading mode — auto-detect "live" when Alpaca keys are present
+_explicit_mode = os.getenv("STOCKIO_MODE")
+if _explicit_mode:
+    MODE = _explicit_mode
+elif ALPACA_API_KEY and ALPACA_SECRET_KEY:
+    MODE = "live"  # Alpaca keys present → use AlpacaExecutor
+else:
+    MODE = "paper"
 
 # User-configured news feeds (in addition to built-in feeds in sentiment.py)
 NEWS_FEEDS = [
