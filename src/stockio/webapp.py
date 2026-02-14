@@ -90,6 +90,12 @@ def _systemd_bot_running() -> bool:
 # ------------------------------------------------------------------
 
 
+@app.route("/health")
+def health():
+    """Lightweight health check — no DB, no model, no imports."""
+    return jsonify({"status": "ok", "version": __version__})
+
+
 @app.route("/")
 def index():
     """Main dashboard page."""
