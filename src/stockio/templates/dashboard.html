@@ -921,7 +921,21 @@
                 const panel = document.getElementById('alpaca-panel');
 
                 if (!data.connected) {
-                    panel.style.display = 'none';
+                    // In live mode, always show the panel with the error
+                    if (_currentMode === 'live') {
+                        panel.style.display = '';
+                        const badge = document.getElementById('alpaca-badge');
+                        badge.textContent = 'ERROR';
+                        badge.className = 'status-badge stopped';
+                        document.getElementById('alpaca-equity').textContent = '--';
+                        document.getElementById('alpaca-cash').textContent = '--';
+                        document.getElementById('alpaca-buying-power').textContent = '--';
+                        document.getElementById('alpaca-positions-count').textContent = '--';
+                        document.getElementById('alpaca-positions').innerHTML =
+                            '<div class="loading" style="color:#e74c3c">' + (data.error || 'Failed to connect to Alpaca') + '</div>';
+                    } else {
+                        panel.style.display = 'none';
+                    }
                     return;
                 }
 
