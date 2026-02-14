@@ -1095,7 +1095,6 @@
             try {
                 const resp = await fetch('/api/snapshots');
                 const snaps = await resp.json();
-                if (!snaps.length) return;
 
                 const labels = snaps.map(s => fmtTime(s.timestamp));
                 const totals = snaps.map(s => s.total_value);
