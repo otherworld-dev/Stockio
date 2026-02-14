@@ -863,6 +863,7 @@
                     alert('Data reset. Cash restored to \u00a3' + data.cash.toFixed(2));
                     refreshAll();
                     loadCharts();
+                    loadStatus();
                 }
             } catch (err) {
                 alert('Reset failed: ' + err);
