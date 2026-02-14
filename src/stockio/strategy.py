@@ -124,6 +124,14 @@ def train_model(
     X = np.vstack(all_X)
     y = np.concatenate(all_y)
 
+    # Remove rows that still contain inf or NaN (e.g. from pct_change dividing by zero)
+    mask = np.isfinite(X).all(axis=1)
+    if not mask.all():
+        n_bad = int((~mask).sum())
+        log.warning("Dropping %d rows with inf/NaN from training data", n_bad)
+        X = X[mask]
+        y = y[mask]
+
     # Scale features
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
