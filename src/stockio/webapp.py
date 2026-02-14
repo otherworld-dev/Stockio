@@ -1,10 +1,17 @@
-"""Flask web application — dashboard for monitoring and controlling Stockio."""
+"""Flask web application — dashboard for monitoring and controlling Stockio.
+
+Supports running multiple independent bot instances simultaneously (e.g. a
+paper simulation *and* a live-trading bot, each with its own database).
+"""
 
 from __future__ import annotations
 
 import datetime as dt
 import subprocess
 import threading
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
 
 from flask import Flask, jsonify, render_template, request
 
@@ -28,6 +35,7 @@ from stockio.portfolio import (
     portfolio_summary,
     reset_all_data,
     set_setting,
+    use_db,
 )
 
 log = get_logger(__name__)
@@ -55,11 +63,39 @@ try:
 except Exception:
     pass  # DB might not exist yet on first run
 
-# Reference to the bot thread (set by run_webapp)
-_bot_thread: threading.Thread | None = None
-_bot_instance = None
-_bot_running = False
-_bot_generation = 0  # incremented on each start; old threads self-terminate
+
+# ---------------------------------------------------------------------------
+# Multi-instance bot management
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class BotSlot:
+    """One independently-running bot instance."""
+
+    name: str                                   # "paper" or "live"
+    mode: str                                   # "paper" or "live"
+    db_path: Path = field(default_factory=lambda: config.DB_PATH)
+    thread: threading.Thread | None = None
+    bot: Any = None                             # StockioBot
+    running: bool = False
+    generation: int = 0
+
+
+# Two fixed slots — both can run simultaneously
+_slots: dict[str, BotSlot] = {
+    "paper": BotSlot(
+        name="paper",
+        mode="paper",
+        db_path=config.get_db_path("paper"),
+    ),
+    "live": BotSlot(
+        name="live",
+        mode="live",
+        db_path=config.get_db_path("live"),
+    ),
+}
+
 
 
 # ------------------------------------------------------------------
@@ -121,21 +157,28 @@ def index():
 
 @app.route("/api/status")
 def api_status():
-    """Return current portfolio status as JSON."""
-    try:
-        # In live mode, pull data directly from Alpaca instead of local DB
-        if config.MODE == "live" and config.ALPACA_API_KEY and config.ALPACA_SECRET_KEY:
-            summary = _alpaca_portfolio_summary()
-        else:
-            # Paper mode: use local DB
-            held_tickers = [p.ticker for p in get_positions()]
-            prices = get_current_prices(held_tickers) if held_tickers else {}
-            summary = portfolio_summary(prices)
+    """Return current portfolio status as JSON.
 
-        summary["bot_running"] = _bot_running or _systemd_bot_running()
-        summary["mode"] = config.MODE
-        summary["executor"] = (type(_bot_instance.executor).__name__
-                                if _bot_instance else "none")
+    Query params:
+        instance  – ``paper`` or ``live`` (default: ``paper``).
+    """
+    instance = request.args.get("instance", "paper")
+    slot = _slots.get(instance, _slots["paper"])
+    try:
+        with use_db(slot.db_path):
+            # In live mode, pull data directly from Alpaca instead of local DB
+            if slot.mode == "live" and config.ALPACA_API_KEY and config.ALPACA_SECRET_KEY:
+                summary = _alpaca_portfolio_summary()
+            else:
+                held_tickers = [p.ticker for p in get_positions()]
+                prices = get_current_prices(held_tickers) if held_tickers else {}
+                summary = portfolio_summary(prices)
+
+        summary["bot_running"] = slot.running or _systemd_bot_running()
+        summary["mode"] = slot.mode
+        summary["instance"] = slot.name
+        summary["executor"] = (type(slot.bot.executor).__name__
+                                if slot.bot else "none")
         summary["alpaca_paper"] = "paper" in config.ALPACA_BASE_URL
         summary["alpaca_keys_set"] = bool(config.ALPACA_API_KEY and config.ALPACA_SECRET_KEY)
         summary["oanda_keys_set"] = bool(config.OANDA_API_KEY and config.OANDA_ACCOUNT_ID)
@@ -143,6 +186,13 @@ def api_status():
         summary["total_tickers"] = get_ticker_count()
         summary["batch_size"] = config.BATCH_SIZE
         summary["timestamp"] = dt.datetime.utcnow().isoformat()
+
+        # Include summary of all instances
+        summary["instances"] = {
+            name: {"running": s.running, "mode": s.mode}
+            for name, s in _slots.items()
+        }
+
         return jsonify(summary)
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
@@ -223,16 +273,22 @@ def api_trades():
 
     In live mode, fetches recent orders from Alpaca so the dashboard
     reflects real broker activity rather than stale local paper trades.
+
+    Query params:
+        instance  – ``paper`` or ``live`` (default: ``paper``).
     """
     limit = request.args.get("limit", 50, type=int)
+    instance = request.args.get("instance", "paper")
+    slot = _slots.get(instance, _slots["paper"])
 
-    if config.MODE == "live" and config.ALPACA_API_KEY and config.ALPACA_SECRET_KEY:
+    if slot.mode == "live" and config.ALPACA_API_KEY and config.ALPACA_SECRET_KEY:
         try:
             return jsonify(_alpaca_trade_history(limit))
         except Exception as exc:
             log.warning("Failed to fetch Alpaca orders, falling back to local: %s", exc)
 
-    trades = get_trade_history(limit=limit)
+    with use_db(slot.db_path):
+        trades = get_trade_history(limit=limit)
     return jsonify([
         {
             "id": t.id,
@@ -288,11 +344,14 @@ def _alpaca_trade_history(limit: int = 50) -> list[dict]:
 @app.route("/api/signals")
 def api_signals():
     """Generate and return current trade signals for held positions + top tickers."""
+    instance = request.args.get("instance", "paper")
+    slot = _slots.get(instance, _slots["paper"])
     try:
         from stockio.strategy import generate_signals
 
         # Use held positions + a small sample from the universe
-        held = [p.ticker for p in get_positions()]
+        with use_db(slot.db_path):
+            held = [p.ticker for p in get_positions()]
         all_tickers = get_cached_tickers()
         sample = all_tickers[:20]  # top 20 by market cap
 
@@ -308,10 +367,11 @@ def api_signals():
         except Exception:
             pass
 
-        positions_map = {
-            p.ticker: p.direction for p in get_positions()
-            if p.ticker in prices
-        }
+        with use_db(slot.db_path):
+            positions_map = {
+                p.ticker: p.direction for p in get_positions()
+                if p.ticker in prices
+            }
         signals = generate_signals(tickers, sentiments=sentiments, positions=positions_map)
         return jsonify([
             {
@@ -326,57 +386,111 @@ def api_signals():
         return jsonify({"error": str(exc)}), 500
 
 
-@app.route("/api/bot/start", methods=["POST"])
-def api_bot_start():
-    """Start the trading bot — prefers systemd, falls back to in-process thread."""
-    global _bot_thread, _bot_instance, _bot_running, _bot_generation
+@app.route("/api/instances")
+def api_instances():
+    """List all bot instances and their status."""
+    return jsonify({
+        name: {
+            "running": s.running,
+            "mode": s.mode,
+            "executor": type(s.bot.executor).__name__ if s.bot else "none",
+            "db": str(s.db_path),
+        }
+        for name, s in _slots.items()
+    })
 
-    # Try systemd first (works when deployed)
-    if _try_systemctl("start"):
-        return jsonify({"status": "started", "via": "systemd"})
 
-    # Fall back to in-process thread (dev mode)
-    if _bot_running:
-        return jsonify({"status": "already_running"})
+@app.route("/api/instances/<name>/start", methods=["POST"])
+def api_instance_start(name: str):
+    """Start a specific bot instance (paper or live)."""
+    if name not in _slots:
+        return jsonify({"error": f"Unknown instance: {name}"}), 400
+
+    slot = _slots[name]
+
+    if slot.mode == "live":
+        has_alpaca = bool(config.ALPACA_API_KEY and config.ALPACA_SECRET_KEY)
+        has_oanda = bool(config.OANDA_API_KEY and config.OANDA_ACCOUNT_ID)
+        if not has_alpaca and not has_oanda:
+            return jsonify({
+                "error": "Cannot start live instance — "
+                         "set ALPACA_API_KEY/ALPACA_SECRET_KEY and/or "
+                         "OANDA_API_KEY/OANDA_ACCOUNT_ID"
+            }), 400
+
+    if slot.running:
+        return jsonify({"status": "already_running", "instance": name})
 
     try:
         from stockio.bot import StockioBot
-        _bot_instance = StockioBot()
+        slot.bot = StockioBot(db_path=slot.db_path, mode=slot.mode)
     except Exception as exc:
-        log.exception("Failed to initialise bot")
+        log.exception("Failed to initialise %s bot", name)
         return jsonify({"error": str(exc)}), 500
 
-    _bot_generation += 1
-    _bot_running = True
-    _bot_thread = threading.Thread(target=_run_bot, args=(_bot_generation,), daemon=True)
-    _bot_thread.start()
-    executor_name = type(_bot_instance.executor).__name__
-    return jsonify({"status": "started", "via": "thread", "mode": config.MODE,
-                    "executor": executor_name})
+    slot.generation += 1
+    slot.running = True
+    slot.thread = threading.Thread(
+        target=_run_instance, args=(slot,), daemon=True,
+    )
+    slot.thread.start()
+    executor_name = type(slot.bot.executor).__name__
+    log.info("Started %s instance (mode=%s, executor=%s)", name, slot.mode, executor_name)
+    return jsonify({
+        "status": "started", "instance": name,
+        "mode": slot.mode, "executor": executor_name,
+    })
+
+
+@app.route("/api/instances/<name>/stop", methods=["POST"])
+def api_instance_stop(name: str):
+    """Stop a specific bot instance."""
+    if name not in _slots:
+        return jsonify({"error": f"Unknown instance: {name}"}), 400
+
+    slot = _slots[name]
+    slot.generation += 1
+    slot.running = False
+    log.info("Stopping %s instance", name)
+    return jsonify({"status": "stopped", "instance": name})
+
+
+# Legacy endpoints — map to the instance system
+@app.route("/api/bot/start", methods=["POST"])
+def api_bot_start():
+    """Start the trading bot (legacy endpoint).
+
+    If systemd is available, tries that first.  Otherwise starts the
+    instance matching the current ``config.MODE``.
+    """
+    if _try_systemctl("start"):
+        return jsonify({"status": "started", "via": "systemd"})
+
+    instance = "live" if config.MODE == "live" else "paper"
+    return api_instance_start(instance)
 
 
 @app.route("/api/bot/stop", methods=["POST"])
 def api_bot_stop():
-    """Stop the trading bot."""
-    global _bot_running, _bot_generation
-
+    """Stop the trading bot (legacy endpoint)."""
     if _try_systemctl("stop"):
         return jsonify({"status": "stopped", "via": "systemd"})
 
-    _bot_generation += 1  # force any lingering thread to exit
-    _bot_running = False
-    return jsonify({"status": "stopped", "via": "thread"})
+    # Stop whichever instances are running
+    for slot in _slots.values():
+        if slot.running:
+            slot.generation += 1
+            slot.running = False
+    return jsonify({"status": "stopped"})
 
 
 @app.route("/api/mode", methods=["POST"])
 def api_mode():
-    """Switch trading mode between paper and live (Alpaca).
+    """Switch trading mode (legacy endpoint).
 
-    If the bot is running it will be stopped, the mode changed, and the
-    bot restarted with the new executor.
+    Updates the global config.MODE and persists it.  Does NOT stop running
+    instances — they keep their original mode.
     """
-    global _bot_running, _bot_thread, _bot_instance, _bot_generation
-
     data = request.get_json(silent=True) or {}
     mode = data.get("mode", "").lower()
     if mode not in ("paper", "live"):
@@ -391,70 +505,47 @@ def api_mode():
                      "OANDA_API_KEY/OANDA_ACCOUNT_ID"
         }), 400
 
-    was_running = _bot_running or _systemd_bot_running()
-
-    # Stop bot if running — bump generation so any lingering old thread
-    # self-terminates even if the join times out.
-    _bot_generation += 1
-    if _bot_running:
-        _bot_running = False
-        if _bot_thread is not None:
-            _bot_thread.join(timeout=30)
-    if _systemd_bot_running():
-        _try_systemctl("stop")
-
-    # Update mode in memory and persist to DB
     config.MODE = mode
     set_setting("trading_mode", mode)
     log.info("Trading mode switched to: %s", mode)
-
-    # Restart bot if it was running
-    if was_running:
-        if _try_systemctl("start"):
-            return jsonify({"status": "ok", "mode": mode, "bot": "restarted (systemd)"})
-
-        try:
-            from stockio.bot import StockioBot
-            _bot_instance = StockioBot()
-            _bot_generation += 1
-            _bot_running = True
-            _bot_thread = threading.Thread(
-                target=_run_bot, args=(_bot_generation,), daemon=True)
-            _bot_thread.start()
-            executor_name = type(_bot_instance.executor).__name__
-            log.info("Bot restarted in %s mode with %s", mode, executor_name)
-            return jsonify({"status": "ok", "mode": mode, "bot": "restarted",
-                            "executor": executor_name})
-        except Exception as exc:
-            log.exception("Failed to restart bot in %s mode", mode)
-            return jsonify({"error": f"Mode set to {mode} but bot failed to restart: {exc}"}), 500
-
-    return jsonify({"status": "ok", "mode": mode, "bot": "stopped"})
+    return jsonify({
+        "status": "ok", "mode": mode,
+        "instances": {
+            name: {"running": s.running, "mode": s.mode}
+            for name, s in _slots.items()
+        },
+    })
 
 
 @app.route("/api/reset", methods=["POST"])
 def api_reset():
-    """Reset all portfolio data (positions, trades, snapshots, logs).
+    """Reset all portfolio data for a specific instance.
 
-    Resets cash back to the configured STOCKIO_BUDGET.
-    Stops the bot automatically if it is running and waits for it to finish.
+    Query params:
+        instance  – ``paper`` or ``live`` (default: ``paper``).
     """
-    global _bot_running
+    instance = (request.get_json(silent=True) or {}).get(
+        "instance", request.args.get("instance", "paper"),
+    )
+    slot = _slots.get(instance, _slots["paper"])
 
-    # Stop bot if running and wait for thread to finish its current cycle
-    if _bot_running:
-        _bot_running = False
-        if _bot_thread is not None:
-            _bot_thread.join(timeout=30)
+    # Stop the instance if running
+    if slot.running:
+        slot.generation += 1
+        slot.running = False
+        if slot.thread is not None:
+            slot.thread.join(timeout=30)
     if _systemd_bot_running():
         _try_systemctl("stop")
         import time
-        time.sleep(2)  # give systemd a moment to stop
+        time.sleep(2)
 
     try:
-        reset_all_data()
+        with use_db(slot.db_path):
+            reset_all_data()
         return jsonify({
             "status": "reset",
+            "instance": instance,
             "cash": config.INITIAL_BUDGET_GBP,
         })
     except Exception as exc:
@@ -466,7 +557,10 @@ def api_reset():
 def api_bot_log():
     """Return recent bot reasoning logs."""
     limit = request.args.get("limit", 5, type=int)
-    logs = get_bot_logs(limit=limit)
+    instance = request.args.get("instance", "paper")
+    slot = _slots.get(instance, _slots["paper"])
+    with use_db(slot.db_path):
+        logs = get_bot_logs(limit=limit)
     return jsonify(logs)
 
 
@@ -474,7 +568,10 @@ def api_bot_log():
 def api_snapshots():
     """Return portfolio value snapshots for charting."""
     limit = request.args.get("limit", 500, type=int)
-    snapshots = get_snapshots(limit=limit)
+    instance = request.args.get("instance", "paper")
+    slot = _slots.get(instance, _slots["paper"])
+    with use_db(slot.db_path):
+        snapshots = get_snapshots(limit=limit)
     return jsonify(snapshots)
 
 
@@ -519,11 +616,14 @@ def api_sentiment_detail():
     Returns per-ticker sentiment with source breakdown (news vs Reddit vs
     broad market) and per-article details including individual sentiment scores.
     """
+    instance = request.args.get("instance", "paper")
+    slot = _slots.get(instance, _slots["paper"])
     try:
         from stockio.sentiment import get_sentiment_scores
 
         # Use held positions + top tickers by market cap
-        held = [p.ticker for p in get_positions()]
+        with use_db(slot.db_path):
+            held = [p.ticker for p in get_positions()]
         all_tickers = get_cached_tickers()
         sample = all_tickers[:15]  # top 15 by market cap
         combined = list(dict.fromkeys(held + sample))
@@ -568,8 +668,11 @@ def api_news_feed():
 
     Extracts article details from the bot log so no additional API calls needed.
     """
+    instance = request.args.get("instance", "paper")
+    slot = _slots.get(instance, _slots["paper"])
     try:
-        logs = get_bot_logs(limit=1)
+        with use_db(slot.db_path):
+            logs = get_bot_logs(limit=1)
         if not logs:
             return jsonify([])
 
@@ -618,6 +721,8 @@ def api_trump_feed():
     source in truth_social, white_house, trump_news).  If the bot hasn't
     completed a cycle yet, fetches the feeds live so the tab isn't empty.
     """
+    instance = request.args.get("instance", "paper")
+    slot = _slots.get(instance, _slots["paper"])
     try:
         if not config.TRUMP_MONITORING_ENABLED:
             return jsonify({
@@ -626,7 +731,8 @@ def api_trump_feed():
                 "items": [],
             })
 
-        logs = get_bot_logs(limit=1)
+        with use_db(slot.db_path):
+            logs = get_bot_logs(limit=1)
         items = []
         seen_titles: set = set()
 
@@ -863,29 +969,29 @@ def api_config():
 # ------------------------------------------------------------------
 
 
-def _run_bot(gen: int):
-    global _bot_running
+def _run_instance(slot: BotSlot):
+    """Thread target for running a single bot instance."""
     import time
     import traceback
 
-    log.info("Bot thread started (generation %d, executor=%s)",
-             gen, type(_bot_instance.executor).__name__)
+    gen = slot.generation
+    log.info("[%s] Bot thread started (generation %d, executor=%s)",
+             slot.name, gen, type(slot.bot.executor).__name__)
     try:
-        while _bot_running and gen == _bot_generation:
+        while slot.running and gen == slot.generation:
             try:
-                _bot_instance.run_cycle()
+                slot.bot.run_cycle()
             except Exception:
-                log.error("Cycle error:\n%s", traceback.format_exc())
+                log.error("[%s] Cycle error:\n%s", slot.name, traceback.format_exc())
             # Wait for the interval, checking stop flag every 10s
             for _ in range(config.INTERVAL_MINUTES * 6):
-                if not _bot_running or gen != _bot_generation:
+                if not slot.running or gen != slot.generation:
                     break
                 time.sleep(10)
     finally:
-        # Only clear _bot_running if we're still the current generation
-        if gen == _bot_generation:
-            _bot_running = False
-        log.info("Bot thread stopped (generation %d)", gen)
+        if gen == slot.generation:
+            slot.running = False
+        log.info("[%s] Bot thread stopped (generation %d)", slot.name, gen)
 
 
 # ------------------------------------------------------------------

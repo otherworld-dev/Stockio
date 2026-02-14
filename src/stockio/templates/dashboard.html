@@ -371,11 +371,21 @@
             .grid-3 { grid-template-columns: 1fr; }
         }
 
+        .instance-tab {
+            background: transparent !important;
+            color: var(--text-dim) !important;
+        }
+        .instance-tab.active {
+            background: var(--blue) !important;
+            color: #fff !important;
+        }
+
         @media (max-width: 768px) {
             .grid-2 { grid-template-columns: 1fr; }
             .grid-3 { grid-template-columns: 1fr; }
             .dashboard { padding: 1rem; }
-            header { padding: 0.8rem 1rem; }
+            header { padding: 0.8rem 1rem; flex-wrap: wrap; gap: 0.5rem; }
+            .header-controls { flex-wrap: wrap; }
             .feed-meta { min-width: 80px; }
         }
     </style>
@@ -384,12 +394,19 @@
     <header>
         <h1><span>Stockio</span> Dashboard</h1>
         <div class="header-controls">
-            <span class="status-badge paper" id="mode-badge" style="cursor:pointer" onclick="toggleMode()" title="Click to switch mode">PAPER</span>
-            <span class="status-badge stopped" id="bot-badge">STOPPED</span>
-            <button class="btn btn-start" id="btn-start" onclick="startBot()">Start Bot</button>
-            <button class="btn btn-stop" id="btn-stop" onclick="stopBot()" style="display:none">Stop Bot</button>
+            <!-- Instance selector tabs -->
+            <div style="display:flex;gap:0.3rem;background:var(--bg);border-radius:8px;padding:0.2rem;">
+                <button class="btn instance-tab active" id="tab-paper" onclick="switchInstance('paper')" style="padding:0.3rem 0.8rem;font-size:0.75rem;border-radius:6px;">Paper</button>
+                <button class="btn instance-tab" id="tab-live" onclick="switchInstance('live')" style="padding:0.3rem 0.8rem;font-size:0.75rem;border-radius:6px;">Live</button>
+            </div>
+            <span class="status-badge stopped" id="paper-badge" title="Paper simulation">PAPER: OFF</span>
+            <span class="status-badge stopped" id="live-badge" title="Live trading">LIVE: OFF</span>
+            <button class="btn btn-start" id="btn-start-paper" onclick="startInstance('paper')" style="font-size:0.75rem">Start Paper</button>
+            <button class="btn btn-stop" id="btn-stop-paper" onclick="stopInstance('paper')" style="display:none;font-size:0.75rem">Stop Paper</button>
+            <button class="btn btn-start" id="btn-start-live" onclick="startInstance('live')" style="font-size:0.75rem">Start Live</button>
+            <button class="btn btn-stop" id="btn-stop-live" onclick="stopInstance('live')" style="display:none;font-size:0.75rem">Stop Live</button>
             <button class="btn btn-refresh" onclick="refreshAll()">Refresh</button>
-            <button class="btn" onclick="confirmReset()" style="background:var(--border);color:var(--red);font-size:0.75rem">Reset Data</button>
+            <button class="btn" onclick="confirmReset()" style="background:var(--border);color:var(--red);font-size:0.75rem">Reset</button>
         </div>
     </header>
 
@@ -623,7 +640,7 @@
             const container = document.getElementById('tab-feed');
             container.innerHTML = '<div class="loading">Loading stories...</div>';
             try {
-                const resp = await fetch('/api/news-feed');
+                const resp = await fetch('/api/news-feed?instance=' + _activeInstance);
                 const articles = await resp.json();
 
                 if (!articles.length) {
@@ -660,7 +677,7 @@
             const container = document.getElementById('tab-trump');
             container.innerHTML = '<div class="loading">Loading Trump/political activity...</div>';
             try {
-                const resp = await fetch('/api/trump-feed');
+                const resp = await fetch('/api/trump-feed?instance=' + _activeInstance);
                 const data = await resp.json();
 
                 if (data.error) {
@@ -735,7 +752,7 @@
             const container = document.getElementById('tab-sentiment');
             container.innerHTML = '<div class="loading">Analysing sentiment (this may take a moment)...</div>';
             try {
-                const resp = await fetch('/api/sentiment-detail');
+                const resp = await fetch('/api/sentiment-detail?instance=' + _activeInstance);
                 if (!resp.ok) {
                     let msg = `HTTP ${resp.status}`;
                     try { const j = await resp.json(); if (j.error) msg = j.error; } catch {}
@@ -808,7 +825,7 @@
         // ---- Trades ----
         async function loadTrades() {
             try {
-                const resp = await fetch('/api/trades?limit=30');
+                const resp = await fetch('/api/trades?limit=30&instance=' + _activeInstance);
                 const trades = await resp.json();
 
                 if (trades.length === 0) {
@@ -843,7 +860,7 @@
         async function loadSignals() {
             document.getElementById('signals-table').innerHTML = '<div class="loading">Analysing market data...</div>';
             try {
-                const resp = await fetch('/api/signals');
+                const resp = await fetch('/api/signals?instance=' + _activeInstance);
                 const signals = await resp.json();
 
                 if (signals.error) {
@@ -874,65 +891,56 @@
             }
         }
 
-        // Track current mode from API data (updated by loadStatus)
-        let _currentMode = 'paper';
+        // Track which instance we're viewing and instance state
+        let _activeInstance = 'paper';
+        let _currentMode = 'paper';  // legacy compat
+        let _instanceState = { paper: { running: false }, live: { running: false } };
 
-        async function toggleMode() {
-            const next = _currentMode === 'live' ? 'paper' : 'live';
-            const label = next === 'live' ? 'Alpaca paper trading' : 'simulated (local) trading';
-            if (!confirm(`Switch to ${label}?` + (next === 'live' ? '\n\nThis will use your Alpaca API keys to place real orders on Alpaca\'s paper trading sandbox.' : ''))) return;
-            try {
-                const resp = await fetch('/api/mode', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({mode: next}),
-                });
-                const data = await resp.json();
-                if (data.error) {
-                    alert('Mode switch failed: ' + data.error);
-                } else {
-                    _currentMode = next;
-                    loadStatus();
-                    loadAlpaca();
-                }
-            } catch (err) {
-                alert('Mode switch failed: ' + err);
-            }
+        function switchInstance(name) {
+            _activeInstance = name;
+            document.querySelectorAll('.instance-tab').forEach(el => el.classList.remove('active'));
+            document.getElementById('tab-' + name).classList.add('active');
+            refreshAll();
+            loadCharts();
         }
 
-        async function startBot() {
+        async function startInstance(name) {
             try {
-                const resp = await fetch('/api/bot/start', { method: 'POST' });
+                const resp = await fetch('/api/instances/' + name + '/start', { method: 'POST' });
                 const data = await resp.json();
                 if (data.error) {
-                    alert('Bot failed to start: ' + data.error);
+                    alert(name + ' bot failed to start: ' + data.error);
                 }
             } catch (err) {
-                alert('Bot failed to start: ' + err);
+                alert(name + ' bot failed to start: ' + err);
             }
             loadStatus();
         }
 
-        async function stopBot() {
-            await fetch('/api/bot/stop', { method: 'POST' });
+        async function stopInstance(name) {
+            await fetch('/api/instances/' + name + '/stop', { method: 'POST' });
             loadStatus();
         }
 
         async function confirmReset() {
-            if (!confirm('Reset ALL data? This will delete all positions, trades, snapshots, and bot logs, and reset cash to the initial budget. This cannot be undone.')) return;
-            if (!confirm('Are you sure? This will permanently erase all trading history.')) return;
+            const inst = _activeInstance;
+            if (!confirm('Reset ALL data for the ' + inst.toUpperCase() + ' instance? This will delete all positions, trades, snapshots, and bot logs, and reset cash to the initial budget. This cannot be undone.')) return;
+            if (!confirm('Are you sure? This will permanently erase all ' + inst + ' trading history.')) return;
             try {
-                const resp = await fetch('/api/reset', { method: 'POST' });
+                const resp = await fetch('/api/reset', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({instance: inst}),
+                });
                 const data = await resp.json();
                 if (data.error) {
                     alert('Reset failed: ' + data.error);
                 } else {
-                    // Refresh everything after reset
                     await loadStatus();
                     await loadCharts();
                     loadTrades();
                     loadBotLog();
-                    alert('Data reset. Cash restored to \u00a3' + data.cash.toFixed(2));
+                    alert(inst.toUpperCase() + ' data reset. Cash restored to \u00a3' + data.cash.toFixed(2));
                 }
             } catch (err) {
                 alert('Reset failed: ' + err);
@@ -1081,7 +1089,7 @@
         // ---- Bot Thinking Log (enhanced) ----
         async function loadBotLog() {
             try {
-                const resp = await fetch('/api/bot-log?limit=5');
+                const resp = await fetch('/api/bot-log?limit=5&instance=' + _activeInstance);
                 const logs = await resp.json();
                 const container = document.getElementById('bot-log');
 
@@ -1239,7 +1247,7 @@
 
         async function loadCharts() {
             try {
-                const resp = await fetch('/api/snapshots');
+                const resp = await fetch('/api/snapshots?instance=' + _activeInstance);
                 const snaps = await resp.json();
 
                 const labels = snaps.map(s => fmtTime(s.timestamp));
@@ -1281,7 +1289,7 @@
 
         async function loadStatus() {
             try {
-                const resp = await fetch('/api/status');
+                const resp = await fetch('/api/status?instance=' + _activeInstance);
                 const data = await resp.json();
                 if (data.error) { console.error(data.error); return; }
 
@@ -1306,8 +1314,7 @@
                 document.getElementById('short-value').textContent = fmt(data.short_value);
                 document.getElementById('short-count').textContent = data.num_short + ' position' + (data.num_short !== 1 ? 's' : '');
 
-                // Uninvested cash — show how much of original budget is still in cash
-                // (raw cash is inflated by short sale proceeds, so show the "real" spending power)
+                // Uninvested cash
                 const realCash = data.cash - data.short_value;
                 document.getElementById('cash-value').textContent = fmt(realCash);
                 if (data.short_value > 0) {
@@ -1320,33 +1327,27 @@
                 // Positions count
                 document.getElementById('positions-count').textContent = data.num_positions;
 
-                const modeBadge = document.getElementById('mode-badge');
+                // Update instance badges and buttons
                 _currentMode = data.mode;
-                if (data.mode === 'live') {
-                    modeBadge.textContent = data.alpaca_paper ? 'ALPACA PAPER' : 'ALPACA LIVE';
-                    modeBadge.className = 'status-badge running';
-                    modeBadge.title = 'Click to switch to simulated mode';
-                } else {
-                    modeBadge.textContent = 'SIMULATED';
-                    modeBadge.className = 'status-badge paper';
-                    modeBadge.title = data.alpaca_keys_set
-                        ? 'Click to switch to Alpaca paper trading'
-                        : 'Set ALPACA_API_KEY and ALPACA_SECRET_KEY to enable Alpaca';
-                }
-
-                const botBadge = document.getElementById('bot-badge');
-                const btnStart = document.getElementById('btn-start');
-                const btnStop = document.getElementById('btn-stop');
-                if (data.bot_running) {
-                    botBadge.textContent = 'RUNNING';
-                    botBadge.className = 'status-badge running';
-                    btnStart.style.display = 'none';
-                    btnStop.style.display = '';
-                } else {
-                    botBadge.textContent = 'STOPPED';
-                    botBadge.className = 'status-badge stopped';
-                    btnStart.style.display = '';
-                    btnStop.style.display = 'none';
+                if (data.instances) {
+                    _instanceState = data.instances;
+                    ['paper', 'live'].forEach(name => {
+                        const inst = data.instances[name] || {};
+                        const badge = document.getElementById(name + '-badge');
+                        const btnStart = document.getElementById('btn-start-' + name);
+                        const btnStop = document.getElementById('btn-stop-' + name);
+                        if (inst.running) {
+                            badge.textContent = name.toUpperCase() + ': ON';
+                            badge.className = 'status-badge running';
+                            btnStart.style.display = 'none';
+                            btnStop.style.display = '';
+                        } else {
+                            badge.textContent = name.toUpperCase() + ': OFF';
+                            badge.className = 'status-badge stopped';
+                            btnStart.style.display = '';
+                            btnStop.style.display = 'none';
+                        }
+                    });
                 }
 
                 if (data.holdings && data.holdings.length > 0) {

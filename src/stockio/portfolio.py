@@ -3,19 +3,48 @@
 Enforces risk management rules (position sizing, stop-loss, take-profit) and
 provides P&L reporting.  Supports multiple asset types with per-asset risk
 parameters.
+
+Supports per-instance databases: set the active DB with :func:`use_db` or
+call :func:`set_active_db` before using any other function.  If no active
+DB has been set, falls back to the default ``config.DB_PATH``.
 """
 
 from __future__ import annotations
 
+import contextvars
 import datetime as dt
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
+from pathlib import Path
 
 from stockio import config
 from stockio.config import AssetType, get_logger
 
 log = get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# Per-instance database routing
+# ---------------------------------------------------------------------------
+
+_active_db: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "_active_db", default=None,
+)
+
+
+def set_active_db(db_path: str | Path) -> None:
+    """Set the database path for the current context (thread)."""
+    _active_db.set(str(db_path))
+
+
+@contextmanager
+def use_db(db_path: str | Path):
+    """Context manager to temporarily route all operations to *db_path*."""
+    token = _active_db.set(str(db_path))
+    try:
+        yield
+    finally:
+        _active_db.reset(token)
 
 
 # ---------------------------------------------------------------------------
@@ -126,7 +155,9 @@ def _init_db(conn: sqlite3.Connection) -> None:
 @contextmanager
 def _get_conn():
     config.DATA_DIR.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(config.DB_PATH))
+    db = _active_db.get()
+    path = db if db else str(config.DB_PATH)
+    conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     _init_db(conn)
     try:

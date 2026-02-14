@@ -17,6 +17,7 @@ from __future__ import annotations
 import datetime as dt
 import time
 import traceback
+from pathlib import Path
 
 import schedule
 
@@ -29,7 +30,7 @@ from stockio.market_discovery import (
     get_ticker_count,
     maybe_refresh,
 )
-from stockio.portfolio import get_positions, portfolio_summary, record_bot_log, record_snapshot
+from stockio.portfolio import get_positions, portfolio_summary, record_bot_log, record_snapshot, set_active_db
 from stockio.sentiment import get_sentiment_scores
 from stockio.strategy import Signal, generate_signals, train_model
 
@@ -37,10 +38,37 @@ log = get_logger(__name__)
 
 
 class StockioBot:
-    """The main trading bot."""
+    """The main trading bot.
 
-    def __init__(self) -> None:
-        self.executor = get_executor()
+    Parameters
+    ----------
+    db_path : Path | None
+        If given, all portfolio operations run against this DB file
+        instead of the default ``config.DB_PATH``.  This allows multiple
+        bot instances (paper + live) to run concurrently, each with its
+        own isolated portfolio.
+    mode : str | None
+        Override mode for this instance (``"paper"`` or ``"live"``).
+        If *None*, uses ``config.MODE``.
+    """
+
+    def __init__(self, db_path: Path | None = None, mode: str | None = None) -> None:
+        self.db_path = db_path
+        self.mode = mode or config.MODE
+
+        # Activate this instance's DB before creating the executor
+        if db_path:
+            set_active_db(db_path)
+
+        # Temporarily override global MODE for executor selection
+        orig_mode = config.MODE
+        if mode:
+            config.MODE = mode
+        try:
+            self.executor = get_executor()
+        finally:
+            config.MODE = orig_mode
+
         self._last_retrain: dt.datetime | None = None
         self._batch_offset: int = 0
 
@@ -53,12 +81,18 @@ class StockioBot:
             log.info("Live mode — syncing local portfolio with Alpaca...")
             executor.sync_account()
 
+    def _activate_db(self) -> None:
+        """Ensure this instance's DB is active for the current thread."""
+        if self.db_path:
+            set_active_db(self.db_path)
+
     # ------------------------------------------------------------------
     # Core trading cycle
     # ------------------------------------------------------------------
 
     def run_cycle(self) -> None:
         """Execute one full trading cycle."""
+        self._activate_db()
         log.info("=" * 60)
         log.info("Starting trading cycle at %s", dt.datetime.utcnow().isoformat())
         log.info("=" * 60)

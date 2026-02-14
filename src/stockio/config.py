@@ -15,6 +15,18 @@ MODEL_DIR = DATA_DIR / "models"
 DB_PATH = DATA_DIR / "stockio.db"
 
 
+def get_db_path(instance_id: str = "") -> Path:
+    """Return the database path for a named instance.
+
+    - ``""`` / ``"default"`` → the default ``stockio.db``
+    - ``"paper"`` → ``stockio_paper.db``
+    - ``"live"`` → ``stockio_live.db``
+    """
+    if not instance_id or instance_id == "default":
+        return DB_PATH
+    return DATA_DIR / f"stockio_{instance_id}.db"
+
+
 # ---------------------------------------------------------------------------
 # Asset types
 # ---------------------------------------------------------------------------
