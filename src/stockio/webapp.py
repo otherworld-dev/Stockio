@@ -680,6 +680,7 @@ def api_market_stats():
             "commodities_enabled": config.COMMODITIES_ENABLED,
             "crypto_enabled": config.CRYPTO_ENABLED,
             "markets": stats,
+            "market_info": config.MARKET_INFO,
         })
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500

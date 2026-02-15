@@ -39,6 +39,81 @@ class AssetType(str, Enum):
     CRYPTO = "crypto"
 
 
+# ---------------------------------------------------------------------------
+# Market metadata — trading hours, sessions, and descriptions
+# ---------------------------------------------------------------------------
+
+MARKET_INFO: dict[str, dict] = {
+    "equity": {
+        "label": "Equities",
+        "description": "Stocks listed on major exchanges",
+        "currency": "GBP / USD / EUR",
+        "schedule": "Weekdays only",
+        "sessions": [
+            {"name": "LSE / AIM", "open": "08:00", "close": "16:30", "tz": "Europe/London",
+             "tz_label": "GMT/BST", "pre_market": "07:00", "after_hours": "17:00"},
+            {"name": "NYSE", "open": "09:30", "close": "16:00", "tz": "America/New_York",
+             "tz_label": "ET", "pre_market": "04:00", "after_hours": "20:00"},
+            {"name": "NASDAQ", "open": "09:30", "close": "16:00", "tz": "America/New_York",
+             "tz_label": "ET", "pre_market": "04:00", "after_hours": "20:00"},
+            {"name": "Euronext", "open": "09:00", "close": "17:30", "tz": "Europe/Paris",
+             "tz_label": "CET", "pre_market": "07:15", "after_hours": "17:30"},
+            {"name": "Xetra", "open": "09:00", "close": "17:30", "tz": "Europe/Berlin",
+             "tz_label": "CET", "pre_market": "08:00", "after_hours": "17:30"},
+        ],
+        "notes": "Closed weekends and public holidays. Most liquid during first and last hour of each session.",
+    },
+    "forex": {
+        "label": "Forex",
+        "description": "Major and minor currency pairs",
+        "currency": "USD (quoted)",
+        "schedule": "24 hours, Mon-Fri",
+        "sessions": [
+            {"name": "Sydney", "open": "22:00", "close": "07:00", "tz": "UTC",
+             "tz_label": "UTC", "volatility": "low"},
+            {"name": "Tokyo", "open": "00:00", "close": "09:00", "tz": "UTC",
+             "tz_label": "UTC", "volatility": "medium"},
+            {"name": "London", "open": "08:00", "close": "17:00", "tz": "UTC",
+             "tz_label": "UTC", "volatility": "high"},
+            {"name": "New York", "open": "13:00", "close": "22:00", "tz": "UTC",
+             "tz_label": "UTC", "volatility": "high"},
+        ],
+        "notes": "Most liquid during London-NY overlap (13:00-17:00 UTC). "
+                 "Closed from Friday 22:00 UTC to Sunday 22:00 UTC.",
+    },
+    "commodity": {
+        "label": "Commodities",
+        "description": "Futures contracts for metals, energy, and agriculture",
+        "currency": "USD",
+        "schedule": "Near 24h, Mon-Fri",
+        "sessions": [
+            {"name": "CME Globex", "open": "18:00", "close": "17:00", "tz": "America/Chicago",
+             "tz_label": "CT", "note": "60-min break 17:00-18:00 CT"},
+            {"name": "Metals (COMEX)", "open": "18:00", "close": "17:00", "tz": "America/New_York",
+             "tz_label": "ET", "note": "Gold, Silver, Copper"},
+            {"name": "Energy (NYMEX)", "open": "18:00", "close": "17:00", "tz": "America/New_York",
+             "tz_label": "ET", "note": "Crude Oil, Natural Gas"},
+            {"name": "Agriculture (CBOT)", "open": "19:00", "close": "13:20", "tz": "America/Chicago",
+             "tz_label": "CT", "note": "Wheat, Corn, Soybeans"},
+        ],
+        "notes": "Futures trade nearly 24h with a daily 60-min maintenance break. "
+                 "Most volume during US morning session.",
+    },
+    "crypto": {
+        "label": "Crypto",
+        "description": "Cryptocurrencies traded against USD",
+        "currency": "USD",
+        "schedule": "24/7",
+        "sessions": [
+            {"name": "Global", "open": "00:00", "close": "23:59", "tz": "UTC",
+             "tz_label": "UTC", "note": "Never closes"},
+        ],
+        "notes": "Trades 24/7/365 with no market close. Highest volatility during US market hours. "
+                 "Weekend liquidity tends to be lower.",
+    },
+}
+
+
 # Budget
 INITIAL_BUDGET_GBP = float(os.getenv("STOCKIO_BUDGET", "500.00"))
 

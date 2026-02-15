@@ -409,6 +409,22 @@
             color: var(--text);
             font-weight: 600;
         }
+        .market-sessions {
+            border-top: 1px solid var(--border);
+            margin-top: 0.5rem;
+            padding-top: 0.4rem;
+        }
+        .session-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.72rem;
+            color: var(--text-dim);
+            padding: 0.15rem 0;
+        }
+        .session-row span:first-child {
+            color: var(--text);
+            font-weight: 500;
+        }
 
         .instance-tab {
             background: transparent !important;
@@ -1191,6 +1207,81 @@
             }
         }
 
+        function isMarketOpen(sessions) {
+            // Check if any session is currently open based on UTC time
+            const now = new Date();
+            const utcH = now.getUTCHours();
+            const utcM = now.getUTCMinutes();
+            const nowMins = utcH * 60 + utcM;
+            const day = now.getUTCDay(); // 0=Sun, 6=Sat
+            for (const sess of sessions) {
+                // Crypto is always open
+                if (sess.note === 'Never closes') return true;
+                // Weekdays only for most markets
+                if (day === 0 || day === 6) continue;
+                // Parse open/close as UTC (approximate — ignores DST)
+                const [oh, om] = sess.open.split(':').map(Number);
+                const [ch, cm] = sess.close.split(':').map(Number);
+                const openMins = oh * 60 + om;
+                const closeMins = ch * 60 + cm;
+                if (sess.tz_label === 'ET') {
+                    // ET is UTC-5 (approx, ignores DST)
+                    const offset = 5 * 60;
+                    const adjOpen = (openMins + offset) % 1440;
+                    const adjClose = (closeMins + offset) % 1440;
+                    if (adjOpen < adjClose) {
+                        if (nowMins >= adjOpen && nowMins < adjClose) return true;
+                    } else {
+                        if (nowMins >= adjOpen || nowMins < adjClose) return true;
+                    }
+                } else if (sess.tz_label === 'CT') {
+                    const offset = 6 * 60;
+                    const adjOpen = (openMins + offset) % 1440;
+                    const adjClose = (closeMins + offset) % 1440;
+                    if (adjOpen < adjClose) {
+                        if (nowMins >= adjOpen && nowMins < adjClose) return true;
+                    } else {
+                        if (nowMins >= adjOpen || nowMins < adjClose) return true;
+                    }
+                } else if (sess.tz_label === 'CET') {
+                    const offset = -1 * 60;
+                    const adjOpen = (openMins + offset + 1440) % 1440;
+                    const adjClose = (closeMins + offset + 1440) % 1440;
+                    if (adjOpen < adjClose) {
+                        if (nowMins >= adjOpen && nowMins < adjClose) return true;
+                    } else {
+                        if (nowMins >= adjOpen || nowMins < adjClose) return true;
+                    }
+                } else {
+                    // UTC or GMT/BST (treat as UTC)
+                    if (openMins < closeMins) {
+                        if (nowMins >= openMins && nowMins < closeMins) return true;
+                    } else {
+                        if (nowMins >= openMins || nowMins < closeMins) return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        function renderSessions(info) {
+            if (!info || !info.sessions) return '';
+            let html = '<div class="market-sessions">';
+            html += `<div style="font-size:0.7rem;color:var(--text-dim);margin-top:0.6rem;margin-bottom:0.3rem">${info.schedule} &middot; ${info.currency}</div>`;
+            info.sessions.forEach(sess => {
+                const note = sess.note || sess.volatility ? ` (${sess.note || sess.volatility})` : '';
+                html += `<div class="session-row">
+                    <span>${sess.name}</span>
+                    <span>${sess.open}-${sess.close} ${sess.tz_label}${note}</span>
+                </div>`;
+            });
+            if (info.notes) {
+                html += `<div style="font-size:0.65rem;color:var(--text-dim);margin-top:0.3rem;font-style:italic">${info.notes}</div>`;
+            }
+            html += '</div>';
+            return html;
+        }
+
         async function loadMarketStats() {
             try {
                 const resp = await fetch('/api/market-stats?instance=' + _activeInstance);
@@ -1212,11 +1303,13 @@
                 if (cr) cr.checked = data.crypto_enabled;
 
                 const stats = data.markets || {};
+                const mktInfo = data.market_info || {};
                 const allTypes = ['equity', 'forex', 'commodity', 'crypto'];
                 let html = '';
 
                 allTypes.forEach(at => {
                     const s = stats[at];
+                    const info = mktInfo[at];
                     const label = marketLabels[at] || at;
                     const color = marketColors[at] || 'var(--text)';
                     const enabled = (at === 'equity' && data.equities_enabled)
@@ -1224,10 +1317,18 @@
                         || (at === 'commodity' && data.commodities_enabled)
                         || (at === 'crypto' && data.crypto_enabled);
 
+                    // Market open/closed indicator
+                    const sessions = info ? info.sessions : [];
+                    const open = enabled && isMarketOpen(sessions);
+                    const statusDot = enabled
+                        ? `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${open ? 'var(--green)' : 'var(--red)'};margin-left:0.4rem" title="${open ? 'Market open' : 'Market closed'}"></span>`
+                        : '';
+
                     if (!enabled && !s) {
                         html += `<div class="card market-stat-card" style="padding:0.8rem;opacity:0.4">
                             <div class="card-label" style="color:${color}">${label}</div>
                             <div class="card-value" style="font-size:1.1rem;color:var(--text-dim)">DISABLED</div>
+                            ${info ? `<div style="font-size:0.7rem;color:var(--text-dim);margin-top:0.4rem">${info.description}</div>` : ''}
                         </div>`;
                         return;
                     }
@@ -1240,12 +1341,13 @@
                     const pnlCls = pnl >= 0 ? 'positive' : 'negative';
 
                     html += `<div class="card market-stat-card" style="padding:0.8rem">
-                        <div class="card-label" style="color:${color}">${label}</div>
+                        <div class="card-label" style="color:${color}">${label} ${statusDot}</div>
                         <div class="card-value ${pnlCls}" style="font-size:1.1rem">${pnl >= 0 ? '+' : ''}${fmt(pnl)}</div>
                         <div class="stat-row"><span>Open positions</span><span>${positions}</span></div>
                         <div class="stat-row"><span>Open value</span><span>${fmt(value)}</span></div>
                         <div class="stat-row"><span>Total trades</span><span>${trades}</span></div>
                         <div class="stat-row"><span>Volume traded</span><span>${fmt(volume)}</span></div>
+                        ${renderSessions(info)}
                     </div>`;
                 });
 
