@@ -1208,57 +1208,22 @@
         }
 
         function isMarketOpen(sessions) {
-            // Check if any session is currently open based on UTC time
+            // All times are in GMT — compare directly against UTC clock
             const now = new Date();
-            const utcH = now.getUTCHours();
-            const utcM = now.getUTCMinutes();
-            const nowMins = utcH * 60 + utcM;
+            const nowMins = now.getUTCHours() * 60 + now.getUTCMinutes();
             const day = now.getUTCDay(); // 0=Sun, 6=Sat
             for (const sess of sessions) {
-                // Crypto is always open
                 if (sess.note === 'Never closes') return true;
-                // Weekdays only for most markets
                 if (day === 0 || day === 6) continue;
-                // Parse open/close as UTC (approximate — ignores DST)
                 const [oh, om] = sess.open.split(':').map(Number);
                 const [ch, cm] = sess.close.split(':').map(Number);
                 const openMins = oh * 60 + om;
                 const closeMins = ch * 60 + cm;
-                if (sess.tz_label === 'ET') {
-                    // ET is UTC-5 (approx, ignores DST)
-                    const offset = 5 * 60;
-                    const adjOpen = (openMins + offset) % 1440;
-                    const adjClose = (closeMins + offset) % 1440;
-                    if (adjOpen < adjClose) {
-                        if (nowMins >= adjOpen && nowMins < adjClose) return true;
-                    } else {
-                        if (nowMins >= adjOpen || nowMins < adjClose) return true;
-                    }
-                } else if (sess.tz_label === 'CT') {
-                    const offset = 6 * 60;
-                    const adjOpen = (openMins + offset) % 1440;
-                    const adjClose = (closeMins + offset) % 1440;
-                    if (adjOpen < adjClose) {
-                        if (nowMins >= adjOpen && nowMins < adjClose) return true;
-                    } else {
-                        if (nowMins >= adjOpen || nowMins < adjClose) return true;
-                    }
-                } else if (sess.tz_label === 'CET') {
-                    const offset = -1 * 60;
-                    const adjOpen = (openMins + offset + 1440) % 1440;
-                    const adjClose = (closeMins + offset + 1440) % 1440;
-                    if (adjOpen < adjClose) {
-                        if (nowMins >= adjOpen && nowMins < adjClose) return true;
-                    } else {
-                        if (nowMins >= adjOpen || nowMins < adjClose) return true;
-                    }
+                if (openMins < closeMins) {
+                    if (nowMins >= openMins && nowMins < closeMins) return true;
                 } else {
-                    // UTC or GMT/BST (treat as UTC)
-                    if (openMins < closeMins) {
-                        if (nowMins >= openMins && nowMins < closeMins) return true;
-                    } else {
-                        if (nowMins >= openMins || nowMins < closeMins) return true;
-                    }
+                    // Wraps midnight (e.g. 23:00-22:00)
+                    if (nowMins >= openMins || nowMins < closeMins) return true;
                 }
             }
             return false;
