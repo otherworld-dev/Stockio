@@ -353,6 +353,26 @@ SHORT_STOP_LOSS_PCT = float(os.getenv("STOCKIO_SHORT_STOP_LOSS_PCT", "5"))
 SHORT_TAKE_PROFIT_PCT = float(os.getenv("STOCKIO_SHORT_TAKE_PROFIT_PCT", "10"))
 MAX_TOTAL_SHORT_PCT = float(os.getenv("STOCKIO_MAX_TOTAL_SHORT_PCT", "30"))
 
+# Simulated transaction costs (paper trading only).
+# Spread is the half-spread applied to each side (buy pays +spread, sell receives -spread).
+# Slippage models execution delay / market impact.  Commission is a flat % per trade.
+# All values are percentages of the trade price (e.g. 0.05 = 0.05%).
+EQUITY_SPREAD_PCT = float(os.getenv("STOCKIO_EQUITY_SPREAD_PCT", "0.05"))
+EQUITY_SLIPPAGE_PCT = float(os.getenv("STOCKIO_EQUITY_SLIPPAGE_PCT", "0.02"))
+EQUITY_COMMISSION_PCT = float(os.getenv("STOCKIO_EQUITY_COMMISSION_PCT", "0.0"))
+
+FOREX_SPREAD_PCT = float(os.getenv("STOCKIO_FOREX_SPREAD_PCT", "0.01"))
+FOREX_SLIPPAGE_PCT = float(os.getenv("STOCKIO_FOREX_SLIPPAGE_PCT", "0.005"))
+FOREX_COMMISSION_PCT = float(os.getenv("STOCKIO_FOREX_COMMISSION_PCT", "0.0"))
+
+COMMODITY_SPREAD_PCT = float(os.getenv("STOCKIO_COMMODITY_SPREAD_PCT", "0.05"))
+COMMODITY_SLIPPAGE_PCT = float(os.getenv("STOCKIO_COMMODITY_SLIPPAGE_PCT", "0.03"))
+COMMODITY_COMMISSION_PCT = float(os.getenv("STOCKIO_COMMODITY_COMMISSION_PCT", "0.0"))
+
+CRYPTO_SPREAD_PCT = float(os.getenv("STOCKIO_CRYPTO_SPREAD_PCT", "0.10"))
+CRYPTO_SLIPPAGE_PCT = float(os.getenv("STOCKIO_CRYPTO_SLIPPAGE_PCT", "0.05"))
+CRYPTO_COMMISSION_PCT = float(os.getenv("STOCKIO_CRYPTO_COMMISSION_PCT", "0.0"))
+
 # Logging
 LOG_LEVEL = os.getenv("STOCKIO_LOG_LEVEL", "INFO").upper()
 
@@ -398,24 +418,36 @@ def get_risk_params(asset_type: AssetType) -> dict:
             "max_position_pct": FOREX_MAX_POSITION_PCT,
             "stop_loss_pct": FOREX_STOP_LOSS_PCT,
             "take_profit_pct": FOREX_TAKE_PROFIT_PCT,
+            "spread_pct": FOREX_SPREAD_PCT,
+            "slippage_pct": FOREX_SLIPPAGE_PCT,
+            "commission_pct": FOREX_COMMISSION_PCT,
         }
     if asset_type == AssetType.COMMODITY:
         return {
             "max_position_pct": COMMODITY_MAX_POSITION_PCT,
             "stop_loss_pct": COMMODITY_STOP_LOSS_PCT,
             "take_profit_pct": COMMODITY_TAKE_PROFIT_PCT,
+            "spread_pct": COMMODITY_SPREAD_PCT,
+            "slippage_pct": COMMODITY_SLIPPAGE_PCT,
+            "commission_pct": COMMODITY_COMMISSION_PCT,
         }
     if asset_type == AssetType.CRYPTO:
         return {
             "max_position_pct": CRYPTO_MAX_POSITION_PCT,
             "stop_loss_pct": CRYPTO_STOP_LOSS_PCT,
             "take_profit_pct": CRYPTO_TAKE_PROFIT_PCT,
+            "spread_pct": CRYPTO_SPREAD_PCT,
+            "slippage_pct": CRYPTO_SLIPPAGE_PCT,
+            "commission_pct": CRYPTO_COMMISSION_PCT,
         }
     # Default: equity
     return {
         "max_position_pct": MAX_POSITION_PCT,
         "stop_loss_pct": STOP_LOSS_PCT,
         "take_profit_pct": TAKE_PROFIT_PCT,
+        "spread_pct": EQUITY_SPREAD_PCT,
+        "slippage_pct": EQUITY_SLIPPAGE_PCT,
+        "commission_pct": EQUITY_COMMISSION_PCT,
     }
 
 

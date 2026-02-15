@@ -66,7 +66,37 @@ class Executor(ABC):
 
 
 class PaperExecutor(Executor):
-    """Simulate trades using real market prices but no real money."""
+    """Simulate trades using real market prices but no real money.
+
+    Applies simulated transaction costs (spread, slippage, commission) to
+    make paper-trading results more realistic.  Costs are configured per
+    asset type in ``config.py``.
+    """
+
+    # ------------------------------------------------------------------
+    # Cost simulation helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _apply_cost(price: float, side: str, risk: dict) -> float:
+        """Return an adjusted execution price that accounts for spread and slippage.
+
+        *side* is ``"buy"`` or ``"sell"``.  When buying you pay a higher
+        price (ask); when selling you receive a lower price (bid).
+        """
+        spread = risk.get("spread_pct", 0.0) / 100.0
+        slippage = risk.get("slippage_pct", 0.0) / 100.0
+        penalty = spread + slippage  # total one-way cost as a fraction
+        if side == "buy":
+            return price * (1.0 + penalty)
+        # sell / short-entry → receive less
+        return price * (1.0 - penalty)
+
+    @staticmethod
+    def _commission(trade_value: float, risk: dict) -> float:
+        """Return the commission fee for a trade of *trade_value*."""
+        pct = risk.get("commission_pct", 0.0) / 100.0
+        return trade_value * pct
 
     def execute(self, signal: TradeSignal, current_price: float) -> TradeRecord | None:
         ticker = signal.ticker
@@ -108,15 +138,25 @@ class PaperExecutor(Executor):
             log.info("Position limit reached for %s", ticker)
             return None
 
-        shares = max_spend / price
+        # Simulate worse fill: buyer pays the ask (mid + spread + slippage)
+        fill_price = self._apply_cost(price, "buy", risk)
+        shares = max_spend / fill_price
         # Round down to 4 decimal places (fractional shares)
         shares = math.floor(shares * 10000) / 10000
         if shares <= 0:
             return None
 
+        # Deduct commission from available cash
+        commission = self._commission(shares * fill_price, risk)
+        if commission > 0:
+            remaining = get_cash() - commission
+            if remaining < 0:
+                return None
+            set_cash(remaining)
+
         reason = "; ".join(signal.reasons)
         try:
-            return record_buy(ticker, shares, price, reason=reason)
+            return record_buy(ticker, shares, fill_price, reason=reason)
         except ValueError as exc:
             log.warning("Buy failed for %s: %s", ticker, exc)
             return None
@@ -129,10 +169,21 @@ class PaperExecutor(Executor):
             log.info("No long position in %s to sell", ticker)
             return None
 
-        # Sell entire position on SELL signal
+        asset_type = config.get_asset_type(ticker)
+        risk = config.get_risk_params(asset_type)
+
+        # Simulate worse fill: seller receives the bid (mid - spread - slippage)
+        fill_price = self._apply_cost(price, "sell", risk)
+
+        # Deduct commission
+        commission = self._commission(pos.shares * fill_price, risk)
+        if commission > 0:
+            remaining = get_cash() - commission
+            set_cash(max(remaining, 0.0))
+
         reason = "; ".join(signal.reasons)
         try:
-            return record_sell(ticker, pos.shares, price, reason=reason)
+            return record_sell(ticker, pos.shares, fill_price, reason=reason)
         except ValueError as exc:
             log.warning("Sell failed for %s: %s", ticker, exc)
             return None
@@ -161,14 +212,24 @@ class PaperExecutor(Executor):
             log.info("Short limit reached for %s", ticker)
             return None
 
-        shares = max_exposure / price
+        # Short entry: you sell at the bid (worse price for you)
+        fill_price = self._apply_cost(price, "sell", risk)
+        shares = max_exposure / fill_price
         shares = math.floor(shares * 10000) / 10000
         if shares <= 0:
             return None
 
+        # Deduct commission
+        commission = self._commission(shares * fill_price, risk)
+        if commission > 0:
+            remaining = get_cash() - commission
+            if remaining < 0:
+                return None
+            set_cash(remaining)
+
         reason = "; ".join(signal.reasons)
         try:
-            return record_short(ticker, shares, price, reason=reason)
+            return record_short(ticker, shares, fill_price, reason=reason)
         except ValueError as exc:
             log.warning("Short failed for %s: %s", ticker, exc)
             return None
@@ -182,9 +243,21 @@ class PaperExecutor(Executor):
             log.info("No short position in %s to cover", ticker)
             return None
 
+        asset_type = config.get_asset_type(ticker)
+        risk = config.get_risk_params(asset_type)
+
+        # Cover = buy back at the ask (worse price for the short seller)
+        fill_price = self._apply_cost(price, "buy", risk)
+
+        # Deduct commission
+        commission = self._commission(pos.shares * fill_price, risk)
+        if commission > 0:
+            remaining = get_cash() - commission
+            set_cash(max(remaining, 0.0))
+
         reason = "; ".join(signal.reasons)
         try:
-            return record_cover(ticker, pos.shares, price, reason=reason)
+            return record_cover(ticker, pos.shares, fill_price, reason=reason)
         except ValueError as exc:
             log.warning("Cover failed for %s: %s", ticker, exc)
             return None
@@ -233,15 +306,20 @@ class PaperExecutor(Executor):
         if pos.direction == "short":
             return self._check_short_exits(pos, current_price, risk)
 
-        # Long position exits
+        # Long position exits — sell at the bid
+        fill_price = self._apply_cost(current_price, "sell", risk)
+
         if check_stop_loss(ticker, current_price):
             log.warning(
-                "STOP-LOSS triggered for %s (cost=%.2f, price=%.2f)",
-                ticker, pos.avg_cost, current_price,
+                "STOP-LOSS triggered for %s (cost=%.2f, price=%.2f, fill=%.2f)",
+                ticker, pos.avg_cost, current_price, fill_price,
             )
+            commission = self._commission(pos.shares * fill_price, risk)
+            if commission > 0:
+                set_cash(max(get_cash() - commission, 0.0))
             try:
                 return record_sell(
-                    ticker, pos.shares, current_price,
+                    ticker, pos.shares, fill_price,
                     reason=f"Stop-loss at {risk['stop_loss_pct']}%",
                 )
             except ValueError:
@@ -249,12 +327,15 @@ class PaperExecutor(Executor):
 
         if check_take_profit(ticker, current_price):
             log.info(
-                "TAKE-PROFIT triggered for %s (cost=%.2f, price=%.2f)",
-                ticker, pos.avg_cost, current_price,
+                "TAKE-PROFIT triggered for %s (cost=%.2f, price=%.2f, fill=%.2f)",
+                ticker, pos.avg_cost, current_price, fill_price,
             )
+            commission = self._commission(pos.shares * fill_price, risk)
+            if commission > 0:
+                set_cash(max(get_cash() - commission, 0.0))
             try:
                 return record_sell(
-                    ticker, pos.shares, current_price,
+                    ticker, pos.shares, fill_price,
                     reason=f"Take-profit at {risk['take_profit_pct']}%",
                 )
             except ValueError:
@@ -270,6 +351,9 @@ class PaperExecutor(Executor):
         if risk is None:
             asset_type = config.get_asset_type(ticker)
             risk = config.get_risk_params(asset_type)
+
+        # Cover = buy back at the ask (worse for short seller)
+        fill_price = self._apply_cost(current_price, "buy", risk)
 
         # SAFETY GUARD: auto-cover if portfolio value is dangerously low.
         # This prevents ever going into negative money.
@@ -289,9 +373,12 @@ class PaperExecutor(Executor):
                 "SAFETY COVER for %s — portfolio value £%.2f is critically low",
                 ticker, total_value,
             )
+            commission = self._commission(pos.shares * fill_price, risk)
+            if commission > 0:
+                set_cash(max(get_cash() - commission, 0.0))
             try:
                 return record_cover(
-                    ticker, pos.shares, current_price,
+                    ticker, pos.shares, fill_price,
                     reason="Safety cover — portfolio value critically low",
                 )
             except ValueError:
@@ -300,12 +387,15 @@ class PaperExecutor(Executor):
         # Normal short stop-loss (price rose too much)
         if check_stop_loss(ticker, current_price):
             log.warning(
-                "SHORT STOP-LOSS for %s (entry=%.2f, price=%.2f)",
-                ticker, pos.avg_cost, current_price,
+                "SHORT STOP-LOSS for %s (entry=%.2f, price=%.2f, fill=%.2f)",
+                ticker, pos.avg_cost, current_price, fill_price,
             )
+            commission = self._commission(pos.shares * fill_price, risk)
+            if commission > 0:
+                set_cash(max(get_cash() - commission, 0.0))
             try:
                 return record_cover(
-                    ticker, pos.shares, current_price,
+                    ticker, pos.shares, fill_price,
                     reason=f"Short stop-loss at {risk['stop_loss_pct']}%",
                 )
             except ValueError:
@@ -314,12 +404,15 @@ class PaperExecutor(Executor):
         # Short take-profit (price dropped enough)
         if check_take_profit(ticker, current_price):
             log.info(
-                "SHORT TAKE-PROFIT for %s (entry=%.2f, price=%.2f)",
-                ticker, pos.avg_cost, current_price,
+                "SHORT TAKE-PROFIT for %s (entry=%.2f, price=%.2f, fill=%.2f)",
+                ticker, pos.avg_cost, current_price, fill_price,
             )
+            commission = self._commission(pos.shares * fill_price, risk)
+            if commission > 0:
+                set_cash(max(get_cash() - commission, 0.0))
             try:
                 return record_cover(
-                    ticker, pos.shares, current_price,
+                    ticker, pos.shares, fill_price,
                     reason=f"Short take-profit at {risk['take_profit_pct']}%",
                 )
             except ValueError:
