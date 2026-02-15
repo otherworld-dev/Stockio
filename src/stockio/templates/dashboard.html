@@ -371,6 +371,45 @@
             .grid-3 { grid-template-columns: 1fr; }
         }
 
+        .market-toggle {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0.5rem 1rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .market-toggle:has(input:checked) {
+            border-color: var(--blue);
+            background: rgba(41,121,255,0.1);
+        }
+        .market-toggle input {
+            accent-color: var(--blue);
+            width: 16px;
+            height: 16px;
+        }
+        .toggle-label {
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        .market-stat-card {
+            text-align: center;
+        }
+        .market-stat-card .stat-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.78rem;
+            color: var(--text-dim);
+            margin-top: 0.3rem;
+        }
+        .market-stat-card .stat-row span:last-child {
+            color: var(--text);
+            font-weight: 600;
+        }
+
         .instance-tab {
             background: transparent !important;
             color: var(--text-dim) !important;
@@ -441,6 +480,37 @@
             <div class="card">
                 <div class="card-label">Open Positions</div>
                 <div class="card-value" id="positions-count">--</div>
+            </div>
+        </div>
+
+        <!-- Market Controls & Stats -->
+        <div class="panel" id="market-controls-panel">
+            <div class="panel-header">
+                <h2>Markets</h2>
+                <button class="btn btn-refresh" onclick="loadMarketStats()" style="font-size:0.75rem;padding:0.3rem 0.8rem;">Refresh</button>
+            </div>
+            <div style="padding:1rem 1.2rem">
+                <div style="display:flex;gap:0.8rem;flex-wrap:wrap;margin-bottom:1rem;">
+                    <label class="market-toggle" id="toggle-equities">
+                        <input type="checkbox" checked onchange="toggleMarket('equities', this.checked)">
+                        <span class="toggle-label">Equities</span>
+                    </label>
+                    <label class="market-toggle" id="toggle-forex">
+                        <input type="checkbox" checked onchange="toggleMarket('forex', this.checked)">
+                        <span class="toggle-label">Forex</span>
+                    </label>
+                    <label class="market-toggle" id="toggle-commodities">
+                        <input type="checkbox" checked onchange="toggleMarket('commodities', this.checked)">
+                        <span class="toggle-label">Commodities</span>
+                    </label>
+                    <label class="market-toggle" id="toggle-crypto">
+                        <input type="checkbox" checked onchange="toggleMarket('crypto', this.checked)">
+                        <span class="toggle-label">Crypto</span>
+                    </label>
+                </div>
+                <div id="market-stats-grid" class="cards" style="margin-bottom:0">
+                    <div class="loading">Loading market stats...</div>
+                </div>
             </div>
         </div>
 
@@ -1084,6 +1154,109 @@
             loadTrumpFeed();
             loadAlpaca();
             loadOanda();
+            loadMarketStats();
+        }
+
+        // ---- Market Toggles & Stats ----
+        const marketLabels = {
+            equity: 'Equities',
+            forex: 'Forex',
+            commodity: 'Commodities',
+            crypto: 'Crypto',
+        };
+        const marketColors = {
+            equity: 'var(--blue)',
+            forex: 'var(--orange)',
+            commodity: 'var(--yellow)',
+            crypto: 'var(--purple)',
+        };
+
+        async function toggleMarket(market, enabled) {
+            try {
+                const body = {};
+                body[market] = enabled;
+                const resp = await fetch('/api/config/markets', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(body),
+                });
+                const data = await resp.json();
+                if (data.error) {
+                    alert('Failed to toggle market: ' + data.error);
+                } else {
+                    loadMarketStats();
+                }
+            } catch (err) {
+                alert('Failed to toggle market: ' + err);
+            }
+        }
+
+        async function loadMarketStats() {
+            try {
+                const resp = await fetch('/api/market-stats?instance=' + _activeInstance);
+                const data = await resp.json();
+                if (data.error) {
+                    document.getElementById('market-stats-grid').innerHTML =
+                        '<div class="loading">' + data.error + '</div>';
+                    return;
+                }
+
+                // Sync toggle checkboxes
+                const eq = document.querySelector('#toggle-equities input');
+                const fx = document.querySelector('#toggle-forex input');
+                const cm = document.querySelector('#toggle-commodities input');
+                const cr = document.querySelector('#toggle-crypto input');
+                if (eq) eq.checked = data.equities_enabled;
+                if (fx) fx.checked = data.forex_enabled;
+                if (cm) cm.checked = data.commodities_enabled;
+                if (cr) cr.checked = data.crypto_enabled;
+
+                const stats = data.markets || {};
+                const allTypes = ['equity', 'forex', 'commodity', 'crypto'];
+                let html = '';
+
+                allTypes.forEach(at => {
+                    const s = stats[at];
+                    const label = marketLabels[at] || at;
+                    const color = marketColors[at] || 'var(--text)';
+                    const enabled = (at === 'equity' && data.equities_enabled)
+                        || (at === 'forex' && data.forex_enabled)
+                        || (at === 'commodity' && data.commodities_enabled)
+                        || (at === 'crypto' && data.crypto_enabled);
+
+                    if (!enabled && !s) {
+                        html += `<div class="card market-stat-card" style="padding:0.8rem;opacity:0.4">
+                            <div class="card-label" style="color:${color}">${label}</div>
+                            <div class="card-value" style="font-size:1.1rem;color:var(--text-dim)">DISABLED</div>
+                        </div>`;
+                        return;
+                    }
+
+                    const positions = s ? s.open_positions : 0;
+                    const pnl = s ? s.unrealised_pnl : 0;
+                    const value = s ? s.open_value : 0;
+                    const trades = s ? s.total_trades : 0;
+                    const volume = s ? s.total_volume : 0;
+                    const pnlCls = pnl >= 0 ? 'positive' : 'negative';
+
+                    html += `<div class="card market-stat-card" style="padding:0.8rem">
+                        <div class="card-label" style="color:${color}">${label}</div>
+                        <div class="card-value ${pnlCls}" style="font-size:1.1rem">${pnl >= 0 ? '+' : ''}${fmt(pnl)}</div>
+                        <div class="stat-row"><span>Open positions</span><span>${positions}</span></div>
+                        <div class="stat-row"><span>Open value</span><span>${fmt(value)}</span></div>
+                        <div class="stat-row"><span>Total trades</span><span>${trades}</span></div>
+                        <div class="stat-row"><span>Volume traded</span><span>${fmt(volume)}</span></div>
+                    </div>`;
+                });
+
+                if (!html) {
+                    html = '<div class="loading">No market data yet</div>';
+                }
+
+                document.getElementById('market-stats-grid').innerHTML = html;
+            } catch (err) {
+                console.error('Failed to load market stats:', err);
+            }
         }
 
         // ---- Bot Thinking Log (enhanced) ----

@@ -571,6 +571,75 @@ def get_trade_history(limit: int = 50) -> list[TradeRecord]:
         ]
 
 
+def get_market_stats(current_prices: dict[str, float]) -> dict[str, dict]:
+    """Return per-market-type aggregated stats.
+
+    Groups open positions and completed trades by asset type and returns
+    counts, unrealised P&L (open), realised P&L (closed trades), and
+    total volume.
+    """
+    # Unrealised P&L from open positions
+    positions = get_positions()
+    market_stats: dict[str, dict] = {}
+
+    for pos in positions:
+        at = pos.asset_type or "equity"
+        price = current_prices.get(pos.ticker, pos.avg_cost)
+        if pos.direction == "short":
+            pnl = (pos.avg_cost - price) * pos.shares
+            value = pos.shares * price
+        else:
+            pnl = (price - pos.avg_cost) * pos.shares
+            value = pos.shares * price
+
+        stats = market_stats.setdefault(at, {
+            "asset_type": at,
+            "open_positions": 0,
+            "unrealised_pnl": 0.0,
+            "open_value": 0.0,
+            "total_trades": 0,
+            "total_buys": 0,
+            "total_sells": 0,
+            "total_volume": 0.0,
+        })
+        stats["open_positions"] += 1
+        stats["unrealised_pnl"] += pnl
+        stats["open_value"] += value
+
+    # Trade history stats per market
+    with _get_conn() as conn:
+        rows = conn.execute(
+            "SELECT ticker, side, shares, price, total FROM trades"
+        ).fetchall()
+
+    for r in rows:
+        at = config.get_asset_type(r["ticker"]).value
+        stats = market_stats.setdefault(at, {
+            "asset_type": at,
+            "open_positions": 0,
+            "unrealised_pnl": 0.0,
+            "open_value": 0.0,
+            "total_trades": 0,
+            "total_buys": 0,
+            "total_sells": 0,
+            "total_volume": 0.0,
+        })
+        stats["total_trades"] += 1
+        if r["side"] in ("BUY", "COVER"):
+            stats["total_buys"] += 1
+        elif r["side"] in ("SELL", "SHORT"):
+            stats["total_sells"] += 1
+        stats["total_volume"] += abs(r["total"])
+
+    # Round values
+    for stats in market_stats.values():
+        stats["unrealised_pnl"] = round(stats["unrealised_pnl"], 2)
+        stats["open_value"] = round(stats["open_value"], 2)
+        stats["total_volume"] = round(stats["total_volume"], 2)
+
+    return market_stats
+
+
 # ---------------------------------------------------------------------------
 # Risk management
 # ---------------------------------------------------------------------------

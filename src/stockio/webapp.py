@@ -28,6 +28,7 @@ from stockio.market_discovery import (
 from stockio.portfolio import (
     get_bot_logs,
     get_cash,
+    get_market_stats,
     get_positions,
     get_setting,
     get_snapshots,
@@ -604,6 +605,81 @@ def api_markets_refresh():
             "status": "refreshed",
             "results": results,
             "total_tickers": get_ticker_count(),
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/config/markets", methods=["POST"])
+def api_config_markets():
+    """Toggle individual market types on or off at runtime.
+
+    Expects JSON body with one or more of:
+        ``{"equities": true, "forex": false, "commodities": true, "crypto": true}``
+
+    Changes take effect on the next trading cycle.
+    """
+    data = request.get_json(silent=True) or {}
+
+    toggled = {}
+    if "equities" in data:
+        val = bool(data["equities"])
+        # For equities we clear/restore the MARKETS list
+        if val and not config.MARKETS:
+            config.MARKETS = [
+                m.strip().upper()
+                for m in "LSE,AIM,NYSE,NASDAQ".split(",")
+                if m.strip()
+            ]
+        elif not val:
+            config.MARKETS = []
+        toggled["equities"] = val
+
+    if "forex" in data:
+        config.FOREX_ENABLED = bool(data["forex"])
+        toggled["forex"] = config.FOREX_ENABLED
+
+    if "commodities" in data:
+        config.COMMODITIES_ENABLED = bool(data["commodities"])
+        toggled["commodities"] = config.COMMODITIES_ENABLED
+
+    if "crypto" in data:
+        config.CRYPTO_ENABLED = bool(data["crypto"])
+        toggled["crypto"] = config.CRYPTO_ENABLED
+
+    log.info("Market toggles updated: %s", toggled)
+    return jsonify({
+        "status": "ok",
+        "equities": bool(config.MARKETS),
+        "forex": config.FOREX_ENABLED,
+        "commodities": config.COMMODITIES_ENABLED,
+        "crypto": config.CRYPTO_ENABLED,
+        "total_tickers": get_ticker_count(),
+    })
+
+
+@app.route("/api/market-stats")
+def api_market_stats():
+    """Return per-market-type P&L stats (open positions + trade history).
+
+    Query params:
+        instance  – ``paper`` or ``live`` (default: ``paper``).
+    """
+    instance = request.args.get("instance", "paper")
+    slot = _slots.get(instance, _slots["paper"])
+    try:
+        with use_db(slot.db_path):
+            held_tickers = [p.ticker for p in get_positions()]
+            prices = get_current_prices(held_tickers) if held_tickers else {}
+            stats = get_market_stats(prices)
+
+        return jsonify({
+            "instance": instance,
+            "equities_enabled": bool(config.MARKETS),
+            "forex_enabled": config.FOREX_ENABLED,
+            "commodities_enabled": config.COMMODITIES_ENABLED,
+            "crypto_enabled": config.CRYPTO_ENABLED,
+            "markets": stats,
         })
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
