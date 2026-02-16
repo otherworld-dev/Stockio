@@ -60,6 +60,12 @@ class StockioBot:
         if db_path:
             set_active_db(db_path)
 
+        # Load any persisted setting overrides from the database
+        from stockio.portfolio import get_setting as _db_get
+        n = config.load_settings_from_db(_db_get)
+        if n:
+            log.info("Loaded %d setting override(s) from database", n)
+
         # Temporarily override global MODE for executor selection
         orig_mode = config.MODE
         if mode:

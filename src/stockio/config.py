@@ -463,3 +463,139 @@ def get_asset_display_name(ticker: str) -> str:
         quote = ticker[3:6]
         return f"{base}/{quote}"
     return ticker
+
+
+# ---------------------------------------------------------------------------
+# Settings registry — describes every tunable parameter for the UI
+# ---------------------------------------------------------------------------
+
+# Each entry: (module_attr, type, section, label, description)
+# Types: "float", "int", "bool"
+# Sections group settings in the UI.
+
+SETTINGS_REGISTRY: list[dict] = [
+    # ── Scheduling ────────────────────────────────────────────────────
+    {"attr": "INTERVAL_MINUTES",  "type": "int",   "section": "Scheduling",            "label": "Trading interval (mins)",        "desc": "How often the bot runs a full analysis cycle"},
+    {"attr": "RETRAIN_HOURS",     "type": "int",   "section": "Scheduling",            "label": "Model retrain interval (hrs)",   "desc": "How often to retrain the ML model"},
+    {"attr": "BATCH_SIZE",        "type": "int",   "section": "Scheduling",            "label": "Tickers per cycle",              "desc": "How many tickers to analyse each cycle"},
+
+    # ── Feature toggles ──────────────────────────────────────────────
+    {"attr": "SHORT_SELLING_ENABLED",      "type": "bool", "section": "Feature Toggles",   "label": "Short selling",              "desc": "Allow the bot to open short positions"},
+    {"attr": "INCLUDE_PENNY_STOCKS",       "type": "bool", "section": "Feature Toggles",   "label": "Include penny stocks",       "desc": "Include low-price stocks in analysis"},
+    {"attr": "REDDIT_ENABLED",             "type": "bool", "section": "Feature Toggles",   "label": "Reddit sentiment",           "desc": "Monitor Reddit for sentiment signals"},
+    {"attr": "TRUMP_MONITORING_ENABLED",   "type": "bool", "section": "Feature Toggles",   "label": "Trump/political monitoring", "desc": "Monitor political news for market impact"},
+
+    # ── Sentiment weights ─────────────────────────────────────────────
+    {"attr": "REDDIT_WEIGHT",     "type": "float", "section": "Sentiment Weights",     "label": "Reddit weight",                  "desc": "How much Reddit sentiment influences signals (0.0-1.0)"},
+    {"attr": "REDDIT_MAX_POSTS",  "type": "int",   "section": "Sentiment Weights",     "label": "Reddit max posts",               "desc": "Max posts to fetch per subreddit"},
+    {"attr": "TRUMP_WEIGHT",      "type": "float", "section": "Sentiment Weights",     "label": "Trump/political weight",         "desc": "Extra multiplier for political news impact"},
+
+    # ── Equity risk ───────────────────────────────────────────────────
+    {"attr": "MAX_POSITION_PCT",       "type": "float", "section": "Equity Risk",       "label": "Max position %",           "desc": "Max % of portfolio per equity position"},
+    {"attr": "STOP_LOSS_PCT",          "type": "float", "section": "Equity Risk",       "label": "Stop-loss %",              "desc": "Auto-sell if price drops this much"},
+    {"attr": "TAKE_PROFIT_PCT",        "type": "float", "section": "Equity Risk",       "label": "Take-profit %",            "desc": "Auto-sell if price rises this much"},
+
+    # ── Short risk ────────────────────────────────────────────────────
+    {"attr": "MAX_SHORT_POSITION_PCT", "type": "float", "section": "Short Selling",     "label": "Max short position %",     "desc": "Max % of portfolio per short position"},
+    {"attr": "SHORT_STOP_LOSS_PCT",    "type": "float", "section": "Short Selling",     "label": "Short stop-loss %",        "desc": "Auto-cover if price rises this much"},
+    {"attr": "SHORT_TAKE_PROFIT_PCT",  "type": "float", "section": "Short Selling",     "label": "Short take-profit %",      "desc": "Auto-cover if price drops this much"},
+    {"attr": "MAX_TOTAL_SHORT_PCT",    "type": "float", "section": "Short Selling",     "label": "Max total short exposure %", "desc": "Max combined short exposure as % of portfolio"},
+
+    # ── Forex risk ────────────────────────────────────────────────────
+    {"attr": "FOREX_MAX_POSITION_PCT", "type": "float", "section": "Forex Risk",        "label": "Max position %",           "desc": "Max % of portfolio per forex position"},
+    {"attr": "FOREX_STOP_LOSS_PCT",    "type": "float", "section": "Forex Risk",        "label": "Stop-loss %",              "desc": "Auto-close if price moves against by this much"},
+    {"attr": "FOREX_TAKE_PROFIT_PCT",  "type": "float", "section": "Forex Risk",        "label": "Take-profit %",            "desc": "Auto-close if price moves in favour by this much"},
+
+    # ── Commodity risk ────────────────────────────────────────────────
+    {"attr": "COMMODITY_MAX_POSITION_PCT", "type": "float", "section": "Commodity Risk", "label": "Max position %",           "desc": "Max % of portfolio per commodity position"},
+    {"attr": "COMMODITY_STOP_LOSS_PCT",    "type": "float", "section": "Commodity Risk", "label": "Stop-loss %",              "desc": "Auto-close if price drops this much"},
+    {"attr": "COMMODITY_TAKE_PROFIT_PCT",  "type": "float", "section": "Commodity Risk", "label": "Take-profit %",            "desc": "Auto-close if price rises this much"},
+
+    # ── Crypto risk ───────────────────────────────────────────────────
+    {"attr": "CRYPTO_MAX_POSITION_PCT", "type": "float", "section": "Crypto Risk",      "label": "Max position %",           "desc": "Max % of portfolio per crypto position"},
+    {"attr": "CRYPTO_STOP_LOSS_PCT",    "type": "float", "section": "Crypto Risk",      "label": "Stop-loss %",              "desc": "Auto-close if price drops this much"},
+    {"attr": "CRYPTO_TAKE_PROFIT_PCT",  "type": "float", "section": "Crypto Risk",      "label": "Take-profit %",            "desc": "Auto-close if price rises this much"},
+
+    # ── Equity transaction costs ──────────────────────────────────────
+    {"attr": "EQUITY_SPREAD_PCT",     "type": "float", "section": "Equity Costs",       "label": "Spread %",                 "desc": "Simulated half-spread per trade"},
+    {"attr": "EQUITY_SLIPPAGE_PCT",   "type": "float", "section": "Equity Costs",       "label": "Slippage %",               "desc": "Simulated execution slippage"},
+    {"attr": "EQUITY_COMMISSION_PCT", "type": "float", "section": "Equity Costs",       "label": "Commission %",             "desc": "Commission fee per trade"},
+
+    # ── Forex transaction costs ───────────────────────────────────────
+    {"attr": "FOREX_SPREAD_PCT",     "type": "float", "section": "Forex Costs",         "label": "Spread %",                 "desc": "Simulated half-spread per trade"},
+    {"attr": "FOREX_SLIPPAGE_PCT",   "type": "float", "section": "Forex Costs",         "label": "Slippage %",               "desc": "Simulated execution slippage"},
+    {"attr": "FOREX_COMMISSION_PCT", "type": "float", "section": "Forex Costs",         "label": "Commission %",             "desc": "Commission fee per trade"},
+
+    # ── Commodity transaction costs ───────────────────────────────────
+    {"attr": "COMMODITY_SPREAD_PCT",     "type": "float", "section": "Commodity Costs",  "label": "Spread %",                "desc": "Simulated half-spread per trade"},
+    {"attr": "COMMODITY_SLIPPAGE_PCT",   "type": "float", "section": "Commodity Costs",  "label": "Slippage %",              "desc": "Simulated execution slippage"},
+    {"attr": "COMMODITY_COMMISSION_PCT", "type": "float", "section": "Commodity Costs",  "label": "Commission %",            "desc": "Commission fee per trade"},
+
+    # ── Crypto transaction costs ──────────────────────────────────────
+    {"attr": "CRYPTO_SPREAD_PCT",     "type": "float", "section": "Crypto Costs",       "label": "Spread %",                 "desc": "Simulated half-spread per trade"},
+    {"attr": "CRYPTO_SLIPPAGE_PCT",   "type": "float", "section": "Crypto Costs",       "label": "Slippage %",               "desc": "Simulated execution slippage"},
+    {"attr": "CRYPTO_COMMISSION_PCT", "type": "float", "section": "Crypto Costs",       "label": "Commission %",             "desc": "Commission fee per trade"},
+]
+
+# Build a quick lookup by attr name
+_SETTINGS_BY_ATTR: dict[str, dict] = {s["attr"]: s for s in SETTINGS_REGISTRY}
+
+# Ordered section names for consistent UI rendering
+SETTINGS_SECTIONS: list[str] = list(dict.fromkeys(s["section"] for s in SETTINGS_REGISTRY))
+
+
+def _cast(value: str, typ: str) -> float | int | bool:
+    """Convert a string DB value to the correct Python type."""
+    if typ == "bool":
+        return value.lower() in ("true", "1", "yes")
+    if typ == "int":
+        return int(float(value))
+    return float(value)
+
+
+def get_all_settings() -> dict[str, dict]:
+    """Return current values for all registered settings, grouped by section."""
+    import sys
+    mod = sys.modules[__name__]
+    sections: dict[str, list[dict]] = {}
+    for s in SETTINGS_REGISTRY:
+        entry = {
+            "attr": s["attr"],
+            "label": s["label"],
+            "desc": s["desc"],
+            "type": s["type"],
+            "value": getattr(mod, s["attr"]),
+        }
+        sections.setdefault(s["section"], []).append(entry)
+    return sections
+
+
+def apply_setting(attr: str, value: float | int | bool) -> bool:
+    """Apply a single setting change to the running config module.
+
+    Returns True if the attribute was recognised and updated.
+    """
+    import sys
+    if attr not in _SETTINGS_BY_ATTR:
+        return False
+    mod = sys.modules[__name__]
+    setattr(mod, attr, value)
+    return True
+
+
+def load_settings_from_db(db_get_setting) -> int:
+    """Load any persisted setting overrides from the database.
+
+    *db_get_setting* should be ``portfolio.get_setting`` (passed in to
+    avoid circular imports).  Returns the number of overrides applied.
+    """
+    count = 0
+    for s in SETTINGS_REGISTRY:
+        raw = db_get_setting(f"cfg:{s['attr']}", "")
+        if raw:
+            try:
+                apply_setting(s["attr"], _cast(raw, s["type"]))
+                count += 1
+            except (ValueError, TypeError):
+                pass
+    return count

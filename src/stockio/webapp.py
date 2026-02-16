@@ -1076,6 +1076,49 @@ def api_config():
     })
 
 
+@app.route("/api/settings", methods=["GET"])
+def api_settings_get():
+    """Return all tunable settings, grouped by section, with current values."""
+    return jsonify(config.get_all_settings())
+
+
+@app.route("/api/settings", methods=["POST"])
+def api_settings_post():
+    """Update one or more settings.
+
+    Request body: ``{"ATTR_NAME": value, ...}``
+
+    Values are validated against the settings registry, applied to the
+    running config module, and persisted to the database so they survive
+    restarts.
+    """
+    payload = request.get_json(force=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Expected a JSON object"}), 400
+
+    applied = []
+    errors = []
+    for attr, raw_value in payload.items():
+        meta = config._SETTINGS_BY_ATTR.get(attr)
+        if not meta:
+            errors.append(f"Unknown setting: {attr}")
+            continue
+        try:
+            value = config._cast(str(raw_value), meta["type"])
+            config.apply_setting(attr, value)
+            # Persist to DB so it survives restarts
+            set_setting(f"cfg:{attr}", str(raw_value))
+            applied.append(attr)
+        except (ValueError, TypeError) as exc:
+            errors.append(f"{attr}: {exc}")
+
+    return jsonify({
+        "applied": applied,
+        "errors": errors,
+        "settings": config.get_all_settings(),
+    })
+
+
 # ------------------------------------------------------------------
 # Bot runner (in thread)
 # ------------------------------------------------------------------
@@ -1113,4 +1156,8 @@ def _run_instance(slot: BotSlot):
 
 def run_webapp(host: str = "0.0.0.0", port: int = 5000, debug: bool = False):
     """Run the Flask web app."""
+    # Load any persisted setting overrides from the database
+    n = config.load_settings_from_db(get_setting)
+    if n:
+        log.info("Loaded %d setting override(s) from database", n)
     app.run(host=host, port=port, debug=debug)
