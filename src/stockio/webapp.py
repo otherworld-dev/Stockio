@@ -29,6 +29,7 @@ from stockio.portfolio import (
     get_bot_logs,
     get_cash,
     get_market_stats,
+    get_pnl_summary,
     get_positions,
     get_setting,
     get_snapshots,
@@ -681,6 +682,40 @@ def api_market_stats():
             "crypto_enabled": config.CRYPTO_ENABLED,
             "markets": stats,
             "market_info": config.MARKET_INFO,
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/pnl")
+def api_pnl():
+    """Return per-ticker profit & loss breakdown.
+
+    Each entry contains realised P&L (from closed trades), unrealised P&L
+    (from open positions), and combined totals.
+
+    Query params:
+        instance  – ``paper`` or ``live`` (default: ``paper``).
+    """
+    instance = request.args.get("instance", "paper")
+    slot = _slots.get(instance, _slots["paper"])
+    try:
+        with use_db(slot.db_path):
+            held_tickers = [p.ticker for p in get_positions()]
+            prices = get_current_prices(held_tickers) if held_tickers else {}
+            rows = get_pnl_summary(prices)
+
+        # Compute totals
+        total_realised = round(sum(r["realised_pnl"] for r in rows), 2)
+        total_unrealised = round(sum(r["unrealised_pnl"] for r in rows), 2)
+        total_pnl = round(total_realised + total_unrealised, 2)
+
+        return jsonify({
+            "instance": instance,
+            "rows": rows,
+            "total_realised": total_realised,
+            "total_unrealised": total_unrealised,
+            "total_pnl": total_pnl,
         })
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500

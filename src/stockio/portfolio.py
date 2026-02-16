@@ -641,6 +641,132 @@ def get_market_stats(current_prices: dict[str, float]) -> dict[str, dict]:
 
 
 # ---------------------------------------------------------------------------
+# Profit & Loss breakdown
+# ---------------------------------------------------------------------------
+
+
+def get_pnl_summary(current_prices: dict[str, float]) -> list[dict]:
+    """Return per-ticker P&L breakdown combining realised and unrealised.
+
+    For each ticker that has ever been traded, the returned dict contains:
+    - ``ticker``, ``display_name``, ``asset_type``
+    - ``realised_pnl``: sum of closed round-trips (BUY→SELL, SHORT→COVER)
+    - ``unrealised_pnl``: current open-position P&L (0 if flat)
+    - ``total_pnl``: realised + unrealised
+    - ``total_bought``, ``total_sold``: cumulative volumes
+    - ``num_trades``: total trade count
+    - ``direction``: ``"long"`` / ``"short"`` / ``"flat"`` (current state)
+    - ``open_shares``: shares currently held (0 if flat)
+    """
+    # 1. Fetch all trades ordered chronologically
+    with _get_conn() as conn:
+        rows = conn.execute(
+            "SELECT ticker, side, shares, price, total FROM trades ORDER BY id ASC"
+        ).fetchall()
+
+    # 2. Build per-ticker running cost basis and realised P&L.
+    #    We use a FIFO-style accumulator.
+    class _Acc:  # noqa: N801
+        __slots__ = (
+            "realised", "total_bought", "total_sold", "num_trades",
+            "long_shares", "long_cost",   # running totals for long
+            "short_shares", "short_cost", # running totals for short
+        )
+
+        def __init__(self) -> None:
+            self.realised = 0.0
+            self.total_bought = 0.0
+            self.total_sold = 0.0
+            self.num_trades = 0
+            self.long_shares = 0.0
+            self.long_cost = 0.0
+            self.short_shares = 0.0
+            self.short_cost = 0.0
+
+    accs: dict[str, _Acc] = {}
+
+    for r in rows:
+        ticker = r["ticker"]
+        acc = accs.setdefault(ticker, _Acc())
+        acc.num_trades += 1
+        side = r["side"]
+        shares = r["shares"]
+        price = r["price"]
+        total = abs(r["total"])
+
+        if side == "BUY":
+            acc.total_bought += total
+            acc.long_shares += shares
+            acc.long_cost += shares * price
+        elif side == "SELL":
+            acc.total_sold += total
+            if acc.long_shares > 0:
+                avg_cost = acc.long_cost / acc.long_shares
+                sold = min(shares, acc.long_shares)
+                acc.realised += (price - avg_cost) * sold
+                # Reduce basis proportionally
+                frac = sold / acc.long_shares if acc.long_shares else 0
+                acc.long_cost -= acc.long_cost * frac
+                acc.long_shares -= sold
+        elif side == "SHORT":
+            acc.total_sold += total
+            acc.short_shares += shares
+            acc.short_cost += shares * price
+        elif side == "COVER":
+            acc.total_bought += total
+            if acc.short_shares > 0:
+                avg_entry = acc.short_cost / acc.short_shares
+                covered = min(shares, acc.short_shares)
+                acc.realised += (avg_entry - price) * covered
+                frac = covered / acc.short_shares if acc.short_shares else 0
+                acc.short_cost -= acc.short_cost * frac
+                acc.short_shares -= covered
+
+    # 3. Combine with unrealised P&L from open positions
+    positions = {p.ticker: p for p in get_positions()}
+    all_tickers = sorted(set(list(accs.keys()) + list(positions.keys())))
+
+    result: list[dict] = []
+    for ticker in all_tickers:
+        acc = accs.get(ticker, _Acc())
+        pos = positions.get(ticker)
+        price = current_prices.get(ticker, pos.avg_cost if pos else 0.0)
+
+        if pos and pos.direction == "short":
+            unrealised = (pos.avg_cost - price) * pos.shares
+            direction = "short"
+            open_shares = pos.shares
+        elif pos and pos.direction == "long":
+            unrealised = (price - pos.avg_cost) * pos.shares
+            direction = "long"
+            open_shares = pos.shares
+        else:
+            unrealised = 0.0
+            direction = "flat"
+            open_shares = 0.0
+
+        total_pnl = acc.realised + unrealised
+
+        result.append({
+            "ticker": ticker,
+            "display_name": config.get_asset_display_name(ticker),
+            "asset_type": config.get_asset_type(ticker).value,
+            "realised_pnl": round(acc.realised, 2),
+            "unrealised_pnl": round(unrealised, 2),
+            "total_pnl": round(total_pnl, 2),
+            "total_bought": round(acc.total_bought, 2),
+            "total_sold": round(acc.total_sold, 2),
+            "num_trades": acc.num_trades,
+            "direction": direction,
+            "open_shares": round(open_shares, 4),
+        })
+
+    # Sort by absolute total P&L descending (biggest movers first)
+    result.sort(key=lambda r: abs(r["total_pnl"]), reverse=True)
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Risk management
 # ---------------------------------------------------------------------------
 

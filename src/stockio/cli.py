@@ -148,6 +148,60 @@ def history(limit: int) -> None:
 
 
 # ------------------------------------------------------------------
+# pnl: show per-ticker profit & loss
+# ------------------------------------------------------------------
+
+
+@main.command()
+def pnl() -> None:
+    """Show per-ticker profit & loss breakdown."""
+    from stockio import config
+    from stockio.market_data import get_current_prices
+    from stockio.portfolio import get_pnl_summary, get_positions
+
+    held_tickers = [p.ticker for p in get_positions()]
+    if held_tickers:
+        click.echo(f"Fetching prices for {len(held_tickers)} held positions ...")
+        prices = get_current_prices(held_tickers)
+    else:
+        prices = {}
+
+    rows = get_pnl_summary(prices)
+    if not rows:
+        click.echo("No trades recorded yet.")
+        return
+
+    total_r = sum(r["realised_pnl"] for r in rows)
+    total_u = sum(r["unrealised_pnl"] for r in rows)
+    total_t = total_r + total_u
+
+    click.echo()
+    click.echo(f"{'=' * 90}")
+    click.echo(f"  PROFIT & LOSS")
+    click.echo(f"{'=' * 90}")
+    click.echo(
+        f"  {'Ticker':<16} {'Type':<8} {'Status':<6} "
+        f"{'Realised':>10} {'Unrealised':>10} {'Total P&L':>10} {'Trades':>6}"
+    )
+    click.echo(f"  {'-' * 86}")
+    for r in rows:
+        name = r["display_name"] if r["display_name"] != r["ticker"] else r["ticker"]
+        status = r["direction"].upper()[:5]
+        click.echo(
+            f"  {name:<16} {r['asset_type']:<8} {status:<6} "
+            f"£{r['realised_pnl']:>+9.2f} £{r['unrealised_pnl']:>+9.2f} "
+            f"£{r['total_pnl']:>+9.2f} {r['num_trades']:>6}"
+        )
+    click.echo(f"  {'-' * 86}")
+    click.echo(
+        f"  {'TOTAL':<16} {'':<8} {'':<6} "
+        f"£{total_r:>+9.2f} £{total_u:>+9.2f} £{total_t:>+9.2f}"
+    )
+    click.echo(f"{'=' * 90}")
+    click.echo()
+
+
+# ------------------------------------------------------------------
 # signals: show current signals without trading
 # ------------------------------------------------------------------
 

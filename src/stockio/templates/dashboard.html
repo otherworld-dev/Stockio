@@ -172,6 +172,9 @@
         .dir-long { color: var(--green); font-size: 0.75rem; font-weight: 600; }
         .dir-short { color: #ff9100; font-size: 0.75rem; font-weight: 600; }
 
+        .pnl-pos { color: var(--green); }
+        .pnl-neg { color: var(--red); }
+
         .signal-buy { background: rgba(0,200,83,0.15); color: var(--green); padding: 0.2rem 0.6rem; border-radius: 4px; font-weight: 600; font-size: 0.8rem; }
         .signal-sell { background: rgba(255,23,68,0.15); color: var(--red); padding: 0.2rem 0.6rem; border-radius: 4px; font-weight: 600; font-size: 0.8rem; }
         .signal-short { background: rgba(255,145,0,0.15); color: #ff9100; padding: 0.2rem 0.6rem; border-radius: 4px; font-weight: 600; font-size: 0.8rem; }
@@ -631,6 +634,17 @@
             </div>
         </div>
 
+        <!-- Profit & Loss Table -->
+        <div class="panel">
+            <div class="panel-header">
+                <h2>Profit &amp; Loss</h2>
+                <button class="btn btn-refresh" onclick="loadPnl()" style="font-size:0.75rem;padding:0.3rem 0.8rem;">Refresh</button>
+            </div>
+            <div id="pnl-table">
+                <div class="loading">Loading P&amp;L...</div>
+            </div>
+        </div>
+
         <!-- News & Reddit Feed + Trump/Political + Sentiment Breakdown (tabbed) -->
         <div class="panel">
             <div class="panel-header">
@@ -942,6 +956,74 @@
             }
         }
 
+        // ---- Profit & Loss ----
+        async function loadPnl() {
+            try {
+                const resp = await fetch('/api/pnl?instance=' + _activeInstance);
+                const data = await resp.json();
+
+                if (data.error) {
+                    document.getElementById('pnl-table').innerHTML = `<div class="error">${data.error}</div>`;
+                    return;
+                }
+
+                if (!data.rows || data.rows.length === 0) {
+                    document.getElementById('pnl-table').innerHTML = '<div class="loading">No trades recorded yet</div>';
+                    return;
+                }
+
+                const pnlCls = (v) => v > 0.005 ? 'pnl-pos' : v < -0.005 ? 'pnl-neg' : '';
+                const pnlFmt = (v) => (v >= 0 ? '+' : '') + '\u00a3' + v.toFixed(2);
+                const dirIcon = (d) => d === 'long' ? '<span style="color:var(--green)">LONG</span>'
+                                     : d === 'short' ? '<span style="color:var(--red)">SHORT</span>'
+                                     : '<span style="color:var(--text-dim)">FLAT</span>';
+
+                let html = '<table><thead><tr>'
+                    + '<th>Ticker</th><th>Asset</th><th>Status</th>'
+                    + '<th style="text-align:right">Realised</th>'
+                    + '<th style="text-align:right">Unrealised</th>'
+                    + '<th style="text-align:right">Total P&amp;L</th>'
+                    + '<th style="text-align:right">Trades</th>'
+                    + '</tr></thead><tbody>';
+
+                data.rows.forEach(r => {
+                    const rCls = pnlCls(r.realised_pnl);
+                    const uCls = pnlCls(r.unrealised_pnl);
+                    const tCls = pnlCls(r.total_pnl);
+                    const name = r.display_name !== r.ticker
+                        ? `<strong>${r.display_name}</strong> <span style="color:var(--text-dim);font-size:0.8rem">${r.ticker}</span>`
+                        : `<strong>${r.ticker}</strong>`;
+                    html += `<tr>
+                        <td>${name}</td>
+                        <td style="font-size:0.8rem">${r.asset_type}</td>
+                        <td>${dirIcon(r.direction)}</td>
+                        <td style="text-align:right" class="${rCls}">${pnlFmt(r.realised_pnl)}</td>
+                        <td style="text-align:right" class="${uCls}">${pnlFmt(r.unrealised_pnl)}</td>
+                        <td style="text-align:right;font-weight:600" class="${tCls}">${pnlFmt(r.total_pnl)}</td>
+                        <td style="text-align:right">${r.num_trades}</td>
+                    </tr>`;
+                });
+
+                // Totals row
+                const trCls = pnlCls(data.total_realised);
+                const tuCls = pnlCls(data.total_unrealised);
+                const ttCls = pnlCls(data.total_pnl);
+                html += `<tr style="border-top:2px solid var(--border);font-weight:700">
+                    <td colspan="3">TOTAL</td>
+                    <td style="text-align:right" class="${trCls}">${pnlFmt(data.total_realised)}</td>
+                    <td style="text-align:right" class="${tuCls}">${pnlFmt(data.total_unrealised)}</td>
+                    <td style="text-align:right" class="${ttCls}">${pnlFmt(data.total_pnl)}</td>
+                    <td></td>
+                </tr>`;
+
+                html += '</tbody></table>';
+                document.getElementById('pnl-table').innerHTML = html;
+            } catch (err) {
+                document.getElementById('pnl-table').innerHTML = '<div class="error">Failed to load P&amp;L data</div>';
+                console.error('Failed to load P&L:', err);
+            }
+        }
+
         // ---- Signals ----
         async function loadSignals() {
             document.getElementById('signals-table').innerHTML = '<div class="loading">Analysing market data...</div>';
@@ -1165,6 +1247,7 @@
         function refreshAll() {
             loadStatus();
             loadTrades();
+            loadPnl();
             loadBotLog();
             loadNewsFeed();
             loadTrumpFeed();
