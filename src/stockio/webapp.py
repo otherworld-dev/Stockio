@@ -82,6 +82,9 @@ class BotSlot:
     bot: Any = None                             # StockioBot
     running: bool = False
     generation: int = 0
+    lock: threading.Lock = field(default_factory=threading.Lock)
+    consecutive_errors: int = 0
+    MAX_CONSECUTIVE_ERRORS: int = field(default=10, repr=False)
 
 
 # Two fixed slots — both can run simultaneously
@@ -420,22 +423,25 @@ def api_instance_start(name: str):
                          "OANDA_API_KEY/OANDA_ACCOUNT_ID"
             }), 400
 
-    if slot.running:
-        return jsonify({"status": "already_running", "instance": name})
+    with slot.lock:
+        if slot.running:
+            return jsonify({"status": "already_running", "instance": name})
 
-    try:
-        from stockio.bot import StockioBot
-        slot.bot = StockioBot(db_path=slot.db_path, mode=slot.mode)
-    except Exception as exc:
-        log.exception("Failed to initialise %s bot", name)
-        return jsonify({"error": str(exc)}), 500
+        try:
+            from stockio.bot import StockioBot
+            slot.bot = StockioBot(db_path=slot.db_path, mode=slot.mode)
+        except Exception as exc:
+            log.exception("Failed to initialise %s bot", name)
+            return jsonify({"error": str(exc)}), 500
 
-    slot.generation += 1
-    slot.running = True
-    slot.thread = threading.Thread(
-        target=_run_instance, args=(slot,), daemon=True,
-    )
-    slot.thread.start()
+        slot.generation += 1
+        slot.running = True
+        slot.consecutive_errors = 0
+        slot.thread = threading.Thread(
+            target=_run_instance, args=(slot,), daemon=True,
+        )
+        slot.thread.start()
+
     executor_name = type(slot.bot.executor).__name__
     log.info("Started %s instance (mode=%s, executor=%s)", name, slot.mode, executor_name)
     return jsonify({
@@ -451,8 +457,9 @@ def api_instance_stop(name: str):
         return jsonify({"error": f"Unknown instance: {name}"}), 400
 
     slot = _slots[name]
-    slot.generation += 1
-    slot.running = False
+    with slot.lock:
+        slot.generation += 1
+        slot.running = False
     log.info("Stopping %s instance", name)
     return jsonify({"status": "stopped", "instance": name})
 
@@ -480,9 +487,10 @@ def api_bot_stop():
 
     # Stop whichever instances are running
     for slot in _slots.values():
-        if slot.running:
-            slot.generation += 1
-            slot.running = False
+        with slot.lock:
+            if slot.running:
+                slot.generation += 1
+                slot.running = False
     return jsonify({"status": "stopped"})
 
 
@@ -532,11 +540,12 @@ def api_reset():
     slot = _slots.get(instance, _slots["paper"])
 
     # Stop the instance if running
-    if slot.running:
-        slot.generation += 1
-        slot.running = False
-        if slot.thread is not None:
-            slot.thread.join(timeout=30)
+    with slot.lock:
+        if slot.running:
+            slot.generation += 1
+            slot.running = False
+    if slot.thread is not None:
+        slot.thread.join(timeout=30)
     if _systemd_bot_running():
         _try_systemctl("stop")
         import time
@@ -1129,23 +1138,46 @@ def _run_instance(slot: BotSlot):
     import time
     import traceback
 
-    gen = slot.generation
+    with slot.lock:
+        gen = slot.generation
     log.info("[%s] Bot thread started (generation %d, executor=%s)",
              slot.name, gen, type(slot.bot.executor).__name__)
+
+    def _should_stop():
+        return not slot.running or gen != slot.generation
+
     try:
-        while slot.running and gen == slot.generation:
+        while not _should_stop():
             try:
                 slot.bot.run_cycle()
+                slot.consecutive_errors = 0
             except Exception:
-                log.error("[%s] Cycle error:\n%s", slot.name, traceback.format_exc())
+                slot.consecutive_errors += 1
+                log.error("[%s] Cycle error (%d consecutive):\n%s",
+                          slot.name, slot.consecutive_errors,
+                          traceback.format_exc())
+                if slot.consecutive_errors >= slot.MAX_CONSECUTIVE_ERRORS:
+                    log.error("[%s] Too many consecutive errors (%d) — "
+                              "pausing for 5 minutes before retrying",
+                              slot.name, slot.consecutive_errors)
+                    for _ in range(30):       # 5 min in 10s ticks
+                        if _should_stop():
+                            break
+                        time.sleep(10)
+                    slot.consecutive_errors = 0
+                    continue
+
             # Wait for the interval, checking stop flag every 10s
             for _ in range(config.INTERVAL_MINUTES * 6):
-                if not slot.running or gen != slot.generation:
+                if _should_stop():
                     break
                 time.sleep(10)
+    except Exception:
+        log.error("[%s] Fatal thread error:\n%s", slot.name, traceback.format_exc())
     finally:
-        if gen == slot.generation:
-            slot.running = False
+        with slot.lock:
+            if gen == slot.generation:
+                slot.running = False
         log.info("[%s] Bot thread stopped (generation %d)", slot.name, gen)
 
 

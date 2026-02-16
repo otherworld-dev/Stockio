@@ -439,7 +439,10 @@ class StockioBot:
         log.info("Scheduler started — next run in %d minutes", config.INTERVAL_MINUTES)
         try:
             while True:
-                schedule.run_pending()
+                try:
+                    schedule.run_pending()
+                except Exception:
+                    log.error("Scheduler error (will retry):\n%s", traceback.format_exc())
                 time.sleep(10)
         except KeyboardInterrupt:
             log.info("Bot stopped by user")
