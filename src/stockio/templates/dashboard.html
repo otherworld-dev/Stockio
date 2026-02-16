@@ -1648,7 +1648,22 @@
                 let html = '';
                 logs.forEach(cycle => {
                     const time = cycle.timestamp.replace('T', ' ').slice(0, 19);
-                    html += `<div class="log-cycle"><div class="log-cycle-time">Cycle: ${time} UTC</div>`;
+                    // Find cycle summary if present
+                    const summary = cycle.entries.find(e => e.type === 'cycle_summary');
+                    let summaryBadge = '';
+                    if (summary) {
+                        const parts = [];
+                        parts.push(`${summary.tickers_analysed} tickers`);
+                        if (summary.trades_executed > 0)
+                            parts.push(`<span style="color:var(--green)">${summary.trades_executed} traded</span>`);
+                        if (summary.trades_failed > 0)
+                            parts.push(`<span style="color:var(--red)">${summary.trades_failed} failed</span>`);
+                        if (summary.holds > 0)
+                            parts.push(`${summary.holds} holds`);
+                        parts.push(summary.executor);
+                        summaryBadge = ` <span style="font-size:0.72rem;color:var(--text-dim)">(${parts.join(' · ')})</span>`;
+                    }
+                    html += `<div class="log-cycle"><div class="log-cycle-time">Cycle: ${time} UTC${summaryBadge}</div>`;
 
                     cycle.entries.forEach(e => {
                         if (e.type === 'signal') {
@@ -1672,6 +1687,15 @@
                                 <span class="${cls}">${e.side}</span>
                                 <strong>${e.ticker}</strong> x${e.shares} @ \u00a3${e.price.toFixed(2)} = \u00a3${e.total.toFixed(2)}
                             </div>`;
+                        } else if (e.type === 'trade_failed') {
+                            html += `<div class="log-entry" style="opacity:0.85">
+                                <span class="tag" style="background:rgba(255,23,68,0.15);color:var(--red)">failed</span>
+                                <strong>${e.ticker}</strong> ${e.signal}
+                                (${(e.confidence * 100).toFixed(0)}%) &mdash; order rejected or blocked
+                            </div>`;
+                            if (e.reasons && e.reasons.length) {
+                                html += `<div class="log-reasons">${e.reasons.join(' &bull; ')}</div>`;
+                            }
                         } else if (e.type === 'exit') {
                             html += `<div class="log-entry">
                                 <span class="tag tag-exit">exit</span>

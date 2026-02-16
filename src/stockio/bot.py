@@ -295,8 +295,12 @@ class StockioBot:
 
         # 6. Execute trades
         buy_count = sell_count = short_count = cover_count = 0
+        skip_count = fail_count = 0
         for sig in signals:
             if sig.ticker not in prices:
+                continue
+            if sig.signal == Signal.HOLD:
+                skip_count += 1
                 continue
             price = prices[sig.ticker]
             trade = self.executor.execute(sig, price)
@@ -318,11 +322,36 @@ class StockioBot:
                     "total": round(trade.total, 2),
                     "reason": trade.reason,
                 })
+            else:
+                # Trade was attempted but executor returned None —
+                # rejected, timed out, position limit, no cash, etc.
+                fail_count += 1
+                cycle_log.append({
+                    "type": "trade_failed",
+                    "ticker": sig.ticker,
+                    "signal": sig.signal.value,
+                    "confidence": round(sig.confidence, 4),
+                    "reasons": sig.reasons,
+                })
 
         log.info(
-            "Executed %d buys, %d sells, %d shorts, %d covers this cycle",
+            "Executed %d buys, %d sells, %d shorts, %d covers "
+            "(%d holds, %d failed) this cycle",
             buy_count, sell_count, short_count, cover_count,
+            skip_count, fail_count,
         )
+
+        # 6b. Add cycle summary to the log
+        total_executed = buy_count + sell_count + short_count + cover_count
+        cycle_log.append({
+            "type": "cycle_summary",
+            "tickers_analysed": len(batch),
+            "signals_generated": len(signals),
+            "trades_executed": total_executed,
+            "trades_failed": fail_count,
+            "holds": skip_count,
+            "executor": type(self.executor).__name__,
+        })
 
         # 7. Portfolio summary + snapshot for charts
         summary = portfolio_summary(prices)
