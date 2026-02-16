@@ -34,6 +34,7 @@ from stockio.portfolio import (
     get_setting,
     get_snapshots,
     get_trade_history,
+    get_trade_history_with_pnl,
     portfolio_summary,
     reset_all_data,
     set_setting,
@@ -293,20 +294,8 @@ def api_trades():
             log.warning("Failed to fetch Alpaca orders, falling back to local: %s", exc)
 
     with use_db(slot.db_path):
-        trades = get_trade_history(limit=limit)
-    return jsonify([
-        {
-            "id": t.id,
-            "ticker": t.ticker,
-            "side": t.side,
-            "shares": t.shares,
-            "price": round(t.price, 2),
-            "total": round(t.total, 2),
-            "timestamp": t.timestamp,
-            "reason": t.reason,
-        }
-        for t in trades
-    ])
+        trades = get_trade_history_with_pnl(limit=limit)
+    return jsonify(trades)
 
 
 def _alpaca_trade_history(limit: int = 50) -> list[dict]:

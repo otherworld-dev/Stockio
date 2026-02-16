@@ -662,10 +662,10 @@
         </div>
 
         <div class="grid-2">
-            <!-- Holdings -->
+            <!-- Open Positions -->
             <div class="panel">
                 <div class="panel-header">
-                    <h2>Holdings</h2>
+                    <h2>Open Positions</h2>
                 </div>
                 <div id="holdings-table">
                     <div class="loading">Loading...</div>
@@ -989,7 +989,7 @@
         // ---- Trades ----
         async function loadTrades() {
             try {
-                const resp = await fetch('/api/trades?limit=30&instance=' + _activeInstance);
+                const resp = await fetch('/api/trades?limit=50&instance=' + _activeInstance);
                 const trades = await resp.json();
 
                 if (trades.length === 0) {
@@ -997,20 +997,32 @@
                     return;
                 }
 
-                let html = '<table><thead><tr><th>Time</th><th>Side</th><th>Ticker</th><th>Shares</th><th>Price</th><th>Total</th><th>Reason</th></tr></thead><tbody>';
+                let html = '<table><thead><tr><th>Time</th><th>Side</th><th>Ticker</th><th>Shares</th><th>Price</th><th>Total</th><th>P&amp;L</th><th>Reason</th></tr></thead><tbody>';
                 trades.forEach(t => {
                     const sideClasses = {BUY:'side-buy', SELL:'side-sell', SHORT:'side-short', COVER:'side-cover'};
                     const cls = sideClasses[t.side] || 'side-sell';
                     const time = t.timestamp.replace('T', ' ').slice(0, 19);
-                    const reason = t.reason.length > 60 ? t.reason.slice(0, 60) + '...' : t.reason;
+                    const name = t.display_name && t.display_name !== t.ticker
+                        ? `<strong>${t.display_name}</strong> <span style="color:var(--text-dim);font-size:0.75rem">${t.ticker}</span>`
+                        : `<strong>${t.ticker}</strong>`;
+                    const reason = t.reason.length > 50 ? t.reason.slice(0, 50) + '...' : t.reason;
+
+                    let pnlHtml = '<span style="color:var(--text-dim)">—</span>';
+                    if (t.pnl !== null && t.pnl !== undefined) {
+                        const pnlCls = t.pnl >= 0 ? 'pnl-pos' : 'pnl-neg';
+                        const sign = t.pnl >= 0 ? '+' : '';
+                        pnlHtml = `<span class="${pnlCls}" style="font-weight:600">${sign}${fmt(t.pnl)}</span>`;
+                    }
+
                     html += `<tr>
-                        <td>${time}</td>
+                        <td style="white-space:nowrap">${time}</td>
                         <td class="${cls}">${t.side}</td>
-                        <td><strong>${t.ticker}</strong></td>
+                        <td>${name}</td>
                         <td>${t.shares.toFixed(4)}</td>
                         <td>${fmt(t.price)}</td>
                         <td>${fmt(t.total)}</td>
-                        <td style="color:var(--text-dim);font-size:0.8rem">${reason}</td>
+                        <td>${pnlHtml}</td>
+                        <td style="color:var(--text-dim);font-size:0.78rem;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${t.reason}">${reason}</td>
                     </tr>`;
                 });
                 html += '</tbody></table>';
@@ -1043,7 +1055,10 @@
                                      : '<span style="color:var(--text-dim)">FLAT</span>';
 
                 let html = '<table><thead><tr>'
-                    + '<th>Ticker</th><th>Asset</th><th>Status</th>'
+                    + '<th>Ticker</th><th>Type</th><th>Status</th>'
+                    + '<th style="text-align:right">Shares</th>'
+                    + '<th style="text-align:right">Entry</th>'
+                    + '<th style="text-align:right">Now</th>'
                     + '<th style="text-align:right">Realised</th>'
                     + '<th style="text-align:right">Unrealised</th>'
                     + '<th style="text-align:right">Total P&amp;L</th>'
@@ -1055,12 +1070,18 @@
                     const uCls = pnlCls(r.unrealised_pnl);
                     const tCls = pnlCls(r.total_pnl);
                     const name = r.display_name !== r.ticker
-                        ? `<strong>${r.display_name}</strong> <span style="color:var(--text-dim);font-size:0.8rem">${r.ticker}</span>`
+                        ? `<strong>${r.display_name}</strong> <span style="color:var(--text-dim);font-size:0.75rem">${r.ticker}</span>`
                         : `<strong>${r.ticker}</strong>`;
+                    const sharesStr = r.open_shares > 0 ? r.open_shares.toFixed(4) : '<span style="color:var(--text-dim)">—</span>';
+                    const entryStr = r.avg_cost !== null ? fmt(r.avg_cost) : '<span style="color:var(--text-dim)">—</span>';
+                    const nowStr = r.current_price !== null ? fmt(r.current_price) : '<span style="color:var(--text-dim)">—</span>';
                     html += `<tr>
                         <td>${name}</td>
-                        <td style="font-size:0.8rem">${r.asset_type}</td>
+                        <td style="font-size:0.78rem">${r.asset_type}</td>
                         <td>${dirIcon(r.direction)}</td>
+                        <td style="text-align:right">${sharesStr}</td>
+                        <td style="text-align:right">${entryStr}</td>
+                        <td style="text-align:right">${nowStr}</td>
                         <td style="text-align:right" class="${rCls}">${pnlFmt(r.realised_pnl)}</td>
                         <td style="text-align:right" class="${uCls}">${pnlFmt(r.unrealised_pnl)}</td>
                         <td style="text-align:right;font-weight:600" class="${tCls}">${pnlFmt(r.total_pnl)}</td>
@@ -1073,7 +1094,7 @@
                 const tuCls = pnlCls(data.total_unrealised);
                 const ttCls = pnlCls(data.total_pnl);
                 html += `<tr style="border-top:2px solid var(--border);font-weight:700">
-                    <td colspan="3">TOTAL</td>
+                    <td colspan="6">TOTAL</td>
                     <td style="text-align:right" class="${trCls}">${pnlFmt(data.total_realised)}</td>
                     <td style="text-align:right" class="${tuCls}">${pnlFmt(data.total_unrealised)}</td>
                     <td style="text-align:right" class="${ttCls}">${pnlFmt(data.total_pnl)}</td>
@@ -1876,26 +1897,31 @@
                 }
 
                 if (data.holdings && data.holdings.length > 0) {
-                    let html = '<table><thead><tr><th>Ticker</th><th>Type</th><th>Shares</th><th>Entry</th><th>Price</th><th>Value</th><th>P&L</th></tr></thead><tbody>';
+                    let html = '<table><thead><tr><th>Ticker</th><th>Dir</th><th>Shares</th><th>Entry</th><th>Current</th><th>Value</th><th style="text-align:right">P&amp;L</th><th style="text-align:right">%</th></tr></thead><tbody>';
                     data.holdings.forEach(h => {
-                        const cls = h.pnl >= 0 ? 'positive' : 'negative';
+                        const cls = h.pnl >= 0 ? 'pnl-pos' : 'pnl-neg';
                         const dir = h.direction || 'long';
                         const dirCls = dir === 'short' ? 'dir-short' : 'dir-long';
                         const dirLabel = dir === 'short' ? 'SHORT' : 'LONG';
+                        const name = h.display_name && h.display_name !== h.ticker
+                            ? `<strong>${h.display_name}</strong> <span style="color:var(--text-dim);font-size:0.72rem">${h.ticker}</span>`
+                            : `<strong>${h.ticker}</strong>`;
+                        const sign = h.pnl >= 0 ? '+' : '';
                         html += `<tr>
-                            <td><strong>${h.ticker}</strong></td>
+                            <td>${name}</td>
                             <td><span class="${dirCls}">${dirLabel}</span></td>
                             <td>${h.shares.toFixed(4)}</td>
                             <td>${fmt(h.avg_cost)}</td>
                             <td>${fmt(h.current_price)}</td>
                             <td>${fmt(Math.abs(h.market_value))}</td>
-                            <td class="${cls}">${(h.pnl >= 0 ? '+' : '') + fmt(h.pnl)} (${fmtPct(h.pnl_pct)})</td>
+                            <td style="text-align:right;font-weight:600" class="${cls}">${sign}${fmt(h.pnl)}</td>
+                            <td style="text-align:right;font-weight:600" class="${cls}">${fmtPct(h.pnl_pct)}</td>
                         </tr>`;
                     });
                     html += '</tbody></table>';
                     document.getElementById('holdings-table').innerHTML = html;
                 } else {
-                    document.getElementById('holdings-table').innerHTML = '<div class="loading">No holdings yet</div>';
+                    document.getElementById('holdings-table').innerHTML = '<div class="loading">No open positions</div>';
                 }
 
                 document.getElementById('last-updated').textContent = 'Updated: ' + new Date().toLocaleTimeString();

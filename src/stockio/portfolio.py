@@ -571,6 +571,75 @@ def get_trade_history(limit: int = 50) -> list[TradeRecord]:
         ]
 
 
+def get_trade_history_with_pnl(limit: int = 50) -> list[dict]:
+    """Return recent trades annotated with per-trade P&L for exits.
+
+    Walks all trades chronologically to build a running cost basis per
+    ticker, then returns the most recent *limit* trades with a ``pnl``
+    field set for SELL/COVER trades (None for BUY/SHORT).
+    """
+    with _get_conn() as conn:
+        all_rows = conn.execute(
+            "SELECT id, ticker, side, shares, price, total, timestamp, reason "
+            "FROM trades ORDER BY id ASC"
+        ).fetchall()
+
+    # Running cost basis per ticker
+    basis: dict[str, dict] = {}  # ticker -> {long_shares, long_cost, short_shares, short_cost}
+
+    annotated: list[dict] = []
+    for r in all_rows:
+        ticker = r["ticker"]
+        side = r["side"]
+        shares = r["shares"]
+        price = r["price"]
+
+        if ticker not in basis:
+            basis[ticker] = {"long_shares": 0.0, "long_cost": 0.0,
+                             "short_shares": 0.0, "short_cost": 0.0}
+        b = basis[ticker]
+        pnl = None
+
+        if side == "BUY":
+            b["long_shares"] += shares
+            b["long_cost"] += shares * price
+        elif side == "SELL":
+            if b["long_shares"] > 0:
+                avg_cost = b["long_cost"] / b["long_shares"]
+                sold = min(shares, b["long_shares"])
+                pnl = round((price - avg_cost) * sold, 2)
+                frac = sold / b["long_shares"] if b["long_shares"] else 0
+                b["long_cost"] -= b["long_cost"] * frac
+                b["long_shares"] -= sold
+        elif side == "SHORT":
+            b["short_shares"] += shares
+            b["short_cost"] += shares * price
+        elif side == "COVER":
+            if b["short_shares"] > 0:
+                avg_entry = b["short_cost"] / b["short_shares"]
+                covered = min(shares, b["short_shares"])
+                pnl = round((avg_entry - price) * covered, 2)
+                frac = covered / b["short_shares"] if b["short_shares"] else 0
+                b["short_cost"] -= b["short_cost"] * frac
+                b["short_shares"] -= covered
+
+        annotated.append({
+            "id": r["id"],
+            "ticker": r["ticker"],
+            "display_name": config.get_asset_display_name(r["ticker"]),
+            "side": side,
+            "shares": shares,
+            "price": round(price, 2),
+            "total": round(abs(r["total"]), 2),
+            "pnl": pnl,
+            "timestamp": r["timestamp"],
+            "reason": r["reason"],
+        })
+
+    # Return most recent first, limited
+    return annotated[-limit:][::-1]
+
+
 def get_market_stats(current_prices: dict[str, float]) -> dict[str, dict]:
     """Return per-market-type aggregated stats.
 
@@ -759,6 +828,8 @@ def get_pnl_summary(current_prices: dict[str, float]) -> list[dict]:
             "num_trades": acc.num_trades,
             "direction": direction,
             "open_shares": round(open_shares, 4),
+            "avg_cost": round(pos.avg_cost, 4) if pos else None,
+            "current_price": round(price, 4) if pos else None,
         })
 
     # Sort by absolute total P&L descending (biggest movers first)
