@@ -530,6 +530,7 @@
                 <div class="card-label">Profit / Loss</div>
                 <div class="card-value" id="pnl-value">--</div>
                 <div class="card-sub" id="pnl-pct-value" style="font-size:0.85rem;margin-top:0.2rem">--</div>
+                <div class="card-sub" id="pnl-breakdown" style="font-size:0.7rem;color:var(--text-dim);margin-top:0.25rem"></div>
             </div>
             <div class="card">
                 <div class="card-label" id="long-label">Buying (Long)</div>
@@ -1851,6 +1852,16 @@
                 const pctEl = document.getElementById('pnl-pct-value');
                 pctEl.textContent = fmtPct(data.total_pnl_pct);
                 pctEl.className = 'card-sub ' + (data.total_pnl_pct >= 0 ? 'positive' : 'negative');
+
+                // Realised vs unrealised breakdown
+                const bdEl = document.getElementById('pnl-breakdown');
+                if (data.realised_pnl !== undefined) {
+                    const rSign = data.realised_pnl >= 0 ? '+' : '';
+                    const uSign = data.unrealised_pnl >= 0 ? '+' : '';
+                    const rCls = data.realised_pnl >= 0 ? 'pnl-pos' : 'pnl-neg';
+                    const uCls = data.unrealised_pnl >= 0 ? 'pnl-pos' : 'pnl-neg';
+                    bdEl.innerHTML = `<span class="${rCls}">${rSign}${fmt(data.realised_pnl)}</span> realised · <span class="${uCls}">${uSign}${fmt(data.unrealised_pnl)}</span> unrealised`;
+                }
 
                 // Long positions (buying)
                 document.getElementById('long-value').textContent = fmt(data.long_value);

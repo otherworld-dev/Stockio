@@ -996,6 +996,11 @@ def portfolio_summary(current_prices: dict[str, float]) -> dict:
     total_pnl = total_value - initial
     total_pnl_pct = (total_pnl / initial * 100) if initial else 0
 
+    # Unrealised = sum of P&L on open positions
+    unrealised_pnl = sum(h["pnl"] for h in holdings)
+    # Realised = total P&L minus unrealised (what's already been locked in)
+    realised_pnl = total_pnl - unrealised_pnl
+
     # Count long vs short positions
     num_long = sum(1 for h in holdings if h["direction"] != "short")
     num_short = sum(1 for h in holdings if h["direction"] == "short")
@@ -1011,6 +1016,8 @@ def portfolio_summary(current_prices: dict[str, float]) -> dict:
         "initial_budget": round(initial, 2),
         "total_pnl": round(total_pnl, 2),
         "total_pnl_pct": round(total_pnl_pct, 2),
+        "realised_pnl": round(realised_pnl, 2),
+        "unrealised_pnl": round(unrealised_pnl, 2),
         "num_positions": len(holdings),
         "holdings": holdings,
     }
