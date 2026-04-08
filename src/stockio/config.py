@@ -3,11 +3,23 @@
 from __future__ import annotations
 
 import tomllib
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings
+
+# ---------------------------------------------------------------------------
+# Asset types
+# ---------------------------------------------------------------------------
+
+
+class AssetType(StrEnum):
+    EQUITY = "equity"
+    FOREX = "forex"
+    COMMODITY = "commodity"
+    CRYPTO = "crypto"
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 _CONFIG_DIR = _PROJECT_ROOT / "config"

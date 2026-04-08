@@ -1,0 +1,73 @@
+# Market session hours (all times in GMT/UTC)
+
+[forex]
+label = "Forex"
+description = "Major and minor currency pairs"
+schedule = "24 hours, Mon-Fri"
+
+[[forex.sessions]]
+name = "Sydney"
+open = "22:00"
+close = "07:00"
+volatility = "low"
+
+[[forex.sessions]]
+name = "Tokyo"
+open = "00:00"
+close = "09:00"
+volatility = "medium"
+
+[[forex.sessions]]
+name = "London"
+open = "08:00"
+close = "17:00"
+volatility = "high"
+
+[[forex.sessions]]
+name = "New York"
+open = "13:00"
+close = "22:00"
+volatility = "high"
+
+[commodity]
+label = "Commodities"
+description = "Metals, energy, and agriculture futures"
+schedule = "Near 24h, Mon-Fri"
+
+[[commodity.sessions]]
+name = "CME Globex"
+open = "23:00"
+close = "22:00"
+note = "60-min break 22:00-23:00 GMT"
+
+[[commodity.sessions]]
+name = "Metals (COMEX)"
+open = "23:00"
+close = "22:00"
+note = "Gold, Silver, Copper"
+
+[equity]
+label = "Equities"
+description = "Stocks listed on major exchanges"
+schedule = "Weekdays only"
+
+[[equity.sessions]]
+name = "LSE / AIM"
+open = "08:00"
+close = "16:30"
+
+[[equity.sessions]]
+name = "NYSE / NASDAQ"
+open = "14:30"
+close = "21:00"
+
+[crypto]
+label = "Crypto"
+description = "Cryptocurrencies traded against USD"
+schedule = "24/7"
+
+[[crypto.sessions]]
+name = "Global"
+open = "00:00"
+close = "23:59"
+note = "Never closes"
