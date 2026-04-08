@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import collections
 import math
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import structlog
 
@@ -45,7 +45,7 @@ class CircuitBreaker:
         """True if circuit is open (service disabled)."""
         if self._open_until is None:
             return False
-        if datetime.now(timezone.utc) >= self._open_until:
+        if datetime.now(UTC) >= self._open_until:
             self._reset()
             return False
         return True
@@ -59,7 +59,7 @@ class CircuitBreaker:
         if self._consecutive_failures >= self._max_failures:
             from datetime import timedelta
 
-            self._open_until = datetime.now(timezone.utc) + timedelta(
+            self._open_until = datetime.now(UTC) + timedelta(
                 seconds=self._cooldown_seconds
             )
             log.warning(
@@ -102,7 +102,7 @@ class RiskManager:
 
     def update(self, account: AccountSummary) -> None:
         """Update equity tracking and reset daily/weekly counters."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         # Track peak equity
         if account.equity > self._peak_equity:
@@ -172,7 +172,8 @@ def calculate_position_size(
 
     units = risk_amount / stop_distance
     # Round down to nearest min_units
-    units = max(instrument.min_units, int(math.floor(units / instrument.min_units) * instrument.min_units))
+    min_u = instrument.min_units
+    units = max(min_u, int(math.floor(units / min_u) * min_u))
     return units
 
 
@@ -496,7 +497,7 @@ class TradingEngine:
         import resource
         import sys
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         if self._last_heartbeat is not None:
             elapsed = (now - self._last_heartbeat).total_seconds()
             if elapsed < self._settings.heartbeat_seconds:
@@ -529,7 +530,7 @@ class TradingEngine:
 
     def maybe_daily_summary(self) -> None:
         """Send daily summary via Telegram if it's the right hour."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         if now.hour != self._settings.daily_summary_hour:
             return
         if now.day == self._last_summary_day:

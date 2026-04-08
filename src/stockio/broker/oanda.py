@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import structlog
-from datetime import datetime, timezone
+from datetime import datetime
 
 import oandapyV20
 import oandapyV20.endpoints.accounts as ep_accounts
@@ -12,6 +11,7 @@ import oandapyV20.endpoints.orders as ep_orders
 import oandapyV20.endpoints.positions as ep_positions
 import oandapyV20.endpoints.pricing as ep_pricing
 import oandapyV20.endpoints.trades as ep_trades
+import structlog
 from oandapyV20.contrib.requests import (
     MarketOrderRequest,
     StopLossDetails,

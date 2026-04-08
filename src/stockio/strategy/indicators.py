@@ -103,8 +103,9 @@ def build_feature_vector(df: pd.DataFrame, settings: Settings) -> dict[str, floa
         features[f"rsi_{period}"] = float(row.get(f"rsi_{period}", 50))
 
     # Stochastic
-    stoch_k_col = f"STOCHk_{settings.stochastic_k}_{settings.stochastic_d}_{settings.stochastic_smooth}"
-    stoch_d_col = f"STOCHd_{settings.stochastic_k}_{settings.stochastic_d}_{settings.stochastic_smooth}"
+    sk, sd, ss = settings.stochastic_k, settings.stochastic_d, settings.stochastic_smooth
+    stoch_k_col = f"STOCHk_{sk}_{sd}_{ss}"
+    stoch_d_col = f"STOCHd_{sk}_{sd}_{ss}"
     features["stoch_k"] = float(row.get(stoch_k_col, 50))
     features["stoch_d"] = float(row.get(stoch_d_col, 50))
 

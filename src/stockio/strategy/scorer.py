@@ -5,7 +5,7 @@ from __future__ import annotations
 import collections
 import json
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pandas as pd
@@ -88,7 +88,7 @@ class OutcomeTracker:
                 confidence=confidence,
                 entry_price=entry_price,
                 atr=atr,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 horizon_cycle=current_cycle + self._settings.label_horizon_bars,
             )
         )
@@ -209,19 +209,23 @@ def retrain_model(settings: Settings, data_dir: Path, models_dir: Path) -> bool:
         import lightgbm as lgb
         from sklearn.model_selection import TimeSeriesSplit
 
-        X = df[FEATURE_NAMES].fillna(0).values
-        y = df["label"].values
+        features = df[FEATURE_NAMES].fillna(0).values
+        labels = df["label"].values
 
         tscv = TimeSeriesSplit(n_splits=settings.n_splits, gap=settings.gap_bars)
         accuracies = []
 
         model = None
-        for train_idx, test_idx in tscv.split(X):
-            X_train, X_test = X[train_idx], X[test_idx]
-            y_train, y_test = y[train_idx], y[test_idx]
+        for train_idx, test_idx in tscv.split(features):
+            x_train, x_test = features[train_idx], features[test_idx]
+            y_train, y_test = labels[train_idx], labels[test_idx]
 
-            train_data = lgb.Dataset(X_train, label=y_train, feature_name=FEATURE_NAMES)
-            valid_data = lgb.Dataset(X_test, label=y_test, feature_name=FEATURE_NAMES)
+            train_data = lgb.Dataset(
+                x_train, label=y_train, feature_name=FEATURE_NAMES
+            )
+            valid_data = lgb.Dataset(
+                x_test, label=y_test, feature_name=FEATURE_NAMES
+            )
 
             params = {
                 "objective": "binary",
@@ -241,12 +245,14 @@ def retrain_model(settings: Settings, data_dir: Path, models_dir: Path) -> bool:
                 callbacks=[lgb.early_stopping(20, verbose=False)],
             )
 
-            preds = (model.predict(X_test) > 0.5).astype(int)
+            preds = (model.predict(x_test) > 0.5).astype(int)
             acc = (preds == y_test).mean()
             accuracies.append(acc)
 
         # Train final model on all data
-        full_data = lgb.Dataset(X, label=y, feature_name=FEATURE_NAMES)
+        full_data = lgb.Dataset(
+            features, label=labels, feature_name=FEATURE_NAMES
+        )
         final_model = lgb.train(params, full_data, num_boost_round=200)
 
         # Save model
@@ -255,7 +261,7 @@ def retrain_model(settings: Settings, data_dir: Path, models_dir: Path) -> bool:
 
         # Save metadata
         meta = {
-            "train_date": datetime.now(timezone.utc).isoformat(),
+            "train_date": datetime.now(UTC).isoformat(),
             "samples": len(df),
             "cv_accuracies": accuracies,
             "mean_accuracy": sum(accuracies) / len(accuracies) if accuracies else 0,
@@ -342,7 +348,7 @@ class InstrumentScorer:
             instrument=instrument,
             direction=direction,
             confidence=confidence,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             features=features,
         )
 
@@ -410,7 +416,7 @@ class InstrumentScorer:
                 instrument=instrument,
                 direction=Direction.HOLD,
                 confidence=0.0,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 features=features,
             )
 
@@ -429,7 +435,7 @@ class InstrumentScorer:
             instrument=instrument,
             direction=direction,
             confidence=confidence,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             features=features,
         )
 

@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 
 import feedparser
 import httpx
 import structlog
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from stockio.config import InstrumentConfig, Settings
 
@@ -44,7 +43,7 @@ class SentimentAnalyzer:
             return False
         if self._cache_time is None:
             return True
-        age = (datetime.now(timezone.utc) - self._cache_time).total_seconds()
+        age = (datetime.now(UTC) - self._cache_time).total_seconds()
         return age >= self._settings.sentiment_refresh_seconds
 
     def get_sentiment(self, instrument: str) -> float:
@@ -59,18 +58,24 @@ class SentimentAnalyzer:
         for name, cfg in instruments.items():
             try:
                 headlines = self._fetch_headlines(cfg.news_keywords)
-                if headlines:
-                    score = self._analyze(name, cfg.display_name, headlines)
-                else:
-                    score = 0.0
+                score = (
+                    self._analyze(name, cfg.display_name, headlines)
+                    if headlines
+                    else 0.0
+                )
                 results[name] = score
-                log.info("sentiment_scored", instrument=name, score=round(score, 3), headlines=len(headlines))
+                log.info(
+                    "sentiment_scored",
+                    instrument=name,
+                    score=round(score, 3),
+                    headlines=len(headlines),
+                )
             except Exception:
                 log.exception("sentiment_failed", instrument=name)
                 results[name] = 0.0
 
         self._cache = results
-        self._cache_time = datetime.now(timezone.utc)
+        self._cache_time = datetime.now(UTC)
         return results
 
     def _fetch_headlines(self, keywords: list[str]) -> list[str]:
@@ -86,7 +91,7 @@ class SentimentAnalyzer:
             return []
 
         query = " OR ".join(keywords[:5])  # Batch keywords to reduce API calls
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=self._settings.news_lookback_hours)
+        cutoff = datetime.now(UTC) - timedelta(hours=self._settings.news_lookback_hours)
 
         try:
             resp = httpx.get(
@@ -115,7 +120,6 @@ class SentimentAnalyzer:
     def _fetch_rss(self, keywords: list[str]) -> list[str]:
         """Fallback: fetch from configured RSS feeds and filter by keywords."""
         headlines: list[str] = []
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=self._settings.news_lookback_hours)
         keywords_lower = [kw.lower() for kw in keywords]
 
         for feed_url in self._settings.rss_feeds:
