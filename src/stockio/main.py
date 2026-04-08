@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 import signal
 import sys
 import threading
-
-import logging
 
 import structlog
 
@@ -34,6 +33,7 @@ def _configure_logging(level: str) -> None:
 
 def main() -> None:
     """Run the trading bot."""
+    from stockio import db
     from stockio.broker import OandaBroker
     from stockio.config import load_instruments, load_settings
     from stockio.engine import TradingEngine
@@ -50,6 +50,9 @@ def main() -> None:
         granularity=settings.granularity,
         cycle_seconds=settings.cycle_seconds,
     )
+
+    # Initialize SQLite persistence
+    db.set_default_db(settings.get_db_path())
 
     instruments = load_instruments()
     log.info("instruments_loaded", instruments=list(instruments.keys()))

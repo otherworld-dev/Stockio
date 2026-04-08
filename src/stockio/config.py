@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     news_api_key: str = ""
     anthropic_api_key: str = ""
 
+    # --- Budget ---
+    initial_budget: float = 500.0
+
     # --- Strategy (from settings.toml) ---
     granularity: str = "M15"
     min_confidence: float = 0.55
@@ -176,6 +179,13 @@ class Settings(BaseSettings):
         d = _PROJECT_ROOT / "models"
         d.mkdir(exist_ok=True)
         return d
+
+    def get_db_path(self, instance: str = "") -> Path:
+        """Return SQLite DB path for a named instance (paper/live/default)."""
+        data = self.data_dir  # ensure dir exists
+        if instance and instance != "default":
+            return data / f"stockio_{instance}.db"
+        return data / "stockio.db"
 
 
 def load_settings() -> Settings:

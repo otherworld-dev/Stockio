@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 
 import structlog
 
+from stockio import db
 from stockio.broker.base import BrokerBase
 from stockio.broker.models import (
     AccountSummary,
@@ -313,6 +314,9 @@ class TradingEngine:
         # Step 5: Resolve pending outcomes for model training
         self._resolve_and_maybe_retrain(cycle_log)
 
+        # Step 6: Persist snapshot and bot log to SQLite
+        self._persist_cycle(cycle_log, signals, ranked)
+
         cycle_log.info(
             "cycle_complete",
             instruments_ready=len(self._warmed_up),
@@ -320,6 +324,48 @@ class TradingEngine:
             tradeable=len(ranked),
             pending_outcomes=self._outcome_tracker.pending_count,
         )
+
+    def _persist_cycle(
+        self,
+        cycle_log: structlog.BoundLogger,
+        signals: dict[str, Signal],
+        ranked: list[Signal],
+    ) -> None:
+        """Save snapshot and bot log to SQLite."""
+        try:
+            account = self._broker.get_account()
+            db.record_snapshot(
+                balance=account.balance,
+                equity=account.equity,
+                unrealized_pnl=account.unrealized_pnl,
+                open_positions=account.open_position_count,
+                cycle=self._cycle_count,
+            )
+            db.record_bot_log(
+                cycle=self._cycle_count,
+                summary={
+                    "instruments_scored": len(signals),
+                    "tradeable": len(ranked),
+                    "top_signals": [
+                        {
+                            "instrument": s.instrument,
+                            "direction": s.direction.value,
+                            "confidence": round(s.confidence, 3),
+                        }
+                        for s in ranked[:3]
+                    ],
+                    "sentiment": {
+                        k: round(v, 3) for k, v in self._sentiment.items() if v != 0
+                    },
+                    "model_accuracy": (
+                        round(self._outcome_tracker.rolling_accuracy, 3)
+                        if self._outcome_tracker.rolling_accuracy is not None
+                        else None
+                    ),
+                },
+            )
+        except Exception:
+            cycle_log.exception("db_persist_cycle_failed")
 
     def _execute_trades(self, ranked: list[Signal], cycle_log: structlog.BoundLogger) -> None:
         """Attempt to trade the top-ranked instruments."""
@@ -421,6 +467,17 @@ class TradingEngine:
                 })
                 if self._notifier:
                     self._notifier.notify_trade(order, trade_id)
+
+                # Persist trade to SQLite
+                try:
+                    db.record_trade(
+                        order=order,
+                        trade_id=trade_id,
+                        fill_price=entry_price,
+                        reason=f"signal confidence {signal.confidence:.3f}",
+                    )
+                except Exception:
+                    cycle_log.exception("db_record_trade_failed")
 
                 # Record prediction for outcome tracking
                 self._outcome_tracker.record_pending(
