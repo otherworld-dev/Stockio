@@ -1,0 +1,53 @@
+[EUR_USD]
+display_name = "EUR/USD"
+pip_size = 0.0001
+min_units = 1
+type = "forex"
+news_keywords = ["EUR/USD", "euro dollar", "ECB", "Federal Reserve"]
+trading_hours = { start = "00:00", end = "23:59" }  # Nearly 24h
+spread_typical = 0.00014  # 1.4 pips typical spread
+
+[GBP_USD]
+display_name = "GBP/USD"
+pip_size = 0.0001
+min_units = 1
+type = "forex"
+news_keywords = ["GBP/USD", "pound dollar", "Bank of England", "BoE"]
+trading_hours = { start = "00:00", end = "23:59" }
+spread_typical = 0.00018
+
+[USD_JPY]
+display_name = "USD/JPY"
+pip_size = 0.01
+min_units = 1
+type = "forex"
+news_keywords = ["USD/JPY", "dollar yen", "Bank of Japan", "BoJ"]
+trading_hours = { start = "00:00", end = "23:59" }
+spread_typical = 0.014
+
+[XAU_USD]
+display_name = "Gold"
+pip_size = 0.01
+min_units = 1
+type = "commodity"
+news_keywords = ["gold price", "XAU", "safe haven", "gold demand"]
+trading_hours = { start = "01:00", end = "23:59" }
+spread_typical = 0.35
+
+[XAG_USD]
+display_name = "Silver"
+pip_size = 0.001
+min_units = 1
+type = "commodity"
+news_keywords = ["silver price", "XAG", "precious metals"]
+trading_hours = { start = "01:00", end = "23:59" }
+spread_typical = 0.030
+
+[BCO_USD]
+display_name = "Brent Crude Oil"
+pip_size = 0.01
+min_units = 1
+type = "commodity"
+news_keywords = ["oil price", "brent crude", "OPEC", "crude oil"]
+trading_hours = { start = "01:00", end = "22:00" }
+spread_typical = 0.04

@@ -1,0 +1,48 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "stockio"
+version = "0.1.0"
+description = "AI-powered trading bot for forex and commodities via OANDA"
+requires-python = ">=3.11"
+dependencies = [
+    "oandapyV20>=0.7.2",
+    "pandas>=2.1",
+    "pandas-ta>=0.3.14b",
+    "lightgbm>=4.0",
+    "pydantic-settings>=2.1",
+    "apscheduler>=3.10,<4.0",
+    "httpx>=0.25",
+    "tenacity>=8.2",
+    "anthropic>=0.40",
+    "feedparser>=6.0",
+    "structlog>=23.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+    "pytest-asyncio>=0.21",
+    "ruff>=0.1",
+    "ipykernel>=6.25",
+]
+
+[project.scripts]
+stockio = "stockio.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/stockio"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

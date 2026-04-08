@@ -1,0 +1,46 @@
+[strategy]
+granularity = "M15"           # Candle timeframe
+min_confidence = 0.55         # Minimum signal confidence to trade
+lookback_bars = 200           # Bars to keep in cache for indicator calculation
+
+[risk]
+risk_per_trade = 0.01         # 1% of equity per trade
+stop_loss_atr_mult = 1.5      # Stop-loss distance in ATR multiples
+take_profit_atr_mult = 2.0    # Take-profit distance in ATR multiples
+max_positions = 3             # Maximum concurrent open positions
+max_leverage = 5.0            # Self-imposed leverage limit
+daily_loss_limit = 0.03       # 3% daily loss → halt trading
+weekly_loss_limit = 0.05      # 5% weekly loss → halt trading
+max_drawdown = 0.15           # 15% drawdown → kill switch (manual restart)
+
+[indicators]
+ema_periods = [9, 21, 50]
+macd_fast = 12
+macd_slow = 26
+macd_signal = 9
+rsi_periods = [7, 14]
+stochastic_k = 14
+stochastic_d = 3
+stochastic_smooth = 3
+atr_period = 14
+bb_period = 20
+bb_std = 2.0
+adx_period = 14
+
+[model]
+algorithm = "lightgbm"
+label_atr_mult = 1.0          # ATR multiple threshold for BUY/SELL labels
+label_horizon_bars = 4        # Bars ahead for label (4 x M15 = 1 hour)
+n_splits = 5                  # TimeSeriesSplit folds
+gap_bars = 48                 # 12-hour gap between train/test (48 x M15)
+degradation_window = 50       # Rolling window for accuracy monitoring
+degradation_threshold = 0.40  # Alert if rolling accuracy drops below this
+
+[scheduler]
+cycle_seconds = 900           # 15-minute trading cycle
+sentiment_refresh_seconds = 3600  # 1-hour sentiment refresh
+
+[monitoring]
+log_level = "INFO"
+daily_summary_hour = 22       # UTC hour for daily summary
+heartbeat_seconds = 300       # 5-minute heartbeat interval
