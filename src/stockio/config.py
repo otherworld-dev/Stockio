@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
     news_api_key: str = ""
+    anthropic_api_key: str = ""
 
     # --- Strategy (from settings.toml) ---
     granularity: str = "M15"
@@ -102,6 +103,15 @@ class Settings(BaseSettings):
     # --- Scheduler ---
     cycle_seconds: int = 900
     sentiment_refresh_seconds: int = 3600
+
+    # --- Sentiment / LLM ---
+    llm_model: str = "claude-haiku-4-5-20251001"
+    max_headlines: int = 10
+    news_lookback_hours: int = 24
+    rss_feeds: list[str] = Field(default_factory=lambda: [
+        "https://feeds.reuters.com/reuters/businessNews",
+        "https://feeds.reuters.com/reuters/topNews",
+    ])
 
     # --- Monitoring ---
     log_level: str = "INFO"

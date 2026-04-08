@@ -36,6 +36,15 @@ gap_bars = 48                 # 12-hour gap between train/test (48 x M15)
 degradation_window = 50       # Rolling window for accuracy monitoring
 degradation_threshold = 0.40  # Alert if rolling accuracy drops below this
 
+[sentiment]
+llm_model = "claude-haiku-4-5-20251001"
+max_headlines = 10
+news_lookback_hours = 24
+rss_feeds = [
+    "https://feeds.reuters.com/reuters/businessNews",
+    "https://feeds.reuters.com/reuters/topNews",
+]
+
 [scheduler]
 cycle_seconds = 900           # 15-minute trading cycle
 sentiment_refresh_seconds = 3600  # 1-hour sentiment refresh

@@ -37,6 +37,7 @@ def main() -> None:
     from stockio.config import load_instruments, load_settings
     from stockio.engine import TradingEngine
     from stockio.strategy.notifier import TelegramNotifier
+    from stockio.strategy.sentiment import SentimentAnalyzer
 
     settings = load_settings()
     _configure_logging(settings.log_level)
@@ -54,6 +55,7 @@ def main() -> None:
 
     broker = OandaBroker(settings)
     notifier = TelegramNotifier(settings)
+    sentiment = SentimentAnalyzer(settings)
     engine = TradingEngine(
         broker=broker, instruments=instruments, settings=settings, notifier=notifier
     )
@@ -72,6 +74,11 @@ def main() -> None:
     # Main loop
     while not shutdown.is_set():
         try:
+            # Refresh sentiment if stale (typically once per hour)
+            if sentiment.needs_refresh():
+                scores = sentiment.refresh_all(instruments)
+                engine.update_sentiment(scores)
+
             engine.run_cycle()
         except Exception:
             log.exception("cycle_failed")
