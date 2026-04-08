@@ -1,4 +1,4 @@
-"""Entry point for the Stockio trading bot."""
+"""Entry point and bot runner for Stockio."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import threading
 import structlog
 
 
-def _configure_logging(level: str) -> None:
+def configure_logging(level: str) -> None:
     """Set up structlog with JSON output."""
     numeric_level = getattr(logging, level.upper(), logging.INFO)
     structlog.configure(
@@ -31,8 +31,8 @@ def _configure_logging(level: str) -> None:
     )
 
 
-def main() -> None:
-    """Run the trading bot."""
+def run_bot(cycle_seconds_override: int | None = None) -> None:
+    """Run the headless trading bot loop."""
     from stockio import db
     from stockio.broker import OandaBroker
     from stockio.config import load_instruments, load_settings
@@ -41,17 +41,18 @@ def main() -> None:
     from stockio.strategy.sentiment import SentimentAnalyzer
 
     settings = load_settings()
-    _configure_logging(settings.log_level)
+    configure_logging(settings.log_level)
+
+    cycle_seconds = cycle_seconds_override or settings.cycle_seconds
 
     log = structlog.get_logger()
     log.info(
         "starting",
         environment=settings.oanda_environment,
         granularity=settings.granularity,
-        cycle_seconds=settings.cycle_seconds,
+        cycle_seconds=cycle_seconds,
     )
 
-    # Initialize SQLite persistence
     db.set_default_db(settings.get_db_path())
 
     instruments = load_instruments()
@@ -75,10 +76,8 @@ def main() -> None:
     signal.signal(signal.SIGTERM, _handle_shutdown)
     signal.signal(signal.SIGINT, _handle_shutdown)
 
-    # Main loop
     while not shutdown.is_set():
         try:
-            # Refresh sentiment if stale (typically once per hour)
             if sentiment.needs_refresh():
                 scores = sentiment.refresh_all(instruments)
                 engine.update_sentiment(scores)
@@ -88,9 +87,16 @@ def main() -> None:
         except Exception:
             log.exception("cycle_failed")
 
-        shutdown.wait(timeout=settings.cycle_seconds)
+        shutdown.wait(timeout=cycle_seconds)
 
     log.info("shutdown_complete", cycles_run=engine.cycle_count)
+
+
+def main() -> None:
+    """Entry point — delegates to CLI."""
+    from stockio.cli import main as cli_main
+
+    cli_main()
 
 
 if __name__ == "__main__":
