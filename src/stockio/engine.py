@@ -26,6 +26,55 @@ log = structlog.get_logger()
 
 
 # ---------------------------------------------------------------------------
+# Circuit breaker
+# ---------------------------------------------------------------------------
+
+
+class CircuitBreaker:
+    """Tracks consecutive failures for an external service and disables it temporarily."""
+
+    def __init__(self, name: str, max_failures: int = 5, cooldown_seconds: int = 900) -> None:
+        self.name = name
+        self._max_failures = max_failures
+        self._cooldown_seconds = cooldown_seconds
+        self._consecutive_failures = 0
+        self._open_until: datetime | None = None
+
+    @property
+    def is_open(self) -> bool:
+        """True if circuit is open (service disabled)."""
+        if self._open_until is None:
+            return False
+        if datetime.now(timezone.utc) >= self._open_until:
+            self._reset()
+            return False
+        return True
+
+    def record_success(self) -> None:
+        self._consecutive_failures = 0
+        self._open_until = None
+
+    def record_failure(self) -> None:
+        self._consecutive_failures += 1
+        if self._consecutive_failures >= self._max_failures:
+            from datetime import timedelta
+
+            self._open_until = datetime.now(timezone.utc) + timedelta(
+                seconds=self._cooldown_seconds
+            )
+            log.warning(
+                "circuit_breaker_opened",
+                service=self.name,
+                cooldown_seconds=self._cooldown_seconds,
+            )
+
+    def _reset(self) -> None:
+        self._consecutive_failures = 0
+        self._open_until = None
+        log.info("circuit_breaker_closed", service=self.name)
+
+
+# ---------------------------------------------------------------------------
 # Risk manager
 # ---------------------------------------------------------------------------
 
@@ -171,6 +220,11 @@ class TradingEngine:
         self._notifier = notifier
         self._outcome_tracker = OutcomeTracker(settings, settings.data_dir)
 
+        # Circuit breakers for external services
+        self._cb_oanda = CircuitBreaker("oanda")
+        self._cb_newsapi = CircuitBreaker("newsapi")
+        self._cb_anthropic = CircuitBreaker("anthropic")
+
         # Bounded candle cache — one deque per instrument, maxlen prevents leaks
         self._candle_cache: dict[str, collections.deque[Candle]] = {
             name: collections.deque(maxlen=settings.lookback_bars)
@@ -184,6 +238,11 @@ class TradingEngine:
         self._latest_features: dict[str, dict[str, float]] = {}
         # Track when last retrain happened
         self._last_retrain_count: int = 0
+        # Daily summary tracking
+        self._trades_today: list[dict] = []
+        self._last_summary_day: int = -1
+        # Heartbeat tracking
+        self._last_heartbeat: datetime | None = None
 
     def run_cycle(self) -> None:
         """Execute one trading cycle."""
@@ -191,12 +250,24 @@ class TradingEngine:
         cycle_log = log.bind(cycle=self._cycle_count)
         cycle_log.info("cycle_start")
 
+        # Heartbeat
+        self._maybe_heartbeat(cycle_log)
+
+        # Circuit breaker: skip cycle if OANDA is down
+        if self._cb_oanda.is_open:
+            cycle_log.warning("cycle_skipped", reason="oanda_circuit_breaker_open")
+            return
+
         # Step 1: Update candle data
+        oanda_failed = 0
         for name in self._instruments:
             try:
                 self._update_candles(name)
+                self._cb_oanda.record_success()
             except Exception:
                 cycle_log.exception("candle_fetch_failed", instrument=name)
+                oanda_failed += 1
+                self._cb_oanda.record_failure()
 
         # Step 2: Compute indicators and score each instrument
         signals: dict[str, Signal] = {}
@@ -318,6 +389,13 @@ class TradingEngine:
                     confidence=round(signal.confidence, 3),
                     trade_id=trade_id,
                 )
+                self._trades_today.append({
+                    "instrument": signal.instrument,
+                    "direction": signal.direction.value,
+                    "units": units,
+                    "confidence": signal.confidence,
+                    "trade_id": trade_id,
+                })
                 if self._notifier:
                     self._notifier.notify_trade(order, trade_id)
 
@@ -412,6 +490,80 @@ class TradingEngine:
     def update_sentiment(self, sentiment: dict[str, float]) -> None:
         """Update cached sentiment scores (called by sentiment analyzer)."""
         self._sentiment = sentiment
+
+    def _maybe_heartbeat(self, cycle_log: structlog.BoundLogger) -> None:
+        """Log a heartbeat if enough time has passed."""
+        import resource
+        import sys
+
+        now = datetime.now(timezone.utc)
+        if self._last_heartbeat is not None:
+            elapsed = (now - self._last_heartbeat).total_seconds()
+            if elapsed < self._settings.heartbeat_seconds:
+                return
+
+        # Memory usage (platform-dependent)
+        try:
+            if sys.platform != "win32":
+                mem_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+            else:
+                import os
+
+                import psutil  # type: ignore[import-untyped]
+
+                mem_mb = psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
+        except Exception:
+            mem_mb = 0
+
+        cycle_log.info(
+            "heartbeat",
+            cycles_run=self._cycle_count,
+            instruments_warmed=len(self._warmed_up),
+            pending_outcomes=self._outcome_tracker.pending_count,
+            training_samples=self._outcome_tracker.training_data_count,
+            trades_today=len(self._trades_today),
+            memory_mb=round(mem_mb, 1),
+            halted=self._risk.is_halted,
+        )
+        self._last_heartbeat = now
+
+    def maybe_daily_summary(self) -> None:
+        """Send daily summary via Telegram if it's the right hour."""
+        now = datetime.now(timezone.utc)
+        if now.hour != self._settings.daily_summary_hour:
+            return
+        if now.day == self._last_summary_day:
+            return
+
+        self._last_summary_day = now.day
+
+        try:
+            account = self._broker.get_account()
+        except Exception:
+            return
+
+        stats = {
+            "Date": now.strftime("%Y-%m-%d"),
+            "Trades Today": len(self._trades_today),
+            "Balance": account.balance,
+            "Equity": account.equity,
+            "Unrealized P&L": account.unrealized_pnl,
+            "Open Positions": account.open_position_count,
+            "Model Accuracy": (
+                f"{self._outcome_tracker.rolling_accuracy:.1%}"
+                if self._outcome_tracker.rolling_accuracy is not None
+                else "N/A"
+            ),
+            "Training Samples": self._outcome_tracker.training_data_count,
+            "Cycles Run": self._cycle_count,
+        }
+
+        log.info("daily_summary", **stats)
+        if self._notifier:
+            self._notifier.notify_daily_summary(stats)
+
+        # Reset daily counters
+        self._trades_today = []
 
     @property
     def candle_cache(self) -> dict[str, collections.deque[Candle]]:

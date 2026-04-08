@@ -80,6 +80,7 @@ def main() -> None:
                 engine.update_sentiment(scores)
 
             engine.run_cycle()
+            engine.maybe_daily_summary()
         except Exception:
             log.exception("cycle_failed")
 
