@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stockio Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+  :root {
+    --bg: #0f0f23;
+    --card: #1a1a3e;
+    --card-border: #2a2a5e;
+    --text: #e0e0e0;
+    --text-dim: #8888aa;
+    --accent: #4fc3f7;
+    --green: #4caf50;
+    --red: #ef5350;
+    --hold: #9e9e9e;
+    --font: system-ui, -apple-system, sans-serif;
+    --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font); line-height: 1.5; padding: 0; }
+  a { color: var(--accent); text-decoration: none; }
+
+  /* Header */
+  .header {
+    display: flex; align-items: center; gap: 16px; padding: 12px 24px;
+    background: #12122a; border-bottom: 1px solid var(--card-border); flex-wrap: wrap;
+  }
+  .header-title { font-size: 1.4rem; font-weight: 700; color: #fff; }
+  .version-badge {
+    font-size: 0.7rem; background: var(--accent); color: #000; padding: 2px 8px;
+    border-radius: 10px; font-weight: 600; vertical-align: middle;
+  }
+  .header-spacer { flex: 1; }
+  .instance-toggle { display: flex; gap: 0; }
+  .instance-btn {
+    padding: 6px 18px; border: 1px solid var(--card-border); background: var(--card);
+    color: var(--text-dim); cursor: pointer; font-size: 0.85rem; font-family: var(--font);
+    transition: all 0.15s;
+  }
+  .instance-btn:first-child { border-radius: 6px 0 0 6px; }
+  .instance-btn:last-child { border-radius: 0 6px 6px 0; }
+  .instance-btn.active { background: var(--accent); color: #000; font-weight: 600; border-color: var(--accent); }
+  .ctrl-btn {
+    padding: 6px 16px; border: 1px solid var(--card-border); border-radius: 6px;
+    background: var(--card); color: var(--text); cursor: pointer; font-size: 0.85rem;
+    font-family: var(--font); transition: all 0.15s;
+  }
+  .ctrl-btn:hover { border-color: var(--accent); }
+  .ctrl-btn.running { border-color: var(--red); color: var(--red); }
+  .ctrl-btn.stopped { border-color: var(--green); color: var(--green); }
+  .status-dot {
+    width: 10px; height: 10px; border-radius: 50%; display: inline-block;
+  }
+  .status-dot.running { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .status-dot.stopped { background: var(--red); }
+  .status-dot.halted { background: #ff9800; box-shadow: 0 0 6px #ff9800; }
+  .status-label { font-size: 0.85rem; color: var(--text-dim); margin-left: 4px; }
+  .gear-btn {
+    background: none; border: none; color: var(--text-dim); cursor: pointer;
+    font-size: 1.3rem; padding: 4px 8px; transition: color 0.15s;
+  }
+  .gear-btn:hover { color: var(--accent); }
+
+  /* Main layout */
+  .main { max-width: 1400px; margin: 0 auto; padding: 20px 24px; }
+
+  /* Cards row */
+  .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 20px; }
+  .card {
+    background: var(--card); border: 1px solid var(--card-border); border-radius: 10px;
+    padding: 18px 20px;
+  }
+  .card-label { font-size: 0.78rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+  .card-value { font-size: 1.6rem; font-weight: 700; font-family: var(--mono); }
+  .card-value.positive { color: var(--green); }
+  .card-value.negative { color: var(--red); }
+
+  /* Panels */
+  .panel {
+    background: var(--card); border: 1px solid var(--card-border); border-radius: 10px;
+    padding: 18px 20px; margin-bottom: 20px;
+  }
+  .panel-title { font-size: 1rem; font-weight: 600; margin-bottom: 12px; color: #fff; }
+
+  /* Tables */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  th { text-align: left; color: var(--text-dim); font-weight: 500; padding: 8px 10px;
+       border-bottom: 1px solid var(--card-border); white-space: nowrap; font-size: 0.75rem;
+       text-transform: uppercase; letter-spacing: 0.5px; }
+  td { padding: 7px 10px; border-bottom: 1px solid #1e1e40; white-space: nowrap; font-family: var(--mono); font-size: 0.8rem; }
+  tr:hover td { background: rgba(79, 195, 247, 0.04); }
+  .dir-buy { color: var(--green); font-weight: 600; }
+  .dir-sell { color: var(--red); font-weight: 600; }
+  .dir-hold { color: var(--hold); }
+  .scrollable-table { max-height: 340px; overflow-y: auto; }
+
+  /* Chart */
+  .chart-container { position: relative; height: 280px; }
+
+  /* Bot log */
+  .log-entry {
+    border: 1px solid var(--card-border); border-radius: 8px; margin-bottom: 8px;
+    overflow: hidden;
+  }
+  .log-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 14px; cursor: pointer; background: rgba(255,255,255,0.02);
+    transition: background 0.15s;
+  }
+  .log-header:hover { background: rgba(79, 195, 247, 0.05); }
+  .log-cycle { font-weight: 600; font-family: var(--mono); font-size: 0.85rem; }
+  .log-time { font-size: 0.75rem; color: var(--text-dim); }
+  .log-arrow { color: var(--text-dim); transition: transform 0.2s; font-size: 0.8rem; }
+  .log-arrow.open { transform: rotate(90deg); }
+  .log-body { padding: 0 14px 12px; display: none; font-size: 0.82rem; }
+  .log-body.open { display: block; }
+  .log-stat { display: inline-block; margin-right: 18px; margin-top: 4px; }
+  .log-stat-label { color: var(--text-dim); font-size: 0.75rem; }
+  .log-stat-value { font-family: var(--mono); font-weight: 600; }
+
+  /* Engine footer */
+  .engine-footer {
+    display: flex; flex-wrap: wrap; gap: 24px; align-items: center;
+    padding: 14px 20px; background: var(--card); border: 1px solid var(--card-border);
+    border-radius: 10px; margin-bottom: 20px; font-size: 0.82rem;
+  }
+  .engine-stat-label { color: var(--text-dim); font-size: 0.72rem; text-transform: uppercase; }
+  .engine-stat-value { font-family: var(--mono); font-weight: 600; }
+  .halted-warning { color: #ff9800; font-weight: 600; }
+
+  /* Settings modal */
+  .modal-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+    z-index: 1000; justify-content: center; align-items: center;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--card); border: 1px solid var(--card-border); border-radius: 12px;
+    padding: 24px 28px; width: 460px; max-width: 95vw; max-height: 90vh; overflow-y: auto;
+  }
+  .modal-title { font-size: 1.1rem; font-weight: 700; color: #fff; margin-bottom: 18px; }
+  .form-group { margin-bottom: 14px; }
+  .form-label { display: block; font-size: 0.78rem; color: var(--text-dim); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.3px; }
+  .form-input {
+    width: 100%; padding: 8px 12px; background: var(--bg); border: 1px solid var(--card-border);
+    border-radius: 6px; color: var(--text); font-family: var(--mono); font-size: 0.85rem;
+  }
+  .form-input:focus { outline: none; border-color: var(--accent); }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+  .btn-save {
+    padding: 8px 20px; background: var(--accent); color: #000; border: none;
+    border-radius: 6px; cursor: pointer; font-weight: 600; font-family: var(--font); font-size: 0.85rem;
+  }
+  .btn-cancel {
+    padding: 8px 20px; background: transparent; color: var(--text-dim); border: 1px solid var(--card-border);
+    border-radius: 6px; cursor: pointer; font-family: var(--font); font-size: 0.85rem;
+  }
+  .btn-save:hover { filter: brightness(1.1); }
+  .btn-cancel:hover { border-color: var(--text-dim); }
+
+  .no-data { color: var(--text-dim); font-style: italic; padding: 16px 0; font-size: 0.85rem; }
+
+  /* Responsive */
+  @media (max-width: 900px) {
+    .cards { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 500px) {
+    .cards { grid-template-columns: 1fr; }
+    .header { padding: 10px 14px; gap: 10px; }
+    .main { padding: 14px; }
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--card-border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <span class="header-title">Stockio <span class="version-badge">{{ version|default('v0.1') }}</span></span>
+  <div class="header-spacer"></div>
+  <div class="instance-toggle">
+    <button class="instance-btn active" data-instance="paper" onclick="switchInstance('paper')">Paper</button>
+    <button class="instance-btn" data-instance="live" onclick="switchInstance('live')">Live</button>
+  </div>
+  <button id="startStopBtn" class="ctrl-btn stopped" onclick="toggleInstance()">Start</button>
+  <span id="statusDot" class="status-dot stopped"></span>
+  <span id="statusLabel" class="status-label">Stopped</span>
+  <button class="gear-btn" onclick="openSettings()" title="Settings">&#9881;</button>
+</div>
+
+<!-- Main -->
+<div class="main">
+
+  <!-- Portfolio Cards -->
+  <div class="cards">
+    <div class="card">
+      <div class="card-label">Balance</div>
+      <div class="card-value" id="cardBalance">--</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Equity</div>
+      <div class="card-value" id="cardEquity">--</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Unrealized P&amp;L</div>
+      <div class="card-value" id="cardPnl">--</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Open Positions</div>
+      <div class="card-value" id="cardPositions">--</div>
+    </div>
+  </div>
+
+  <!-- P&L Chart -->
+  <div class="panel">
+    <div class="panel-title">Equity Over Time</div>
+    <div class="chart-container">
+      <canvas id="equityChart"></canvas>
+    </div>
+  </div>
+
+  <!-- Signals -->
+  <div class="panel">
+    <div class="panel-title">Signals</div>
+    <div class="table-wrap" id="signalsWrap">
+      <p class="no-data">Loading...</p>
+    </div>
+  </div>
+
+  <!-- Trade History -->
+  <div class="panel">
+    <div class="panel-title">Trade History</div>
+    <div class="scrollable-table">
+      <div class="table-wrap" id="tradesWrap">
+        <p class="no-data">Loading...</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bot Thinking Log -->
+  <div class="panel">
+    <div class="panel-title">Bot Thinking Log</div>
+    <div id="botLogWrap">
+      <p class="no-data">Loading...</p>
+    </div>
+  </div>
+
+  <!-- Engine Status Footer -->
+  <div class="engine-footer" id="engineFooter">
+    <div><div class="engine-stat-label">Cycles</div><div class="engine-stat-value" id="engCycles">--</div></div>
+    <div><div class="engine-stat-label">Model Accuracy</div><div class="engine-stat-value" id="engAccuracy">--</div></div>
+    <div><div class="engine-stat-label">Training Samples</div><div class="engine-stat-value" id="engSamples">--</div></div>
+    <div><div class="engine-stat-label">Pending Outcomes</div><div class="engine-stat-value" id="engPending">--</div></div>
+    <div><div class="engine-stat-label">Instruments</div><div class="engine-stat-value" id="engInstruments">--</div></div>
+    <div id="engHaltWrap" style="display:none;"><div class="engine-stat-label">Circuit Breaker</div><div class="halted-warning" id="engHalt">HALTED</div></div>
+  </div>
+
+</div><!-- /main -->
+
+<!-- Settings Modal -->
+<div class="modal-overlay" id="settingsModal">
+  <div class="modal">
+    <div class="modal-title">Settings</div>
+    <div class="form-group"><label class="form-label">Min Confidence</label><input class="form-input" id="set_min_confidence" type="number" step="0.01"></div>
+    <div class="form-group"><label class="form-label">Risk Per Trade</label><input class="form-input" id="set_risk_per_trade" type="number" step="0.001"></div>
+    <div class="form-group"><label class="form-label">Stop Loss ATR Mult</label><input class="form-input" id="set_stop_loss_atr_mult" type="number" step="0.1"></div>
+    <div class="form-group"><label class="form-label">Take Profit ATR Mult</label><input class="form-input" id="set_take_profit_atr_mult" type="number" step="0.1"></div>
+    <div class="form-group"><label class="form-label">Max Positions</label><input class="form-input" id="set_max_positions" type="number" step="1"></div>
+    <div class="form-group"><label class="form-label">Daily Loss Limit</label><input class="form-input" id="set_daily_loss_limit" type="number" step="0.01"></div>
+    <div class="form-group"><label class="form-label">Max Drawdown</label><input class="form-input" id="set_max_drawdown" type="number" step="0.01"></div>
+    <div class="form-group"><label class="form-label">Cycle Seconds</label><input class="form-input" id="set_cycle_seconds" type="number" step="1"></div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeSettings()">Cancel</button>
+      <button class="btn-save" onclick="saveSettings()">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ── State ── */
+let activeInstance = 'paper';
+let equityChart = null;
+let refreshTimer = null;
+
+/* ── Helpers ── */
+function api(path) {
+  const sep = path.includes('?') ? '&' : '?';
+  return path + sep + 'instance=' + activeInstance;
+}
+
+async function fetchJSON(path) {
+  try {
+    const r = await fetch(api(path));
+    if (!r.ok) throw new Error(r.status);
+    return await r.json();
+  } catch (e) {
+    console.warn('Fetch failed:', path, e);
+    return null;
+  }
+}
+
+function fmt(n, decimals) {
+  if (n == null || isNaN(n)) return '--';
+  decimals = decimals != null ? decimals : 2;
+  return Number(n).toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+}
+
+function pnlClass(v) {
+  if (v > 0) return 'positive';
+  if (v < 0) return 'negative';
+  return '';
+}
+
+function dirClass(d) {
+  if (!d) return '';
+  const u = d.toUpperCase();
+  if (u === 'BUY' || u === 'LONG') return 'dir-buy';
+  if (u === 'SELL' || u === 'SHORT') return 'dir-sell';
+  return 'dir-hold';
+}
+
+function escHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function shortTime(ts) {
+  if (!ts) return '--';
+  try {
+    const d = new Date(ts);
+    return d.toLocaleString(undefined, { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit' });
+  } catch { return ts; }
+}
+
+/* ── Instance toggle ── */
+function switchInstance(name) {
+  activeInstance = name;
+  document.querySelectorAll('.instance-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.instance === name);
+  });
+  refreshAll();
+}
+
+/* ── Start / Stop ── */
+async function toggleInstance() {
+  const btn = document.getElementById('startStopBtn');
+  const isRunning = btn.classList.contains('running');
+  const action = isRunning ? 'stop' : 'start';
+  try {
+    const r = await fetch('/api/instances/' + activeInstance + '/' + action, { method: 'POST' });
+    if (!r.ok) throw new Error(r.status);
+  } catch (e) {
+    console.warn('Toggle failed:', e);
+  }
+  setTimeout(refreshInstances, 500);
+}
+
+/* ── Refresh functions ── */
+async function refreshStatus() {
+  const d = await fetchJSON('/api/status');
+  if (!d) return;
+  const cur = d.currency || '';
+  document.getElementById('cardBalance').textContent = fmt(d.balance) + ' ' + cur;
+  document.getElementById('cardEquity').textContent = fmt(d.equity) + ' ' + cur;
+  const pnlEl = document.getElementById('cardPnl');
+  pnlEl.textContent = (d.unrealized_pnl >= 0 ? '+' : '') + fmt(d.unrealized_pnl) + ' ' + cur;
+  pnlEl.className = 'card-value ' + pnlClass(d.unrealized_pnl);
+  document.getElementById('cardPositions').textContent = d.open_positions != null ? d.open_positions : '--';
+}
+
+async function refreshInstances() {
+  const d = await fetchJSON('/api/instances');
+  if (!d) return;
+  const inst = d[activeInstance];
+  if (!inst) return;
+  const btn = document.getElementById('startStopBtn');
+  const dot = document.getElementById('statusDot');
+  const lbl = document.getElementById('statusLabel');
+  const running = inst.running;
+  const hasError = inst.last_error;
+
+  btn.textContent = running ? 'Stop' : 'Start';
+  btn.className = 'ctrl-btn ' + (running ? 'running' : 'stopped');
+  dot.className = 'status-dot ' + (running ? 'running' : 'stopped');
+  lbl.textContent = running ? 'Running' : 'Stopped';
+
+  // Override with halt status from engine
+  const eng = await fetchJSON('/api/engine-status');
+  if (eng && eng.halted) {
+    dot.className = 'status-dot halted';
+    lbl.textContent = 'Halted';
+  }
+}
+
+async function refreshChart() {
+  const data = await fetchJSON('/api/snapshots');
+  if (!data || !data.length) return;
+  const labels = data.map(s => {
+    try {
+      const d = new Date(s.timestamp);
+      return d.toLocaleTimeString(undefined, { hour:'2-digit', minute:'2-digit' });
+    } catch { return ''; }
+  });
+  const values = data.map(s => s.equity);
+
+  if (!equityChart) {
+    const ctx = document.getElementById('equityChart').getContext('2d');
+    equityChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: 'Equity',
+          data: values,
+          borderColor: '#4fc3f7',
+          backgroundColor: 'rgba(79, 195, 247, 0.08)',
+          fill: true,
+          tension: 0.3,
+          pointRadius: 0,
+          borderWidth: 2,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: {
+            ticks: { color: '#8888aa', font: { size: 10 }, maxTicksLimit: 12 },
+            grid: { color: 'rgba(255,255,255,0.04)' },
+          },
+          y: {
+            ticks: { color: '#8888aa', font: { family: "'JetBrains Mono', monospace", size: 11 } },
+            grid: { color: 'rgba(255,255,255,0.04)' },
+          }
+        },
+        interaction: { intersect: false, mode: 'index' },
+      }
+    });
+  } else {
+    equityChart.data.labels = labels;
+    equityChart.data.datasets[0].data = values;
+    equityChart.update('none');
+  }
+}
+
+async function refreshSignals() {
+  const wrap = document.getElementById('signalsWrap');
+  const [signals, sentiment] = await Promise.all([
+    fetchJSON('/api/signals'),
+    fetchJSON('/api/sentiment'),
+  ]);
+  if (!signals || !signals.length) {
+    wrap.innerHTML = '<p class="no-data">No signals available</p>';
+    return;
+  }
+  const sentMap = sentiment || {};
+  let html = '<table><thead><tr><th>Instrument</th><th>Direction</th><th>Confidence</th><th>Sentiment</th><th>RSI 14</th><th>MACD</th><th>ADX</th></tr></thead><tbody>';
+  signals.forEach(s => {
+    const sent = sentMap[s.instrument] != null ? sentMap[s.instrument] : s.sentiment;
+    const sentColor = sent > 0 ? 'color:var(--green)' : (sent < 0 ? 'color:var(--red)' : '');
+    html += '<tr>'
+      + '<td>' + escHtml(s.instrument) + '</td>'
+      + '<td class="' + dirClass(s.direction) + '">' + escHtml(s.direction) + '</td>'
+      + '<td>' + (s.confidence != null ? (s.confidence * 100).toFixed(1) + '%' : '--') + '</td>'
+      + '<td style="' + sentColor + '">' + (sent != null ? Number(sent).toFixed(2) : '--') + '</td>'
+      + '<td>' + (s.rsi_14 != null ? Number(s.rsi_14).toFixed(1) : '--') + '</td>'
+      + '<td>' + (s.macd != null ? Number(s.macd).toFixed(4) : '--') + '</td>'
+      + '<td>' + (s.adx != null ? Number(s.adx).toFixed(1) : '--') + '</td>'
+      + '</tr>';
+  });
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+}
+
+async function refreshTrades() {
+  const wrap = document.getElementById('tradesWrap');
+  const data = await fetchJSON('/api/trades?limit=50');
+  if (!data || !data.length) {
+    wrap.innerHTML = '<p class="no-data">No trades recorded</p>';
+    return;
+  }
+  let html = '<table><thead><tr><th>Time</th><th>Instrument</th><th>Direction</th><th>Units</th><th>Price</th><th>SL</th><th>TP</th><th>Confidence</th><th>Trade ID</th></tr></thead><tbody>';
+  data.forEach(t => {
+    html += '<tr>'
+      + '<td>' + shortTime(t.timestamp) + '</td>'
+      + '<td>' + escHtml(t.instrument) + '</td>'
+      + '<td class="' + dirClass(t.direction) + '">' + escHtml(t.direction) + '</td>'
+      + '<td>' + (t.units != null ? fmt(t.units, 0) : '--') + '</td>'
+      + '<td>' + (t.price != null ? fmt(t.price, 5) : '--') + '</td>'
+      + '<td>' + (t.stop_loss != null ? fmt(t.stop_loss, 5) : '--') + '</td>'
+      + '<td>' + (t.take_profit != null ? fmt(t.take_profit, 5) : '--') + '</td>'
+      + '<td>' + (t.confidence != null ? (t.confidence * 100).toFixed(1) + '%' : '--') + '</td>'
+      + '<td style="font-size:0.72rem;color:var(--text-dim)">' + escHtml(t.trade_id || t.id || '--') + '</td>'
+      + '</tr>';
+  });
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+}
+
+async function refreshBotLog() {
+  const wrap = document.getElementById('botLogWrap');
+  const data = await fetchJSON('/api/bot-log?limit=10');
+  if (!data || !data.length) {
+    wrap.innerHTML = '<p class="no-data">No log entries</p>';
+    return;
+  }
+  let html = '';
+  data.forEach((entry, i) => {
+    const s = entry.summary || {};
+    html += '<div class="log-entry">'
+      + '<div class="log-header" onclick="toggleLog(this)">'
+      + '<span><span class="log-cycle">Cycle ' + escHtml(entry.cycle) + '</span></span>'
+      + '<span><span class="log-time">' + shortTime(entry.timestamp) + '</span> <span class="log-arrow">&#9654;</span></span>'
+      + '</div>'
+      + '<div class="log-body">'
+      + '<span class="log-stat"><span class="log-stat-label">Instruments scored</span><br><span class="log-stat-value">' + (s.instruments_scored != null ? s.instruments_scored : '--') + '</span></span>'
+      + '<span class="log-stat"><span class="log-stat-label">Tradeable</span><br><span class="log-stat-value">' + (s.tradeable != null ? s.tradeable : '--') + '</span></span>'
+      + '<span class="log-stat"><span class="log-stat-label">Top signals</span><br><span class="log-stat-value">' + (s.top_signals != null ? s.top_signals : '--') + '</span></span>'
+      + '<span class="log-stat"><span class="log-stat-label">Sentiment</span><br><span class="log-stat-value">' + (s.sentiment != null ? s.sentiment : '--') + '</span></span>'
+      + '<span class="log-stat"><span class="log-stat-label">Model accuracy</span><br><span class="log-stat-value">' + (s.model_accuracy != null ? (s.model_accuracy * 100).toFixed(1) + '%' : '--') + '</span></span>'
+      + '</div>'
+      + '</div>';
+  });
+  wrap.innerHTML = html;
+}
+
+function toggleLog(header) {
+  const body = header.nextElementSibling;
+  const arrow = header.querySelector('.log-arrow');
+  body.classList.toggle('open');
+  arrow.classList.toggle('open');
+}
+
+async function refreshEngine() {
+  const d = await fetchJSON('/api/engine-status');
+  if (!d) return;
+  document.getElementById('engCycles').textContent = d.cycle_count != null ? d.cycle_count : '--';
+  document.getElementById('engAccuracy').textContent = d.model_accuracy != null ? (d.model_accuracy * 100).toFixed(1) + '%' : '--';
+  document.getElementById('engSamples').textContent = d.training_samples != null ? d.training_samples : '--';
+  document.getElementById('engPending').textContent = d.pending_outcomes != null ? d.pending_outcomes : '--';
+  document.getElementById('engInstruments').textContent = d.instruments_warmed != null ? d.instruments_warmed : '--';
+  const hw = document.getElementById('engHaltWrap');
+  if (d.halted) {
+    hw.style.display = '';
+    document.getElementById('engHalt').textContent = 'HALTED' + (d.halt_reason ? ': ' + d.halt_reason : '');
+  } else {
+    hw.style.display = 'none';
+  }
+}
+
+/* ── Settings ── */
+const settingsKeys = ['min_confidence','risk_per_trade','stop_loss_atr_mult','take_profit_atr_mult','max_positions','daily_loss_limit','max_drawdown','cycle_seconds'];
+
+async function openSettings() {
+  const d = await fetchJSON('/api/settings');
+  if (d) {
+    settingsKeys.forEach(k => {
+      const el = document.getElementById('set_' + k);
+      if (el && d[k] != null) el.value = d[k];
+    });
+  }
+  document.getElementById('settingsModal').classList.add('open');
+}
+
+function closeSettings() {
+  document.getElementById('settingsModal').classList.remove('open');
+}
+
+async function saveSettings() {
+  const body = {};
+  settingsKeys.forEach(k => {
+    const el = document.getElementById('set_' + k);
+    if (el && el.value !== '') body[k] = Number(el.value);
+  });
+  try {
+    const r = await fetch(api('/api/settings'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error(r.status);
+    closeSettings();
+  } catch (e) {
+    console.warn('Save settings failed:', e);
+    alert('Failed to save settings');
+  }
+}
+
+// Close modal on backdrop click
+document.getElementById('settingsModal').addEventListener('click', function(e) {
+  if (e.target === this) closeSettings();
+});
+
+/* ── Refresh all ── */
+function refreshAll() {
+  refreshStatus();
+  refreshInstances();
+  refreshChart();
+  refreshSignals();
+  refreshTrades();
+  refreshBotLog();
+  refreshEngine();
+}
+
+/* ── Init ── */
+refreshAll();
+refreshTimer = setInterval(refreshAll, 10000);
+</script>
+</body>
+</html>
