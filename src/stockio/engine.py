@@ -20,7 +20,7 @@ from stockio.broker.models import (
 from stockio.config import InstrumentConfig, Settings
 from stockio.strategy.indicators import build_feature_vector, compute_indicators
 from stockio.strategy.notifier import TelegramNotifier
-from stockio.strategy.scorer import InstrumentScorer
+from stockio.strategy.scorer import InstrumentScorer, OutcomeTracker, retrain_model
 
 log = structlog.get_logger()
 
@@ -169,6 +169,7 @@ class TradingEngine:
         self._scorer = InstrumentScorer(settings, settings.models_dir)
         self._risk = RiskManager(settings)
         self._notifier = notifier
+        self._outcome_tracker = OutcomeTracker(settings, settings.data_dir)
 
         # Bounded candle cache — one deque per instrument, maxlen prevents leaks
         self._candle_cache: dict[str, collections.deque[Candle]] = {
@@ -177,10 +178,12 @@ class TradingEngine:
         }
         self._warmed_up: set[str] = set()
 
-        # Sentiment scores (populated by Phase 4)
+        # Sentiment scores
         self._sentiment: dict[str, float] = {}
-        # Latest features per instrument (used for outcome tracking in Phase 5)
+        # Latest features per instrument (used for outcome tracking)
         self._latest_features: dict[str, dict[str, float]] = {}
+        # Track when last retrain happened
+        self._last_retrain_count: int = 0
 
     def run_cycle(self) -> None:
         """Execute one trading cycle."""
@@ -232,11 +235,15 @@ class TradingEngine:
         # Step 4: Execute trades
         self._execute_trades(ranked, cycle_log)
 
+        # Step 5: Resolve pending outcomes for model training
+        self._resolve_and_maybe_retrain(cycle_log)
+
         cycle_log.info(
             "cycle_complete",
             instruments_ready=len(self._warmed_up),
             signals_generated=len(signals),
             tradeable=len(ranked),
+            pending_outcomes=self._outcome_tracker.pending_count,
         )
 
     def _execute_trades(self, ranked: list[Signal], cycle_log: structlog.BoundLogger) -> None:
@@ -314,6 +321,17 @@ class TradingEngine:
                 if self._notifier:
                     self._notifier.notify_trade(order, trade_id)
 
+                # Record prediction for outcome tracking
+                self._outcome_tracker.record_pending(
+                    instrument=signal.instrument,
+                    features=features,
+                    direction=signal.direction,
+                    confidence=signal.confidence,
+                    entry_price=entry_price,
+                    atr=atr,
+                    current_cycle=self._cycle_count,
+                )
+
                 # Refresh account after trade for next risk check
                 account = self._broker.get_account()
             except Exception:
@@ -322,6 +340,46 @@ class TradingEngine:
                     self._notifier.notify_error(
                         f"Order failed for {signal.instrument}: check logs"
                     )
+
+    def _resolve_and_maybe_retrain(self, cycle_log: structlog.BoundLogger) -> None:
+        """Resolve pending outcomes and retrain model if enough new data."""
+
+        def _get_mid_price(instrument: str) -> float:
+            quote = self._broker.get_price(instrument)
+            return (quote.bid + quote.ask) / 2
+
+        resolved = self._outcome_tracker.resolve_outcomes(
+            self._cycle_count, _get_mid_price
+        )
+        if resolved > 0:
+            acc = self._outcome_tracker.rolling_accuracy
+            cycle_log.info(
+                "outcomes_resolved",
+                count=resolved,
+                rolling_accuracy=round(acc, 3) if acc is not None else None,
+                total_training_samples=self._outcome_tracker.training_data_count,
+            )
+
+        # Check for model degradation
+        if self._outcome_tracker.is_degraded:
+            self._scorer.set_rules_fallback(True)
+            if self._notifier:
+                self._notifier.notify_error(
+                    f"Model degraded (accuracy={self._outcome_tracker.rolling_accuracy:.1%}), "
+                    f"falling back to rules-based scoring"
+                )
+
+        # Retrain if enough new data (every 200 new samples since last retrain)
+        current_count = self._outcome_tracker.training_data_count
+        if current_count - self._last_retrain_count >= 200:
+            cycle_log.info("retrain_triggered", samples=current_count)
+            success = retrain_model(
+                self._settings, self._settings.data_dir, self._settings.models_dir
+            )
+            if success:
+                self._scorer.reload_model()
+                self._scorer.set_rules_fallback(False)
+                self._last_retrain_count = current_count
 
     def _update_candles(self, instrument: str) -> None:
         """Fetch and cache candles for a single instrument."""
