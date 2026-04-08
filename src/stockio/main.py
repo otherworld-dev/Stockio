@@ -36,6 +36,7 @@ def main() -> None:
     from stockio.broker import OandaBroker
     from stockio.config import load_instruments, load_settings
     from stockio.engine import TradingEngine
+    from stockio.strategy.notifier import TelegramNotifier
 
     settings = load_settings()
     _configure_logging(settings.log_level)
@@ -52,7 +53,10 @@ def main() -> None:
     log.info("instruments_loaded", instruments=list(instruments.keys()))
 
     broker = OandaBroker(settings)
-    engine = TradingEngine(broker=broker, instruments=instruments, settings=settings)
+    notifier = TelegramNotifier(settings)
+    engine = TradingEngine(
+        broker=broker, instruments=instruments, settings=settings, notifier=notifier
+    )
 
     # Graceful shutdown via SIGTERM (systemd) or SIGINT (Ctrl+C)
     shutdown = threading.Event()
