@@ -30,12 +30,16 @@ class SentimentAnalyzer:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self._news_api_key = settings.news_api_key
-        self._anthropic_api_key = settings.anthropic_api_key
         self._cache: dict[str, float] = {}
         self._cache_time: datetime | None = None
-        self._enabled = bool(self._anthropic_api_key)
+        self._enabled = bool(settings.anthropic_api_key)
+        self._client = None
 
-        if not self._enabled:
+        if self._enabled:
+            import anthropic
+
+            self._client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        else:
             log.info("sentiment_disabled", reason="no ANTHROPIC_API_KEY")
 
     def needs_refresh(self) -> bool:
@@ -138,17 +142,15 @@ class SentimentAnalyzer:
 
     def _analyze(self, instrument: str, display_name: str, headlines: list[str]) -> float:
         """Call Claude Haiku to score headline sentiment."""
-        import anthropic
-
         prompt = _SENTIMENT_PROMPT.format(
             instrument=instrument,
             display_name=display_name,
             headlines="\n".join(f"- {h}" for h in headlines),
         )
 
+        text = ""
         try:
-            client = anthropic.Anthropic(api_key=self._anthropic_api_key)
-            response = client.messages.create(
+            response = self._client.messages.create(
                 model=self._settings.llm_model,
                 max_tokens=10,
                 messages=[{"role": "user", "content": prompt}],

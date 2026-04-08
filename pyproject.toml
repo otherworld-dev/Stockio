@@ -19,6 +19,8 @@ dependencies = [
     "anthropic>=0.40",
     "feedparser>=6.0",
     "structlog>=23.2",
+    "scikit-learn>=1.3",
+    "psutil>=5.9",
 ]
 
 [project.optional-dependencies]

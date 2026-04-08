@@ -64,6 +64,13 @@ class OutcomeTracker:
         self._pending: collections.deque[PendingOutcome] = collections.deque(maxlen=500)
         self._parquet_path = data_dir / "training_data.parquet"
 
+        # Buffer resolved outcomes before flushing to disk
+        self._write_buffer: list[dict] = []
+        self._flush_threshold = 20
+
+        # In-memory count to avoid reading parquet on every access
+        self._row_count = self._count_existing_rows()
+
         # Rolling accuracy tracking for degradation detection
         self._recent_outcomes: collections.deque[bool] = collections.deque(
             maxlen=settings.degradation_window
@@ -128,12 +135,15 @@ class OutcomeTracker:
 
         self._pending.clear()
         self._pending.extend(remaining)
+        # Flush any remaining buffered rows after resolving
+        if resolved > 0:
+            self._flush_buffer()
         return resolved
 
     def _append_training_row(
         self, outcome: PendingOutcome, exit_price: float, correct: bool
     ) -> None:
-        """Append a resolved outcome to the training data parquet file."""
+        """Buffer a resolved outcome. Flushes to parquet when buffer is full."""
         row = {
             "timestamp": outcome.timestamp.isoformat(),
             "instrument": outcome.instrument,
@@ -144,28 +154,43 @@ class OutcomeTracker:
             "atr": outcome.atr,
             "label": int(correct),
         }
-        # Add all features
         for name in FEATURE_NAMES:
             row[name] = outcome.features.get(name, 0.0)
 
-        new_row = pd.DataFrame([row])
+        self._write_buffer.append(row)
+        self._row_count += 1
 
-        if self._parquet_path.exists():
-            existing = pd.read_parquet(self._parquet_path)
-            combined = pd.concat([existing, new_row], ignore_index=True)
-        else:
-            combined = new_row
+        if len(self._write_buffer) >= self._flush_threshold:
+            self._flush_buffer()
 
-        combined.to_parquet(self._parquet_path, index=False)
+    def _flush_buffer(self) -> None:
+        """Write buffered rows to parquet file."""
+        if not self._write_buffer:
+            return
+        try:
+            new_rows = pd.DataFrame(self._write_buffer)
+            if self._parquet_path.exists():
+                existing = pd.read_parquet(self._parquet_path)
+                combined = pd.concat([existing, new_rows], ignore_index=True)
+            else:
+                combined = new_rows
+            combined.to_parquet(self._parquet_path, index=False)
+            self._write_buffer.clear()
+        except Exception:
+            log.exception("parquet_flush_failed")
 
-    @property
-    def training_data_count(self) -> int:
+    def _count_existing_rows(self) -> int:
+        """Count rows in existing parquet file (called once at startup)."""
         if not self._parquet_path.exists():
             return 0
         try:
             return len(pd.read_parquet(self._parquet_path))
         except Exception:
             return 0
+
+    @property
+    def training_data_count(self) -> int:
+        return self._row_count
 
     @property
     def rolling_accuracy(self) -> float | None:

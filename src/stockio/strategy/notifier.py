@@ -35,6 +35,7 @@ class TelegramNotifier:
             log.exception("telegram_send_failed")
 
     def notify_trade(self, order: OrderRequest, trade_id: str) -> None:
+        conf = f"{order.signal_confidence:.1%}" if order.signal_confidence is not None else "N/A"
         self._send(
             f"*Trade Executed*\n"
             f"Instrument: `{order.instrument}`\n"
@@ -42,7 +43,7 @@ class TelegramNotifier:
             f"Units: {order.units}\n"
             f"SL: {order.stop_loss_price}\n"
             f"TP: {order.take_profit_price}\n"
-            f"Confidence: {order.signal_confidence:.1%}\n"
+            f"Confidence: {conf}\n"
             f"Trade ID: `{trade_id}`"
         )
 

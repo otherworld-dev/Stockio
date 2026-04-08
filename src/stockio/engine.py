@@ -87,8 +87,8 @@ class RiskManager:
         self._peak_equity: float = 0.0
         self._daily_pnl: float = 0.0
         self._weekly_pnl: float = 0.0
-        self._last_reset_day: int = -1
-        self._last_reset_week: int = -1
+        self._last_reset_date: object = None  # date object, not just day number
+        self._last_reset_week: tuple = ()  # (year, week) tuple
         self._halted: bool = False
         self._halt_reason: str = ""
 
@@ -109,14 +109,17 @@ class RiskManager:
             self._peak_equity = account.equity
 
         # Reset daily P&L at midnight UTC
-        if now.day != self._last_reset_day:
+        today = now.date()
+        if today != self._last_reset_date:
             self._daily_pnl = 0.0
-            self._last_reset_day = now.day
+            self._last_reset_date = today
 
         # Reset weekly P&L on Monday
-        if now.isocalendar().week != self._last_reset_week:
+        iso = now.isocalendar()
+        year_week = (iso.year, iso.week)
+        if year_week != self._last_reset_week:
             self._weekly_pnl = 0.0
-            self._last_reset_week = now.isocalendar().week
+            self._last_reset_week = year_week
 
     def record_pnl(self, pnl: float) -> None:
         self._daily_pnl += pnl
@@ -337,11 +340,30 @@ class TradingEngine:
                 self._notifier.notify_risk_halt(self._risk.halt_reason)
             return
 
+        # Get existing positions to avoid duplicate trades on same instrument
+        try:
+            open_positions = self._broker.get_positions()
+            open_instruments = {p.instrument for p in open_positions}
+        except Exception:
+            cycle_log.exception("positions_fetch_failed")
+            open_instruments = set()
+
         for signal in ranked:
+            # Skip instruments with existing open positions
+            if signal.instrument in open_instruments:
+                cycle_log.debug(
+                    "skipped_duplicate", instrument=signal.instrument
+                )
+                continue
+
             # Risk check before each trade
             risk_ok, reason = self._risk.check(account)
             if not risk_ok:
-                cycle_log.warning("risk_check_failed", reason=reason, instrument=signal.instrument)
+                cycle_log.warning(
+                    "risk_check_failed",
+                    reason=reason,
+                    instrument=signal.instrument,
+                )
                 break  # Stop trying if we hit a portfolio-level limit
 
             features = self._latest_features.get(signal.instrument, {})
@@ -412,7 +434,13 @@ class TradingEngine:
                 )
 
                 # Refresh account after trade for next risk check
-                account = self._broker.get_account()
+                try:
+                    account = self._broker.get_account()
+                except Exception:
+                    cycle_log.exception("account_refresh_failed_after_trade")
+                    break  # Can't trust risk checks with stale data
+
+                open_instruments.add(signal.instrument)
             except Exception:
                 cycle_log.exception("order_failed", instrument=signal.instrument)
                 if self._notifier:
@@ -494,7 +522,6 @@ class TradingEngine:
 
     def _maybe_heartbeat(self, cycle_log: structlog.BoundLogger) -> None:
         """Log a heartbeat if enough time has passed."""
-        import resource
         import sys
 
         now = datetime.now(UTC)
@@ -504,8 +531,11 @@ class TradingEngine:
                 return
 
         # Memory usage (platform-dependent)
+        mem_mb = 0.0
         try:
             if sys.platform != "win32":
+                import resource
+
                 mem_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
             else:
                 import os
@@ -514,7 +544,7 @@ class TradingEngine:
 
                 mem_mb = psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
         except Exception:
-            mem_mb = 0
+            pass
 
         cycle_log.info(
             "heartbeat",
