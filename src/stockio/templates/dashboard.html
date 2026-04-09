@@ -462,7 +462,7 @@ async function refreshSignals() {
     wrap.innerHTML = '<p class="no-data">No signals available</p>';
     return;
   }
-  const sentMap = sentiment || {};
+  const sentMap = (sentiment && sentiment.combined) ? sentiment.combined : (sentiment || {});
   let html = '<table><thead><tr><th>Instrument</th><th>Direction</th><th>Confidence</th><th>Sentiment</th><th>RSI 14</th><th>MACD</th><th>ADX</th></tr></thead><tbody>';
   signals.forEach(s => {
     const sent = sentMap[s.instrument] != null ? sentMap[s.instrument] : s.sentiment;
@@ -524,8 +524,8 @@ async function refreshBotLog() {
       + '<div class="log-body">'
       + '<span class="log-stat"><span class="log-stat-label">Instruments scored</span><br><span class="log-stat-value">' + (s.instruments_scored != null ? s.instruments_scored : '--') + '</span></span>'
       + '<span class="log-stat"><span class="log-stat-label">Tradeable</span><br><span class="log-stat-value">' + (s.tradeable != null ? s.tradeable : '--') + '</span></span>'
-      + '<span class="log-stat"><span class="log-stat-label">Top signals</span><br><span class="log-stat-value">' + (s.top_signals != null ? s.top_signals : '--') + '</span></span>'
-      + '<span class="log-stat"><span class="log-stat-label">Sentiment</span><br><span class="log-stat-value">' + (s.sentiment != null ? s.sentiment : '--') + '</span></span>'
+      + '<span class="log-stat"><span class="log-stat-label">Top signals</span><br><span class="log-stat-value">' + (Array.isArray(s.top_signals) ? s.top_signals.map(t => t.instrument + ' ' + t.direction + ' ' + (t.confidence * 100).toFixed(0) + '%').join(', ') : (s.top_signals || '--')) + '</span></span>'
+      + '<span class="log-stat"><span class="log-stat-label">Sentiment</span><br><span class="log-stat-value">' + (typeof s.sentiment === 'object' && s.sentiment ? Object.entries(s.sentiment).map(([k,v]) => k + ': ' + Number(v).toFixed(2)).join(', ') : (s.sentiment != null ? s.sentiment : '--')) + '</span></span>'
       + '<span class="log-stat"><span class="log-stat-label">Model accuracy</span><br><span class="log-stat-value">' + (s.model_accuracy != null ? (s.model_accuracy * 100).toFixed(1) + '%' : '--') + '</span></span>'
       + '</div>'
       + '</div>';
