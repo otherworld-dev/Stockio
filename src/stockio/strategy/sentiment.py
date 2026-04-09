@@ -109,10 +109,15 @@ class SentimentAnalyzer:
         self._news_api_key = settings.news_api_key
         self._cache: dict[str, float] = {}
         self._trump_cache: dict[str, float] = {}
+        self._news_cache: dict[str, float] = {}  # Per-instrument news-only scores
         self._cache_time: datetime | None = None
         self._enabled = bool(settings.anthropic_api_key)
         self._client = None
         self._trump_weight = 1.5  # Political news gets 1.5x weight
+
+        # Cached headlines for dashboard display
+        self._last_trump_headlines: list[str] = []
+        self._last_news_headlines: dict[str, list[str]] = {}  # Per-instrument
 
         if self._enabled:
             import anthropic
@@ -170,6 +175,8 @@ class SentimentAnalyzer:
 
                 results[name] = combined
                 self._trump_cache[name] = trump_score
+                self._news_cache[name] = news_score
+                self._last_news_headlines[name] = headlines
                 log.info(
                     "sentiment_scored",
                     instrument=name,
@@ -183,9 +190,30 @@ class SentimentAnalyzer:
                 log.exception("sentiment_failed", instrument=name)
                 results[name] = 0.0
 
+        self._last_trump_headlines = trump_headlines
         self._cache = results
         self._cache_time = datetime.now(UTC)
         return results
+
+    # ------------------------------------------------------------------
+    # Dashboard data accessors
+    # ------------------------------------------------------------------
+
+    def get_breakdown(self) -> dict:
+        """Return full sentiment breakdown for the dashboard."""
+        return {
+            name: {
+                "news_score": round(self._news_cache.get(name, 0.0), 3),
+                "trump_score": round(self._trump_cache.get(name, 0.0), 3),
+                "combined": round(self._cache.get(name, 0.0), 3),
+                "news_headlines": self._last_news_headlines.get(name, []),
+            }
+            for name in self._cache
+        }
+
+    def get_trump_headlines(self) -> list[str]:
+        """Return cached Trump headlines for the dashboard."""
+        return self._last_trump_headlines
 
     # ------------------------------------------------------------------
     # Headline fetching

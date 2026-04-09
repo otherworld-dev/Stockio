@@ -9,6 +9,7 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import structlog
 
@@ -40,6 +41,7 @@ class BotSlot:
     last_signals: list[dict] = field(default_factory=list)
     last_sentiment: dict[str, float] = field(default_factory=dict)
     last_trump_sentiment: dict[str, float] = field(default_factory=dict)
+    sentiment_analyzer: Any = None  # SentimentAnalyzer instance
 
 
 # Fixed slots — both can run simultaneously
@@ -128,6 +130,7 @@ def _run_bot(slot: BotSlot, generation: int) -> None:
 
         notifier = TelegramNotifier(settings)
         sentiment = SentimentAnalyzer(settings)
+        slot.sentiment_analyzer = sentiment
         engine = TradingEngine(
             broker=broker,
             instruments=instruments,

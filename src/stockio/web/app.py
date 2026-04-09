@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
 
 import structlog
@@ -88,8 +89,6 @@ def api_status():
     slot = get_slot(slot_name)
 
     # Try to get live account data from the engine's broker
-    import contextlib
-
     account = None
     if slot and slot.engine:
         with contextlib.suppress(Exception):
@@ -268,6 +267,271 @@ def api_engine_status():
         "halted": engine.risk.is_halted,
         "halt_reason": engine.risk.halt_reason,
     })
+
+
+# ---------------------------------------------------------------------------
+# Visualisation APIs
+# ---------------------------------------------------------------------------
+
+
+@app.route("/api/sentiment/breakdown")
+def api_sentiment_breakdown():
+    """Per-instrument sentiment breakdown: news vs trump scores + headlines."""
+    slot_name = request.args.get("instance", "paper")
+    slot = get_slot(slot_name)
+    if not slot or not slot.sentiment_analyzer:
+        return jsonify({})
+    return jsonify(slot.sentiment_analyzer.get_breakdown())
+
+
+@app.route("/api/trump-headlines")
+def api_trump_headlines():
+    """Return cached Trump/political headlines."""
+    slot_name = request.args.get("instance", "paper")
+    slot = get_slot(slot_name)
+    if not slot or not slot.sentiment_analyzer:
+        return jsonify({"headlines": [], "last_refresh": None})
+    analyzer = slot.sentiment_analyzer
+    return jsonify({
+        "headlines": analyzer.get_trump_headlines(),
+        "last_refresh": (
+            analyzer._cache_time.isoformat() if analyzer._cache_time else None
+        ),
+    })
+
+
+@app.route("/api/indicators")
+def api_indicators():
+    """Full technical indicator values per instrument."""
+    slot_name = request.args.get("instance", "paper")
+    slot = get_slot(slot_name)
+    if not slot or not slot.engine:
+        return jsonify({})
+
+    result = {}
+    for name, features in slot.engine._latest_features.items():
+        result[name] = {
+            "rsi_7": round(features.get("rsi_7", 0), 1),
+            "rsi_14": round(features.get("rsi_14", 0), 1),
+            "macd_histogram": round(features.get("macd_histogram", 0), 5),
+            "stoch_k": round(features.get("stoch_k", 0), 1),
+            "stoch_d": round(features.get("stoch_d", 0), 1),
+            "atr": round(features.get("atr", 0), 5),
+            "bb_percent_b": round(features.get("bb_percent_b", 0), 3),
+            "adx": round(features.get("adx", 0), 1),
+            "ema_cross_short_mid": round(features.get("ema_cross_short_mid", 0), 5),
+            "ema_cross_mid_long": round(features.get("ema_cross_mid_long", 0), 5),
+            "close_vs_ema_long": round(features.get("close_vs_ema_long", 0), 5),
+            "range_vs_atr": round(features.get("range_vs_atr", 0), 2),
+        }
+    return jsonify(result)
+
+
+@app.route("/api/scoring-breakdown")
+def api_scoring_breakdown():
+    """Decision waterfall — how each factor contributes to the score."""
+    slot_name = request.args.get("instance", "paper")
+    slot = get_slot(slot_name)
+    if not slot or not slot.engine:
+        return jsonify({})
+
+    engine = slot.engine
+    result = {}
+    for name, features in engine._latest_features.items():
+        sentiment = engine._sentiment.get(name, 0.0)
+        rsi_14 = features.get("rsi_14", 50)
+        macd_hist = features.get("macd_histogram", 0)
+        ema_cross = features.get("ema_cross_short_mid", 0)
+        close_vs_ema = features.get("close_vs_ema_long", 0)
+        adx = features.get("adx", 0)
+        bb_pct = features.get("bb_percent_b", 0.5)
+
+        # Reconstruct the rules-based scoring breakdown
+        components = []
+
+        # RSI
+        if rsi_14 < 30:
+            components.append({"name": "RSI (oversold)", "value": rsi_14, "score": 1.5})
+        elif rsi_14 < 40:
+            components.append({"name": "RSI (low)", "value": rsi_14, "score": 0.5})
+        elif rsi_14 > 70:
+            components.append({"name": "RSI (overbought)", "value": rsi_14, "score": -1.5})
+        elif rsi_14 > 60:
+            components.append({"name": "RSI (high)", "value": rsi_14, "score": -0.5})
+        else:
+            components.append({"name": "RSI (neutral)", "value": rsi_14, "score": 0})
+
+        # MACD
+        components.append({
+            "name": "MACD",
+            "value": round(macd_hist, 5),
+            "score": 1.0 if macd_hist > 0 else (-1.0 if macd_hist < 0 else 0),
+        })
+
+        # EMA Cross
+        components.append({
+            "name": "EMA Cross",
+            "value": round(ema_cross, 5),
+            "score": 1.0 if ema_cross > 0 else (-1.0 if ema_cross < 0 else 0),
+        })
+
+        # Price vs EMA
+        components.append({
+            "name": "Price vs EMA",
+            "value": round(close_vs_ema, 5),
+            "score": 0.5 if close_vs_ema > 0.001 else (-0.5 if close_vs_ema < -0.001 else 0),
+        })
+
+        # Bollinger
+        components.append({
+            "name": "Bollinger %B",
+            "value": round(bb_pct, 3),
+            "score": 0.5 if bb_pct < 0.1 else (-0.5 if bb_pct > 0.9 else 0),
+        })
+
+        # Sentiment
+        components.append({
+            "name": "Sentiment",
+            "value": round(sentiment, 3),
+            "score": round(sentiment, 3),
+        })
+
+        # ADX multiplier
+        adx_mult = 0.5 if adx < 20 else 1.0
+        components.append({
+            "name": "ADX (trend strength)",
+            "value": round(adx, 1),
+            "score": adx_mult,
+            "is_multiplier": True,
+        })
+
+        # Final signal
+        sig = engine.scorer.score_instrument(name, features, sentiment)
+        result[name] = {
+            "direction": sig.direction.value,
+            "confidence": round(sig.confidence, 3),
+            "components": components,
+            "mode": "ml" if engine.scorer._model is not None else "rules",
+        }
+
+    return jsonify(result)
+
+
+@app.route("/api/model-learning")
+def api_model_learning():
+    """Model learning progress — accuracy, samples, retrain history."""
+    import json
+
+    slot_name = request.args.get("instance", "paper")
+    slot = get_slot(slot_name)
+
+    result = {
+        "rolling_accuracy": None,
+        "training_samples": 0,
+        "pending_outcomes": 0,
+        "is_degraded": False,
+        "last_retrain": None,
+        "cv_accuracies": [],
+        "mean_cv_accuracy": None,
+        "recent_outcomes": [],
+    }
+
+    if slot and slot.engine:
+        tracker = slot.engine._outcome_tracker
+        result["rolling_accuracy"] = (
+            round(tracker.rolling_accuracy, 3)
+            if tracker.rolling_accuracy is not None
+            else None
+        )
+        result["training_samples"] = tracker.training_data_count
+        result["pending_outcomes"] = tracker.pending_count
+        result["is_degraded"] = tracker.is_degraded
+        result["recent_outcomes"] = [
+            1 if x else 0 for x in list(tracker._recent_outcomes)
+        ]
+
+    # Read model metadata if it exists
+    settings = load_settings()
+    meta_path = settings.models_dir / "model_meta.json"
+    if meta_path.exists():
+        with contextlib.suppress(Exception):
+            meta = json.loads(meta_path.read_text())
+            result["last_retrain"] = meta.get("train_date")
+            result["cv_accuracies"] = meta.get("cv_accuracies", [])
+            result["mean_cv_accuracy"] = meta.get("mean_accuracy")
+
+    return jsonify(result)
+
+
+@app.route("/api/trade-outcomes")
+def api_trade_outcomes():
+    """Trade outcome statistics — win/loss ratio, per-instrument breakdown."""
+    import pandas as pd
+
+    settings = load_settings()
+    parquet_path = settings.data_dir / "training_data.parquet"
+
+    result = {
+        "total": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_ratio": None,
+        "by_instrument": {},
+        "by_direction": {},
+        "recent": [],
+    }
+
+    if not parquet_path.exists():
+        return jsonify(result)
+
+    with contextlib.suppress(Exception):
+        df = pd.read_parquet(parquet_path)
+        if df.empty:
+            return jsonify(result)
+
+        result["total"] = len(df)
+        result["wins"] = int(df["label"].sum())
+        result["losses"] = result["total"] - result["wins"]
+        result["win_ratio"] = (
+            round(result["wins"] / result["total"], 3)
+            if result["total"] > 0
+            else None
+        )
+
+        # Per instrument
+        for inst, grp in df.groupby("instrument"):
+            wins = int(grp["label"].sum())
+            total = len(grp)
+            result["by_instrument"][inst] = {
+                "total": total,
+                "wins": wins,
+                "losses": total - wins,
+                "win_ratio": round(wins / total, 3) if total > 0 else None,
+            }
+
+        # Per direction
+        for direction, grp in df.groupby("direction"):
+            wins = int(grp["label"].sum())
+            total = len(grp)
+            result["by_direction"][direction] = {
+                "total": total,
+                "wins": wins,
+                "losses": total - wins,
+                "win_ratio": round(wins / total, 3) if total > 0 else None,
+            }
+
+        # Recent outcomes
+        recent = df.tail(20).to_dict("records")
+        for r in recent:
+            result["recent"].append({
+                "instrument": r.get("instrument"),
+                "direction": r.get("direction"),
+                "confidence": round(r.get("confidence", 0), 3),
+                "label": int(r.get("label", 0)),
+                "timestamp": r.get("timestamp", ""),
+            })
+
+    return jsonify(result)
 
 
 # ---------------------------------------------------------------------------

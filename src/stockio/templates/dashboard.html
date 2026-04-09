@@ -178,6 +178,82 @@
   ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track { background: var(--bg); }
   ::-webkit-scrollbar-thumb { background: var(--card-border); border-radius: 3px; }
+
+  /* Sentiment combined scores */
+  .sentiment-scores { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+  .sentiment-chip { background: var(--bg); border: 1px solid var(--card-border); border-radius: 6px; padding: 6px 12px; font-family: var(--mono); font-size: 0.8rem; }
+
+  /* Trump headlines */
+  .trump-badge { display: inline-block; background: #ff9800; color: #000; font-size: 0.7rem; font-weight: 700; padding: 2px 8px; border-radius: 10px; margin-left: 8px; vertical-align: middle; }
+  .headline-list { display: flex; flex-direction: column; gap: 8px; }
+  .headline-pill { background: var(--bg); border: 1px solid var(--card-border); border-radius: 8px; padding: 10px 14px; font-size: 0.82rem; line-height: 1.4; }
+  .headline-time { font-size: 0.72rem; color: var(--text-dim); margin-top: 10px; }
+
+  /* Indicator gauges */
+  .indicator-grid { display: flex; flex-direction: column; gap: 14px; }
+  .indicator-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .indicator-row-label { min-width: 110px; font-family: var(--mono); font-size: 0.8rem; font-weight: 600; color: #fff; flex-shrink: 0; }
+  .gauge-group { display: flex; gap: 14px; flex-wrap: wrap; flex: 1; }
+  .mini-gauge { display: flex; flex-direction: column; align-items: center; min-width: 90px; }
+  .mini-gauge-label { font-size: 0.68rem; color: var(--text-dim); text-transform: uppercase; margin-bottom: 3px; }
+  .gauge-bar { width: 80px; height: 8px; background: #1e1e40; border-radius: 4px; overflow: hidden; position: relative; }
+  .gauge-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
+  .gauge-value { font-family: var(--mono); font-size: 0.72rem; margin-top: 2px; }
+  .gauge-bar-bipolar { width: 80px; height: 8px; background: #1e1e40; border-radius: 4px; position: relative; overflow: hidden; }
+  .gauge-bar-bipolar .gauge-center { position: absolute; left: 50%; top: 0; width: 1px; height: 100%; background: var(--text-dim); }
+  .gauge-bar-bipolar .gauge-fill-bi { position: absolute; top: 0; height: 100%; border-radius: 4px; transition: width 0.3s, left 0.3s; }
+
+  /* Decision waterfall */
+  .waterfall-list { display: flex; flex-direction: column; gap: 6px; }
+  .waterfall-item { border: 1px solid var(--card-border); border-radius: 8px; overflow: hidden; }
+  .waterfall-header { display: flex; justify-content: space-between; align-items: center; padding: 8px 14px; cursor: pointer; background: rgba(255,255,255,0.02); transition: background 0.15s; }
+  .waterfall-header:hover { background: rgba(79,195,247,0.05); }
+  .waterfall-label { font-family: var(--mono); font-size: 0.85rem; font-weight: 600; }
+  .waterfall-summary { display: flex; align-items: center; gap: 10px; font-size: 0.8rem; }
+  .waterfall-arrow { color: var(--text-dim); transition: transform 0.2s; font-size: 0.8rem; }
+  .waterfall-arrow.open { transform: rotate(90deg); }
+  .waterfall-body { display: none; padding: 8px 14px 12px; }
+  .waterfall-body.open { display: block; }
+  .waterfall-bar-track { width: 100%; height: 20px; background: #1e1e40; border-radius: 4px; position: relative; overflow: hidden; display: flex; margin-bottom: 6px; }
+  .waterfall-seg { height: 100%; display: flex; align-items: center; justify-content: center; font-size: 0.65rem; font-family: var(--mono); color: #fff; min-width: 2px; overflow: hidden; white-space: nowrap; }
+  .waterfall-detail-row { display: flex; justify-content: space-between; font-size: 0.78rem; padding: 2px 0; border-bottom: 1px solid #1e1e40; }
+  .waterfall-detail-row:last-child { border-bottom: none; }
+
+  /* Model learning */
+  .model-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .model-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .model-stat-card { background: var(--bg); border: 1px solid var(--card-border); border-radius: 8px; padding: 12px; }
+  .model-stat-card .card-label { font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase; margin-bottom: 2px; }
+  .model-stat-card .card-value { font-size: 1.1rem; font-weight: 700; font-family: var(--mono); }
+  .streak-grid { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+  .streak-dot { width: 14px; height: 14px; border-radius: 3px; }
+  .streak-dot.win { background: var(--green); }
+  .streak-dot.loss { background: var(--red); }
+  .cv-chart-container { height: 120px; margin-top: 12px; }
+  .degraded-badge { display: inline-block; background: var(--red); color: #fff; font-size: 0.7rem; font-weight: 700; padding: 2px 8px; border-radius: 10px; }
+
+  /* Trade outcomes */
+  .outcomes-top { display: grid; grid-template-columns: 1fr 160px; gap: 20px; align-items: center; margin-bottom: 16px; }
+  .outcomes-big-stats { display: flex; gap: 24px; flex-wrap: wrap; }
+  .big-stat { text-align: center; }
+  .big-stat-value { font-size: 1.8rem; font-weight: 700; font-family: var(--mono); }
+  .big-stat-label { font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase; }
+  .donut-container { position: relative; width: 120px; height: 120px; }
+  .direction-bars { display: flex; gap: 20px; margin: 12px 0; }
+  .dir-bar-group { flex: 1; }
+  .dir-bar-label { font-size: 0.75rem; color: var(--text-dim); margin-bottom: 4px; }
+  .dir-bar-track { height: 10px; background: #1e1e40; border-radius: 5px; overflow: hidden; }
+  .dir-bar-fill { height: 100%; border-radius: 5px; transition: width 0.3s; }
+  .recent-outcomes { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .outcome-item { display: flex; align-items: center; gap: 4px; background: var(--bg); border: 1px solid var(--card-border); border-radius: 6px; padding: 4px 10px; font-size: 0.75rem; font-family: var(--mono); }
+  .outcome-icon { font-size: 0.9rem; }
+  .outcome-icon.win { color: var(--green); }
+  .outcome-icon.loss { color: var(--red); }
+
+  @media (max-width: 900px) {
+    .model-layout { grid-template-columns: 1fr; }
+    .outcomes-top { grid-template-columns: 1fr; }
+  }
 </style>
 </head>
 <body>
@@ -249,6 +325,56 @@
   <div class="panel">
     <div class="panel-title">Bot Thinking Log</div>
     <div id="botLogWrap">
+      <p class="no-data">Loading...</p>
+    </div>
+  </div>
+
+  <!-- Sentiment Breakdown -->
+  <div class="panel">
+    <div class="panel-title">Sentiment Breakdown</div>
+    <div class="chart-container" style="height:220px;">
+      <canvas id="sentimentChart"></canvas>
+    </div>
+    <div class="sentiment-scores" id="sentimentScores"></div>
+  </div>
+
+  <!-- Trump Headlines Feed -->
+  <div class="panel">
+    <div class="panel-title">Trump Watch <span class="trump-badge">POLITICAL</span></div>
+    <div class="headline-list" id="trumpHeadlines">
+      <p class="no-data">Loading...</p>
+    </div>
+    <div class="headline-time" id="trumpRefreshTime"></div>
+  </div>
+
+  <!-- Technical Indicator Gauges -->
+  <div class="panel">
+    <div class="panel-title">Technical Indicators</div>
+    <div class="indicator-grid" id="indicatorGrid">
+      <p class="no-data">Loading...</p>
+    </div>
+  </div>
+
+  <!-- Decision Waterfall -->
+  <div class="panel">
+    <div class="panel-title">Decision Waterfall</div>
+    <div class="waterfall-list" id="waterfallList">
+      <p class="no-data">Loading...</p>
+    </div>
+  </div>
+
+  <!-- Model Learning Progress -->
+  <div class="panel">
+    <div class="panel-title">Model Learning Progress</div>
+    <div class="model-layout" id="modelLearning">
+      <p class="no-data">Loading...</p>
+    </div>
+  </div>
+
+  <!-- Trade Outcome Tracker -->
+  <div class="panel">
+    <div class="panel-title">Trade Outcome Tracker</div>
+    <div id="tradeOutcomes">
       <p class="no-data">Loading...</p>
     </div>
   </div>
@@ -601,6 +727,276 @@ document.getElementById('settingsModal').addEventListener('click', function(e) {
   if (e.target === this) closeSettings();
 });
 
+/* ── Sentiment Breakdown ── */
+let sentimentChart = null;
+async function refreshSentiment() {
+  const data = await fetchJSON('/api/sentiment/breakdown');
+  if (!data) return;
+  const instruments = Object.keys(data);
+  if (!instruments.length) return;
+  const newsScores = instruments.map(k => data[k].news_score || 0);
+  const trumpScores = instruments.map(k => data[k].trump_score || 0);
+  if (!sentimentChart) {
+    const ctx = document.getElementById('sentimentChart').getContext('2d');
+    sentimentChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: instruments,
+        datasets: [
+          { label: 'News', data: newsScores, backgroundColor: '#4fc3f7' },
+          { label: 'Trump', data: trumpScores, backgroundColor: '#ff9800' },
+        ]
+      },
+      options: {
+        indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+        scales: {
+          x: { min: -1, max: 1, ticks: { color: '#8888aa', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
+          y: { ticks: { color: '#e0e0e0', font: { size: 11 } }, grid: { display: false } }
+        },
+        plugins: { legend: { labels: { color: '#8888aa', font: { size: 11 } } } }
+      }
+    });
+  } else {
+    sentimentChart.data.labels = instruments;
+    sentimentChart.data.datasets[0].data = newsScores;
+    sentimentChart.data.datasets[1].data = trumpScores;
+    sentimentChart.update('none');
+  }
+  let scoresHtml = '';
+  instruments.forEach(k => {
+    const c = data[k].combined;
+    const color = c > 0 ? 'var(--green)' : c < 0 ? 'var(--red)' : 'var(--text-dim)';
+    scoresHtml += '<span class="sentiment-chip" style="border-color:' + color + '">' + escHtml(k) + ': <span style="color:' + color + '">' + (c != null ? Number(c).toFixed(3) : '--') + '</span></span>';
+  });
+  document.getElementById('sentimentScores').innerHTML = scoresHtml;
+}
+
+/* ── Trump Headlines ── */
+async function refreshTrumpHeadlines() {
+  const data = await fetchJSON('/api/trump-headlines');
+  const wrap = document.getElementById('trumpHeadlines');
+  const timeEl = document.getElementById('trumpRefreshTime');
+  if (!data || !data.headlines || !data.headlines.length) {
+    wrap.innerHTML = '<p class="no-data">No political headlines</p>';
+    timeEl.textContent = '';
+    return;
+  }
+  wrap.innerHTML = data.headlines.map(h => '<div class="headline-pill">' + escHtml(h) + '</div>').join('');
+  timeEl.textContent = data.last_refresh ? 'Last refresh: ' + shortTime(data.last_refresh) : '';
+}
+
+/* ── Technical Indicators ── */
+async function refreshIndicators() {
+  const data = await fetchJSON('/api/indicators');
+  const wrap = document.getElementById('indicatorGrid');
+  if (!data || !Object.keys(data).length) { wrap.innerHTML = '<p class="no-data">No indicator data</p>'; return; }
+
+  function bar(val, min, max, color) {
+    const pct = Math.max(0, Math.min(100, ((val - min) / (max - min)) * 100));
+    return '<div class="gauge-bar"><div class="gauge-fill" style="width:' + pct.toFixed(1) + '%;background:' + color + '"></div></div>';
+  }
+  function bipolar(val, absMax, posColor, negColor) {
+    const clamped = Math.max(-absMax, Math.min(absMax, val));
+    const pct = Math.abs(clamped) / absMax * 50;
+    const left = clamped >= 0 ? 50 : 50 - pct;
+    const color = clamped >= 0 ? posColor : negColor;
+    return '<div class="gauge-bar-bipolar"><div class="gauge-center"></div><div class="gauge-fill-bi" style="left:' + left.toFixed(1) + '%;width:' + pct.toFixed(1) + '%;background:' + color + '"></div></div>';
+  }
+
+  let html = '';
+  Object.keys(data).forEach(inst => {
+    const d = data[inst];
+    const rsi = d.rsi_14;
+    const rsiColor = rsi != null ? (rsi < 30 ? 'var(--green)' : rsi > 70 ? 'var(--red)' : 'var(--text-dim)') : 'var(--text-dim)';
+    const bbColor = d.bb_percent_b != null ? (d.bb_percent_b < 0.2 ? 'var(--green)' : d.bb_percent_b > 0.8 ? 'var(--red)' : 'var(--accent)') : 'var(--text-dim)';
+    const adxColor = d.adx != null && d.adx > 25 ? 'var(--green)' : 'var(--text-dim)';
+
+    html += '<div class="indicator-row">'
+      + '<span class="indicator-row-label">' + escHtml(inst) + '</span>'
+      + '<div class="gauge-group">'
+      + '<div class="mini-gauge"><span class="mini-gauge-label">RSI 14</span>' + bar(rsi || 50, 0, 100, rsiColor) + '<span class="gauge-value" style="color:' + rsiColor + '">' + (rsi != null ? rsi.toFixed(1) : '--') + '</span></div>'
+      + '<div class="mini-gauge"><span class="mini-gauge-label">BB %B</span>' + bar((d.bb_percent_b || 0.5) * 100, 0, 100, bbColor) + '<span class="gauge-value">' + (d.bb_percent_b != null ? d.bb_percent_b.toFixed(2) : '--') + '</span></div>'
+      + '<div class="mini-gauge"><span class="mini-gauge-label">ADX</span>' + bar(d.adx || 0, 0, 60, adxColor) + '<span class="gauge-value" style="color:' + adxColor + '">' + (d.adx != null ? d.adx.toFixed(1) : '--') + '</span></div>'
+      + '<div class="mini-gauge"><span class="mini-gauge-label">MACD</span>' + bipolar(d.macd_histogram || 0, 0.005, 'var(--green)', 'var(--red)') + '<span class="gauge-value">' + (d.macd_histogram != null ? d.macd_histogram.toFixed(5) : '--') + '</span></div>'
+      + '</div></div>';
+  });
+  wrap.innerHTML = html;
+}
+
+/* ── Decision Waterfall ── */
+async function refreshWaterfall() {
+  const data = await fetchJSON('/api/scoring-breakdown');
+  const wrap = document.getElementById('waterfallList');
+  if (!data || !Object.keys(data).length) { wrap.innerHTML = '<p class="no-data">No scoring data</p>'; return; }
+
+  let html = '';
+  Object.keys(data).forEach(inst => {
+    const d = data[inst];
+    const comps = d.components || [];
+    const nonMult = comps.filter(c => !c.is_multiplier);
+    const totalAbs = nonMult.reduce((s, c) => s + Math.abs(c.score || 0), 0) || 1;
+    const dirCls = dirClass(d.direction);
+    const confPct = d.confidence != null ? (d.confidence * 100).toFixed(1) + '%' : '--';
+
+    let barHtml = '';
+    let detailHtml = '';
+    nonMult.forEach(c => {
+      const w = (Math.abs(c.score || 0) / totalAbs * 100);
+      const color = (c.score || 0) >= 0 ? 'var(--green)' : 'var(--red)';
+      barHtml += '<div class="waterfall-seg" style="width:' + w.toFixed(1) + '%;background:' + color + '" title="' + escHtml(c.name) + ': ' + (c.score != null ? c.score.toFixed(3) : '') + '">' + (w > 8 ? escHtml(c.name) : '') + '</div>';
+      detailHtml += '<div class="waterfall-detail-row"><span>' + escHtml(c.name) + (c.is_multiplier ? ' (mult)' : '') + '</span><span style="font-family:var(--mono)">val: ' + (c.value != null ? Number(c.value).toFixed(4) : '--') + ' &rarr; score: <span style="color:' + color + '">' + (c.score != null ? c.score.toFixed(3) : '--') + '</span></span></div>';
+    });
+    comps.filter(c => c.is_multiplier).forEach(c => {
+      detailHtml += '<div class="waterfall-detail-row"><span>' + escHtml(c.name) + ' <span style="color:var(--accent)">(multiplier)</span></span><span style="font-family:var(--mono)">val: ' + (c.value != null ? Number(c.value).toFixed(4) : '--') + ' &rarr; &times;' + (c.score != null ? c.score.toFixed(3) : '--') + '</span></div>';
+    });
+
+    html += '<div class="waterfall-item">'
+      + '<div class="waterfall-header" onclick="toggleWaterfall(this)">'
+      + '<span class="waterfall-label">' + escHtml(inst) + '</span>'
+      + '<div class="waterfall-summary"><span class="' + dirCls + '">' + escHtml(d.direction || 'HOLD') + '</span><span style="font-family:var(--mono)">' + confPct + '</span><span class="waterfall-arrow">&#9654;</span></div>'
+      + '</div>'
+      + '<div class="waterfall-body">'
+      + '<div class="waterfall-bar-track">' + barHtml + '</div>'
+      + detailHtml
+      + '</div></div>';
+  });
+  wrap.innerHTML = html;
+}
+function toggleWaterfall(header) {
+  const body = header.nextElementSibling;
+  const arrow = header.querySelector('.waterfall-arrow');
+  body.classList.toggle('open');
+  arrow.classList.toggle('open');
+}
+
+/* ── Model Learning ── */
+let cvChart = null;
+async function refreshModelLearning() {
+  const data = await fetchJSON('/api/model-learning');
+  const wrap = document.getElementById('modelLearning');
+  if (!data) { wrap.innerHTML = '<p class="no-data">No model data</p>'; return; }
+
+  const accPct = data.rolling_accuracy != null ? (data.rolling_accuracy * 100).toFixed(1) + '%' : '--';
+  const degradedHtml = data.is_degraded ? ' <span class="degraded-badge">DEGRADED</span>' : '';
+  const retrain = data.last_retrain ? shortTime(data.last_retrain) : '--';
+
+  let leftHtml = '<div class="model-stats">'
+    + '<div class="model-stat-card"><div class="card-label">Rolling Accuracy</div><div class="card-value">' + accPct + degradedHtml + '</div></div>'
+    + '<div class="model-stat-card"><div class="card-label">Training Samples</div><div class="card-value">' + (data.training_samples != null ? data.training_samples : '--') + '</div></div>'
+    + '<div class="model-stat-card"><div class="card-label">Pending Outcomes</div><div class="card-value">' + (data.pending_outcomes != null ? data.pending_outcomes : '--') + '</div></div>'
+    + '<div class="model-stat-card"><div class="card-label">Last Retrain</div><div class="card-value" style="font-size:0.8rem">' + retrain + '</div></div>'
+    + '</div>';
+
+  let rightHtml = '';
+  if (data.recent_outcomes && data.recent_outcomes.length) {
+    rightHtml += '<div><span style="font-size:0.78rem;color:var(--text-dim)">RECENT PREDICTIONS</span><div class="streak-grid">';
+    data.recent_outcomes.forEach(o => {
+      rightHtml += '<div class="streak-dot ' + (o === 1 ? 'win' : 'loss') + '" title="' + (o === 1 ? 'Correct' : 'Wrong') + '"></div>';
+    });
+    rightHtml += '</div></div>';
+  }
+  if (data.cv_accuracies && data.cv_accuracies.length) {
+    rightHtml += '<div class="cv-chart-container"><canvas id="cvChart"></canvas></div>';
+  }
+
+  wrap.innerHTML = '<div>' + leftHtml + '</div><div>' + rightHtml + '</div>';
+
+  if (data.cv_accuracies && data.cv_accuracies.length) {
+    const cvCtx = document.getElementById('cvChart');
+    if (cvCtx) {
+      if (cvChart) cvChart.destroy();
+      cvChart = new Chart(cvCtx.getContext('2d'), {
+        type: 'bar',
+        data: {
+          labels: data.cv_accuracies.map((_, i) => 'F' + (i + 1)),
+          datasets: [{ data: data.cv_accuracies.map(v => (v * 100)), backgroundColor: 'var(--accent)', borderRadius: 3 }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ctx.parsed.y.toFixed(1) + '%' } } },
+          scales: {
+            x: { ticks: { color: '#8888aa', font: { size: 9 } }, grid: { display: false } },
+            y: { min: 0, max: 100, ticks: { color: '#8888aa', font: { size: 9 }, callback: v => v + '%' }, grid: { color: 'rgba(255,255,255,0.04)' } }
+          }
+        }
+      });
+    }
+  }
+}
+
+/* ── Trade Outcomes ── */
+let donutChart = null;
+async function refreshTradeOutcomes() {
+  const data = await fetchJSON('/api/trade-outcomes');
+  const wrap = document.getElementById('tradeOutcomes');
+  if (!data) { wrap.innerHTML = '<p class="no-data">No outcome data</p>'; return; }
+
+  const winPct = data.win_ratio != null ? (data.win_ratio * 100).toFixed(1) + '%' : '--';
+  const winColor = data.win_ratio != null && data.win_ratio >= 0.5 ? 'var(--green)' : 'var(--red)';
+
+  let html = '<div class="outcomes-top">'
+    + '<div class="outcomes-big-stats">'
+    + '<div class="big-stat"><div class="big-stat-value">' + (data.total != null ? data.total : '--') + '</div><div class="big-stat-label">Total</div></div>'
+    + '<div class="big-stat"><div class="big-stat-value" style="color:var(--green)">' + (data.wins != null ? data.wins : '--') + '</div><div class="big-stat-label">Wins</div></div>'
+    + '<div class="big-stat"><div class="big-stat-value" style="color:var(--red)">' + (data.losses != null ? data.losses : '--') + '</div><div class="big-stat-label">Losses</div></div>'
+    + '<div class="big-stat"><div class="big-stat-value" style="color:' + winColor + '">' + winPct + '</div><div class="big-stat-label">Win Rate</div></div>'
+    + '</div>'
+    + '<div class="donut-container"><canvas id="donutChart"></canvas></div>'
+    + '</div>';
+
+  // Direction breakdown
+  if (data.by_direction) {
+    const buyWin = data.by_direction.BUY ? (data.by_direction.BUY.win_ratio * 100) : 0;
+    const sellWin = data.by_direction.SELL ? (data.by_direction.SELL.win_ratio * 100) : 0;
+    html += '<div class="direction-bars">'
+      + '<div class="dir-bar-group"><div class="dir-bar-label">BUY Win Rate: <span style="font-family:var(--mono);color:var(--green)">' + buyWin.toFixed(1) + '%</span></div><div class="dir-bar-track"><div class="dir-bar-fill" style="width:' + buyWin.toFixed(1) + '%;background:var(--green)"></div></div></div>'
+      + '<div class="dir-bar-group"><div class="dir-bar-label">SELL Win Rate: <span style="font-family:var(--mono);color:var(--red)">' + sellWin.toFixed(1) + '%</span></div><div class="dir-bar-track"><div class="dir-bar-fill" style="width:' + sellWin.toFixed(1) + '%;background:var(--red)"></div></div></div>'
+      + '</div>';
+  }
+
+  // Per-instrument table
+  if (data.by_instrument && Object.keys(data.by_instrument).length) {
+    html += '<div class="table-wrap" style="margin-top:12px"><table><thead><tr><th>Instrument</th><th>Trades</th><th>Wins</th><th>Losses</th><th>Win %</th></tr></thead><tbody>';
+    Object.entries(data.by_instrument).forEach(([name, d]) => {
+      const wr = d.win_ratio != null ? (d.win_ratio * 100).toFixed(1) + '%' : '--';
+      const wrColor = d.win_ratio != null && d.win_ratio >= 0.5 ? 'color:var(--green)' : 'color:var(--red)';
+      html += '<tr><td>' + escHtml(name) + '</td><td>' + (d.total || 0) + '</td><td style="color:var(--green)">' + (d.wins || 0) + '</td><td style="color:var(--red)">' + (d.losses || 0) + '</td><td style="' + wrColor + '">' + wr + '</td></tr>';
+    });
+    html += '</tbody></table></div>';
+  }
+
+  // Recent outcomes
+  if (data.recent && data.recent.length) {
+    html += '<div style="margin-top:14px"><span style="font-size:0.78rem;color:var(--text-dim);text-transform:uppercase">Recent Outcomes</span><div class="recent-outcomes">';
+    data.recent.slice(0, 10).forEach(r => {
+      const isWin = r.label === 1 || r.label === 'win';
+      const icon = isWin ? '&#10003;' : '&#10007;';
+      const cls = isWin ? 'win' : 'loss';
+      html += '<div class="outcome-item"><span class="outcome-icon ' + cls + '">' + icon + '</span>' + escHtml(r.instrument) + ' ' + escHtml(r.direction) + '</div>';
+    });
+    html += '</div></div>';
+  }
+
+  wrap.innerHTML = html;
+
+  // Donut chart
+  const donutEl = document.getElementById('donutChart');
+  if (donutEl && data.wins != null && data.losses != null) {
+    if (donutChart) donutChart.destroy();
+    donutChart = new Chart(donutEl.getContext('2d'), {
+      type: 'doughnut',
+      data: {
+        labels: ['Wins', 'Losses'],
+        datasets: [{ data: [data.wins || 0, data.losses || 0], backgroundColor: ['#4caf50', '#ef5350'], borderWidth: 0 }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, cutout: '65%',
+        plugins: { legend: { display: false } }
+      }
+    });
+  }
+}
+
 /* ── Refresh all ── */
 function refreshAll() {
   refreshStatus();
@@ -610,6 +1006,12 @@ function refreshAll() {
   refreshTrades();
   refreshBotLog();
   refreshEngine();
+  refreshSentiment();
+  refreshTrumpHeadlines();
+  refreshIndicators();
+  refreshWaterfall();
+  refreshModelLearning();
+  refreshTradeOutcomes();
 }
 
 /* ── Init ── */
