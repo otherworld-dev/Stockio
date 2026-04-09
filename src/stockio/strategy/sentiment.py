@@ -1,4 +1,4 @@
-"""LLM-based sentiment analysis — NewsAPI + RSS headlines → Claude Haiku scoring."""
+"""LLM-based sentiment analysis — NewsAPI + RSS + Trump Watch → Claude Haiku scoring."""
 
 from __future__ import annotations
 
@@ -23,17 +23,96 @@ Return ONLY a single decimal number between -1.0 and 1.0, nothing else.
 Headlines:
 {headlines}"""
 
+_TRUMP_PROMPT = """\
+You are a financial analyst specialising in political risk. Given these recent \
+headlines about the Trump administration, family, and inner circle, assess the \
+likely SHORT-TERM impact on {instrument} ({display_name}).
+
+Consider:
+- Tariff announcements (negative for affected currencies/commodities)
+- Trade deals or tariff pauses (positive/relief rally)
+- Executive orders affecting specific sectors
+- Sanctions or geopolitical escalation (risk-off → gold up, equities down)
+- USD strength/weakness implications
+- Elon Musk/DOGE government efficiency moves (affects USD, tech sentiment)
+- Trump family business deals (potential conflicts, sector impacts)
+- Regulatory changes (SEC, crypto, energy policy)
+- Truth Social posts that signal upcoming policy
+
+Rate the impact from -1.0 (very bearish for this instrument) to +1.0 (very bullish).
+Return ONLY a single decimal number between -1.0 and 1.0, nothing else.
+
+Headlines:
+{headlines}"""
+
+# ---------------------------------------------------------------------------
+# Trump / political monitoring feeds (no API key needed)
+# ---------------------------------------------------------------------------
+
+_TRUMP_FEEDS = [
+    # White House presidential actions (executive orders, proclamations)
+    "https://www.whitehouse.gov/presidential-actions/feed/",
+    # Google News RSS — Trump + market-moving topics
+    "https://news.google.com/rss/search?q=trump+tariff+OR+trade+OR+executive+order&hl=en-US&gl=US&ceid=US:en",
+    "https://news.google.com/rss/search?q=trump+economy+OR+sanctions+OR+market&hl=en-US&gl=US&ceid=US:en",
+    # Trump family + key figures with market influence
+    "https://news.google.com/rss/search?q=elon+musk+DOGE+OR+government+OR+regulation&hl=en-US&gl=US&ceid=US:en",
+    "https://news.google.com/rss/search?q=jared+kushner+OR+ivanka+trump+business+OR+deal&hl=en-US&gl=US&ceid=US:en",
+    "https://news.google.com/rss/search?q=donald+trump+jr+OR+eric+trump+business&hl=en-US&gl=US&ceid=US:en",
+    # Political/economic news
+    "https://www.theguardian.com/us-news/donaldtrump/rss",
+]
+
+_TRUMP_KEYWORDS = [
+    # Trump direct
+    "trump", "potus", "white house", "truth social", "mar-a-lago",
+    # Tariffs & trade (primary market mover)
+    "tariff", "trade war", "trade deal", "trade ban", "reciprocal",
+    "import duty", "china trade", "eu tariff", "canada tariff",
+    "mexico tariff", "steel tariff", "auto tariff",
+    # Executive actions
+    "executive order", "sanctions", "presidential action",
+    # Trump family & inner circle (market-moving figures)
+    "ivanka trump", "jared kushner", "donald trump jr", "eric trump",
+    "trump organization", "trump media",
+    # Key allies with market influence
+    "elon musk", "doge", "vivek ramaswamy",
+    # Policy areas that move markets
+    "government shutdown", "debt ceiling", "federal reserve",
+    "deregulation", "crypto regulation", "sec chairman",
+]
+
+# ---------------------------------------------------------------------------
+# Built-in financial news feeds (always scanned, no API key)
+# ---------------------------------------------------------------------------
+
+_BUILTIN_FEEDS = [
+    # UK
+    "http://feeds.bbci.co.uk/news/business/rss.xml",
+    "https://www.theguardian.com/uk/business/rss",
+    # US / Global
+    "https://feeds.finance.yahoo.com/rss/2.0/headline?region=US&lang=en-US",
+    "https://feeds.finance.yahoo.com/rss/2.0/headline?s=^GSPC&region=US&lang=en-US",
+    # Europe
+    "https://feeds.finance.yahoo.com/rss/2.0/headline?s=^STOXX50E&region=EU&lang=en-US",
+]
+
 
 class SentimentAnalyzer:
-    """Fetches news headlines and scores them via Claude Haiku."""
+    """Fetches news headlines and scores them via Claude Haiku.
+
+    Includes Trump/political monitoring with higher weight (1.5x).
+    """
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self._news_api_key = settings.news_api_key
         self._cache: dict[str, float] = {}
+        self._trump_cache: dict[str, float] = {}
         self._cache_time: datetime | None = None
         self._enabled = bool(settings.anthropic_api_key)
         self._client = None
+        self._trump_weight = 1.5  # Political news gets 1.5x weight
 
         if self._enabled:
             import anthropic
@@ -53,26 +132,52 @@ class SentimentAnalyzer:
     def get_sentiment(self, instrument: str) -> float:
         return self._cache.get(instrument, 0.0)
 
+    def get_trump_sentiment(self, instrument: str) -> float:
+        return self._trump_cache.get(instrument, 0.0)
+
     def refresh_all(self, instruments: dict[str, InstrumentConfig]) -> dict[str, float]:
         """Fetch headlines and score sentiment for all instruments."""
         if not self._enabled:
             return {}
 
+        # Fetch Trump headlines once (shared across all instruments)
+        trump_headlines = self._fetch_trump_headlines()
+        if trump_headlines:
+            log.info("trump_headlines_fetched", count=len(trump_headlines))
+
         results: dict[str, float] = {}
         for name, cfg in instruments.items():
             try:
+                # Regular sentiment
                 headlines = self._fetch_headlines(cfg.news_keywords)
-                score = (
+                news_score = (
                     self._analyze(name, cfg.display_name, headlines)
                     if headlines
                     else 0.0
                 )
-                results[name] = score
+
+                # Trump/political sentiment (weighted higher)
+                trump_score = 0.0
+                if trump_headlines:
+                    trump_score = self._analyze_trump(
+                        name, cfg.display_name, trump_headlines
+                    )
+
+                # Weighted combination
+                combined = news_score + (trump_score * self._trump_weight)
+                # Clamp to [-1, 1]
+                combined = max(-1.0, min(1.0, combined))
+
+                results[name] = combined
+                self._trump_cache[name] = trump_score
                 log.info(
                     "sentiment_scored",
                     instrument=name,
-                    score=round(score, 3),
-                    headlines=len(headlines),
+                    news_score=round(news_score, 3),
+                    trump_score=round(trump_score, 3),
+                    combined=round(combined, 3),
+                    news_headlines=len(headlines),
+                    trump_headlines=len(trump_headlines),
                 )
             except Exception:
                 log.exception("sentiment_failed", instrument=name)
@@ -82,19 +187,50 @@ class SentimentAnalyzer:
         self._cache_time = datetime.now(UTC)
         return results
 
+    # ------------------------------------------------------------------
+    # Headline fetching
+    # ------------------------------------------------------------------
+
     def _fetch_headlines(self, keywords: list[str]) -> list[str]:
-        """Fetch headlines from NewsAPI, fall back to RSS."""
+        """Fetch headlines from NewsAPI, fall back to built-in RSS."""
         headlines = self._fetch_newsapi(keywords)
         if not headlines:
-            headlines = self._fetch_rss(keywords)
+            headlines = self._fetch_rss(keywords, self._settings.rss_feeds)
+        if not headlines:
+            headlines = self._fetch_rss(keywords, _BUILTIN_FEEDS)
         return headlines[: self._settings.max_headlines]
+
+    def _fetch_trump_headlines(self) -> list[str]:
+        """Fetch recent Trump/political headlines from dedicated feeds."""
+        headlines: list[str] = []
+        for feed_url in _TRUMP_FEEDS:
+            try:
+                resp = httpx.get(feed_url, timeout=10, follow_redirects=True)
+                feed = feedparser.parse(resp.text)
+                for entry in feed.get("entries", [])[:10]:
+                    title = entry.get("title", "")
+                    if title:
+                        headlines.append(title)
+            except Exception:
+                log.debug("trump_feed_failed", feed=feed_url)
+
+        # Deduplicate
+        seen = set()
+        unique = []
+        for h in headlines:
+            h_lower = h.lower()
+            if h_lower not in seen:
+                seen.add(h_lower)
+                unique.append(h)
+
+        return unique[:15]  # Cap at 15 headlines
 
     def _fetch_newsapi(self, keywords: list[str]) -> list[str]:
         """Fetch from NewsAPI.org /v2/everything endpoint."""
         if not self._news_api_key:
             return []
 
-        query = " OR ".join(keywords[:5])  # Batch keywords to reduce API calls
+        query = " OR ".join(keywords[:5])
         cutoff = datetime.now(UTC) - timedelta(hours=self._settings.news_lookback_hours)
 
         try:
@@ -121,33 +257,54 @@ class SentimentAnalyzer:
             log.exception("newsapi_fetch_failed")
             return []
 
-    def _fetch_rss(self, keywords: list[str]) -> list[str]:
-        """Fallback: fetch from configured RSS feeds and filter by keywords."""
+    def _fetch_rss(self, keywords: list[str], feeds: list[str]) -> list[str]:
+        """Fetch from RSS feeds, filtered by keywords."""
         headlines: list[str] = []
         keywords_lower = [kw.lower() for kw in keywords]
 
-        for feed_url in self._settings.rss_feeds:
+        for feed_url in feeds:
             try:
                 feed = feedparser.parse(feed_url)
                 for entry in feed.get("entries", []):
                     title = entry.get("title", "")
-                    # Filter by keyword relevance
                     title_lower = title.lower()
                     if any(kw in title_lower for kw in keywords_lower):
                         headlines.append(title)
             except Exception:
-                log.exception("rss_fetch_failed", feed=feed_url)
+                log.debug("rss_fetch_failed", feed=feed_url)
 
         return headlines
 
+    # ------------------------------------------------------------------
+    # LLM analysis
+    # ------------------------------------------------------------------
+
     def _analyze(self, instrument: str, display_name: str, headlines: list[str]) -> float:
-        """Call Claude Haiku to score headline sentiment."""
-        prompt = _SENTIMENT_PROMPT.format(
-            instrument=instrument,
-            display_name=display_name,
-            headlines="\n".join(f"- {h}" for h in headlines),
+        """Score regular news headline sentiment via Claude Haiku."""
+        return self._call_llm(
+            _SENTIMENT_PROMPT.format(
+                instrument=instrument,
+                display_name=display_name,
+                headlines="\n".join(f"- {h}" for h in headlines),
+            ),
+            instrument,
         )
 
+    def _analyze_trump(
+        self, instrument: str, display_name: str, headlines: list[str]
+    ) -> float:
+        """Score Trump/political headline impact via Claude Haiku."""
+        return self._call_llm(
+            _TRUMP_PROMPT.format(
+                instrument=instrument,
+                display_name=display_name,
+                headlines="\n".join(f"- {h}" for h in headlines),
+            ),
+            instrument,
+        )
+
+    def _call_llm(self, prompt: str, instrument: str) -> float:
+        """Call Claude Haiku and parse a float score."""
         text = ""
         try:
             response = self._client.messages.create(
@@ -159,8 +316,8 @@ class SentimentAnalyzer:
             score = float(text)
             return max(-1.0, min(1.0, score))
         except (ValueError, IndexError):
-            log.warning("sentiment_parse_failed", instrument=instrument, raw=text)
+            log.warning("llm_parse_failed", instrument=instrument, raw=text)
             return 0.0
         except Exception:
-            log.exception("anthropic_call_failed", instrument=instrument)
+            log.exception("llm_call_failed", instrument=instrument)
             return 0.0

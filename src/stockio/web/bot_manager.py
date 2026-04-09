@@ -39,6 +39,7 @@ class BotSlot:
     # Latest cycle data for the dashboard (updated by the bot thread)
     last_signals: list[dict] = field(default_factory=list)
     last_sentiment: dict[str, float] = field(default_factory=dict)
+    last_trump_sentiment: dict[str, float] = field(default_factory=dict)
 
 
 # Fixed slots — both can run simultaneously
@@ -143,6 +144,10 @@ def _run_bot(slot: BotSlot, generation: int) -> None:
                     scores = sentiment.refresh_all(instruments)
                     engine.update_sentiment(scores)
                     slot.last_sentiment = scores
+                    slot.last_trump_sentiment = {
+                        k: sentiment.get_trump_sentiment(k)
+                        for k in instruments
+                    }
 
                 engine.run_cycle()
                 engine.maybe_daily_summary()

@@ -187,7 +187,10 @@ def api_sentiment():
     slot = get_slot(slot_name)
     if not slot:
         return jsonify({})
-    return jsonify(slot.last_sentiment)
+    return jsonify({
+        "combined": slot.last_sentiment,
+        "trump": slot.last_trump_sentiment,
+    })
 
 
 # ---------------------------------------------------------------------------
