@@ -58,17 +58,22 @@ def use_db(db_path: str | Path):
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS trades (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    instrument TEXT NOT NULL,
-    direction  TEXT NOT NULL,
-    units      INTEGER NOT NULL,
-    price      REAL NOT NULL,
-    stop_loss  REAL,
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    instrument  TEXT NOT NULL,
+    direction   TEXT NOT NULL,
+    units       INTEGER NOT NULL,
+    price       REAL NOT NULL,
+    stop_loss   REAL,
     take_profit REAL,
-    confidence REAL,
-    trade_id   TEXT,
-    timestamp  TEXT NOT NULL,
-    reason     TEXT NOT NULL DEFAULT ''
+    confidence  REAL,
+    trade_id    TEXT,
+    timestamp   TEXT NOT NULL,
+    reason      TEXT NOT NULL DEFAULT '',
+    status      TEXT NOT NULL DEFAULT 'OPEN',
+    exit_price  REAL,
+    exit_time   TEXT,
+    pnl         REAL,
+    close_reason TEXT
 );
 
 CREATE TABLE IF NOT EXISTS snapshots (
@@ -115,6 +120,18 @@ def _get_conn():
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     conn.executescript(_SCHEMA)
+    # Migrations for existing DBs
+    for col, default in [
+        ("status", "'OPEN'"),
+        ("exit_price", "NULL"),
+        ("exit_time", "NULL"),
+        ("pnl", "NULL"),
+        ("close_reason", "NULL"),
+    ]:
+        try:
+            conn.execute(f"SELECT {col} FROM trades LIMIT 0")
+        except sqlite3.OperationalError:
+            conn.execute(f"ALTER TABLE trades ADD COLUMN {col} DEFAULT {default}")
     try:
         yield conn
         conn.commit()
@@ -156,6 +173,37 @@ def record_trade(
                 reason,
             ),
         )
+
+
+def close_trade(
+    trade_id: str,
+    exit_price: float,
+    pnl: float,
+    close_reason: str = "",
+) -> None:
+    """Record a trade exit."""
+    with _get_conn() as conn:
+        conn.execute(
+            """UPDATE trades
+               SET status = 'CLOSED', exit_price = ?, exit_time = ?, pnl = ?, close_reason = ?
+               WHERE trade_id = ? AND status = 'OPEN'""",
+            (
+                exit_price,
+                datetime.now(UTC).isoformat(),
+                pnl,
+                close_reason,
+                trade_id,
+            ),
+        )
+
+
+def get_open_trades() -> list[dict]:
+    """Return all currently open trades."""
+    with _get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM trades WHERE status = 'OPEN' ORDER BY id"
+        ).fetchall()
+        return [dict(r) for r in rows]
 
 
 def get_trade_history(limit: int = 50) -> list[dict]:

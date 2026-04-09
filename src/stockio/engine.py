@@ -326,10 +326,13 @@ class TradingEngine:
         else:
             cycle_log.info("no_tradeable_signals")
 
-        # Step 4: Execute trades
+        # Step 4: Check open positions for SL/TP exits
+        self._check_position_exits(cycle_log)
+
+        # Step 5: Execute new trades
         self._execute_trades(ranked, cycle_log)
 
-        # Step 5: Resolve pending outcomes for model training
+        # Step 6: Resolve pending outcomes for model training
         self._resolve_and_maybe_retrain(cycle_log)
 
         # Step 6: Persist snapshot and bot log to SQLite
@@ -384,6 +387,122 @@ class TradingEngine:
             )
         except Exception:
             cycle_log.exception("db_persist_cycle_failed")
+
+    def _check_position_exits(self, cycle_log: structlog.BoundLogger) -> None:
+        """Check open positions for stop-loss / take-profit hits.
+
+        For paper mode (YahooBroker): we simulate SL/TP exits here.
+        For live mode (OANDA): SL/TP are handled server-side, but we sync
+        the exit to our DB by checking which positions have closed.
+        """
+        open_trades = db.get_open_trades()
+        if not open_trades:
+            return
+
+        # Get current open positions from broker
+        try:
+            broker_positions = {p.trade_id: p for p in self._broker.get_positions()}
+        except Exception:
+            return
+
+        for trade in open_trades:
+            trade_id = trade["trade_id"]
+            instrument = trade["instrument"]
+            direction = trade["direction"]
+            entry_price = trade["price"]
+            sl = trade["stop_loss"]
+            tp = trade["take_profit"]
+            units = trade["units"]
+
+            # Check if position still exists at broker
+            if trade_id in broker_positions:
+                # Position still open — check SL/TP (paper mode)
+                try:
+                    quote = self._broker.get_price(instrument)
+                    mid = (quote.bid + quote.ask) / 2
+
+                    close_reason = None
+                    exit_price = mid
+
+                    if direction == "BUY":
+                        if sl and mid <= sl:
+                            close_reason = "Stop loss hit"
+                        elif tp and mid >= tp:
+                            close_reason = "Take profit hit"
+                    elif direction == "SELL":
+                        if sl and mid >= sl:
+                            close_reason = "Stop loss hit"
+                        elif tp and mid <= tp:
+                            close_reason = "Take profit hit"
+
+                    if close_reason:
+                        # Calculate P&L
+                        if direction == "BUY":
+                            pnl = (exit_price - entry_price) * units
+                        else:
+                            pnl = (entry_price - exit_price) * units
+
+                        # Close at broker
+                        try:
+                            self._broker.close_position(trade_id)
+                        except Exception:
+                            cycle_log.exception(
+                                "position_close_failed", trade_id=trade_id
+                            )
+                            continue
+
+                        # Record exit in DB
+                        db.close_trade(
+                            trade_id=trade_id,
+                            exit_price=exit_price,
+                            pnl=pnl,
+                            close_reason=close_reason,
+                        )
+                        cycle_log.info(
+                            "position_exited",
+                            trade_id=trade_id,
+                            instrument=instrument,
+                            direction=direction,
+                            reason=close_reason,
+                            pnl=round(pnl, 4),
+                        )
+                        if self._notifier:
+                            self._notifier.notify_error(
+                                f"Position closed: {instrument} {direction}\n"
+                                f"Reason: {close_reason}\n"
+                                f"P&L: {pnl:+.4f}"
+                            )
+                except Exception:
+                    cycle_log.exception(
+                        "exit_check_failed", trade_id=trade_id
+                    )
+            else:
+                # Position no longer at broker (closed externally — live mode)
+                # Try to get the exit details
+                pnl = 0.0
+                exit_price = entry_price
+                try:
+                    quote = self._broker.get_price(instrument)
+                    exit_price = (quote.bid + quote.ask) / 2
+                    if direction == "BUY":
+                        pnl = (exit_price - entry_price) * units
+                    else:
+                        pnl = (entry_price - exit_price) * units
+                except Exception:
+                    pass
+
+                db.close_trade(
+                    trade_id=trade_id,
+                    exit_price=exit_price,
+                    pnl=pnl,
+                    close_reason="Closed by broker (SL/TP)",
+                )
+                cycle_log.info(
+                    "position_closed_externally",
+                    trade_id=trade_id,
+                    instrument=instrument,
+                    pnl=round(pnl, 4),
+                )
 
     def _execute_trades(self, ranked: list[Signal], cycle_log: structlog.BoundLogger) -> None:
         """Attempt to trade the top-ranked instruments."""

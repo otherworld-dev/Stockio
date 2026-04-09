@@ -690,21 +690,37 @@ async function refreshTrades() {
     return;
   }
   _lastTrade = data[0];
-  let html = '<table><thead><tr><th>Time</th><th>Instrument</th><th>Direction</th><th>Units</th><th>Price</th><th>SL</th><th>TP</th><th>Confidence</th><th>Trade ID</th></tr></thead><tbody>';
+  let totalPnl = 0;
+  let closedCount = 0;
+  let html = '<table><thead><tr><th>Time</th><th>Instrument</th><th>Direction</th><th>Units</th><th>Entry</th><th>Exit</th><th>P&amp;L</th><th>Status</th><th>Confidence</th></tr></thead><tbody>';
   data.forEach(t => {
+    const isClosed = t.status === 'CLOSED';
+    const pnl = t.pnl != null ? t.pnl : null;
+    if (isClosed && pnl != null) { totalPnl += pnl; closedCount++; }
+    const pnlColor = pnl > 0 ? 'color:var(--green)' : (pnl < 0 ? 'color:var(--red)' : '');
+    const statusText = isClosed
+      ? '<span style="color:var(--text-dim)">' + escHtml(t.close_reason || 'CLOSED') + '</span>'
+      : '<span style="color:var(--accent)">OPEN</span>';
     html += '<tr>'
       + '<td>' + shortTime(t.timestamp) + '</td>'
       + '<td>' + escHtml(t.instrument) + '</td>'
       + '<td class="' + dirClass(t.direction) + '">' + escHtml(t.direction) + '</td>'
       + '<td>' + (t.units != null ? fmt(t.units, 0) : '--') + '</td>'
       + '<td>' + (t.price != null ? fmt(t.price, 5) : '--') + '</td>'
-      + '<td>' + (t.stop_loss != null ? fmt(t.stop_loss, 5) : '--') + '</td>'
-      + '<td>' + (t.take_profit != null ? fmt(t.take_profit, 5) : '--') + '</td>'
+      + '<td>' + (t.exit_price != null ? fmt(t.exit_price, 5) : '--') + '</td>'
+      + '<td style="' + pnlColor + ';font-family:var(--mono)">' + (pnl != null ? (pnl >= 0 ? '+' : '') + fmt(pnl, 4) : '--') + '</td>'
+      + '<td>' + statusText + '</td>'
       + '<td>' + (t.confidence != null ? (t.confidence * 100).toFixed(1) + '%' : '--') + '</td>'
-      + '<td style="font-size:0.72rem;color:var(--text-dim)">' + escHtml(t.trade_id || t.id || '--') + '</td>'
       + '</tr>';
   });
   html += '</tbody></table>';
+  if (closedCount > 0) {
+    const c = totalPnl >= 0 ? 'color:var(--green)' : 'color:var(--red)';
+    html += '<div style="margin-top:10px;font-family:var(--mono);font-size:0.85rem;">'
+      + 'Realized P&amp;L from ' + closedCount + ' closed trades: '
+      + '<span style="' + c + ';font-weight:600">'
+      + (totalPnl >= 0 ? '+' : '') + totalPnl.toFixed(4) + '</span></div>';
+  }
   wrap.innerHTML = html;
 }
 
