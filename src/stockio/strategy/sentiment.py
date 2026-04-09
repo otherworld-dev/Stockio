@@ -90,12 +90,35 @@ _BUILTIN_FEEDS = [
     # UK
     "http://feeds.bbci.co.uk/news/business/rss.xml",
     "https://www.theguardian.com/uk/business/rss",
+    "https://www.theguardian.com/business/stock-markets/rss",
+    "https://feeds.finance.yahoo.com/rss/2.0/headline?s=^FTSE&region=GB&lang=en-GB",
     # US / Global
     "https://feeds.finance.yahoo.com/rss/2.0/headline?region=US&lang=en-US",
     "https://feeds.finance.yahoo.com/rss/2.0/headline?s=^GSPC&region=US&lang=en-US",
+    "https://feeds.finance.yahoo.com/rss/2.0/headline?s=^IXIC&region=US&lang=en-US",
+    "https://www.theguardian.com/business/useconomy/rss",
     # Europe
     "https://feeds.finance.yahoo.com/rss/2.0/headline?s=^STOXX50E&region=EU&lang=en-US",
+    "https://feeds.finance.yahoo.com/rss/2.0/headline?s=^GDAXI&region=DE&lang=en-US",
+    # Asia
+    "https://feeds.finance.yahoo.com/rss/2.0/headline?s=^N225&region=JP&lang=en-US",
 ]
+
+# ---------------------------------------------------------------------------
+# Reddit subreddits (free JSON API, no auth needed)
+# ---------------------------------------------------------------------------
+
+_REDDIT_SUBREDDITS = [
+    "forex",
+    "wallstreetbets",
+    "stocks",
+    "investing",
+    "commodities",
+    "Gold",
+    "economy",
+]
+
+_REDDIT_USER_AGENT = "Stockio/1.0 (trading bot; market sentiment)"
 
 
 class SentimentAnalyzer:
@@ -207,6 +230,11 @@ class SentimentAnalyzer:
                 "trump_score": round(self._trump_cache.get(name, 0.0), 3),
                 "combined": round(self._cache.get(name, 0.0), 3),
                 "news_headlines": self._last_news_headlines.get(name, []),
+                "reddit_count": sum(
+                    1
+                    for h in self._last_news_headlines.get(name, [])
+                    if h.startswith("[r/")
+                ),
             }
             for name in self._cache
         }
@@ -220,13 +248,31 @@ class SentimentAnalyzer:
     # ------------------------------------------------------------------
 
     def _fetch_headlines(self, keywords: list[str]) -> list[str]:
-        """Fetch headlines from NewsAPI, fall back to built-in RSS."""
-        headlines = self._fetch_newsapi(keywords)
+        """Fetch headlines from NewsAPI + Reddit + built-in RSS."""
+        headlines: list[str] = []
+
+        # NewsAPI (if key available)
+        headlines.extend(self._fetch_newsapi(keywords))
+
+        # Reddit (free, no auth)
+        headlines.extend(self._fetch_reddit(keywords))
+
+        # Built-in RSS feeds (always available)
         if not headlines:
-            headlines = self._fetch_rss(keywords, self._settings.rss_feeds)
+            headlines.extend(self._fetch_rss(keywords, self._settings.rss_feeds))
         if not headlines:
-            headlines = self._fetch_rss(keywords, _BUILTIN_FEEDS)
-        return headlines[: self._settings.max_headlines]
+            headlines.extend(self._fetch_rss(keywords, _BUILTIN_FEEDS))
+
+        # Deduplicate
+        seen = set()
+        unique = []
+        for h in headlines:
+            h_lower = h.lower()
+            if h_lower not in seen:
+                seen.add(h_lower)
+                unique.append(h)
+
+        return unique[: self._settings.max_headlines]
 
     def _fetch_trump_headlines(self) -> list[str]:
         """Fetch recent Trump/political headlines from dedicated feeds."""
@@ -284,6 +330,37 @@ class SentimentAnalyzer:
         except Exception:
             log.exception("newsapi_fetch_failed")
             return []
+
+    def _fetch_reddit(self, keywords: list[str]) -> list[str]:
+        """Fetch from Reddit's free JSON API (no auth needed)."""
+        headlines: list[str] = []
+        keywords_lower = [kw.lower() for kw in keywords]
+
+        for subreddit in _REDDIT_SUBREDDITS:
+            try:
+                resp = httpx.get(
+                    f"https://www.reddit.com/r/{subreddit}/hot.json",
+                    params={"limit": 15, "raw_json": 1},
+                    headers={"User-Agent": _REDDIT_USER_AGENT},
+                    timeout=10,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                for child in data.get("data", {}).get("children", []):
+                    post = child.get("data", {})
+                    if post.get("stickied"):
+                        continue
+                    title = post.get("title", "")
+                    title_lower = title.lower()
+                    # Match by keywords
+                    if any(kw in title_lower for kw in keywords_lower):
+                        headlines.append(f"[r/{subreddit}] {title}")
+            except Exception:
+                log.debug("reddit_fetch_failed", subreddit=subreddit)
+
+        if headlines:
+            log.info("reddit_headlines_fetched", count=len(headlines))
+        return headlines
 
     def _fetch_rss(self, keywords: list[str], feeds: list[str]) -> list[str]:
         """Fetch from RSS feeds, filtered by keywords."""
