@@ -22,6 +22,34 @@ from stockio.broker.models import (
 
 log = structlog.get_logger()
 
+def _pip_value_in_gbp(instrument: str, units: int, current_price: float) -> float:
+    """Convert a 1-pip move to GBP value for position sizing.
+
+    For forex, P&L is in the quote currency:
+    - XXX_USD pairs: P&L is in USD → divide by GBP/USD rate (~1.30)
+    - XXX_JPY pairs: P&L is in JPY → divide by GBP/JPY rate (~190)
+    - EUR_GBP: P&L is already in GBP
+    - XXX_CHF pairs: P&L is in CHF → divide by GBP/CHF rate (~1.10)
+    - XXX_CAD pairs: P&L is in CAD → divide by GBP/CAD rate (~1.80)
+
+    Uses approximate rates — close enough for paper trading.
+    """
+    quote_ccy = instrument.split("_")[1] if "_" in instrument else "USD"
+
+    # Approximate conversion rates to GBP (updated periodically would be better,
+    # but these are close enough for paper P&L tracking)
+    to_gbp = {
+        "USD": 1 / 1.30,
+        "JPY": 1 / 190.0,
+        "GBP": 1.0,
+        "CHF": 1 / 1.10,
+        "CAD": 1 / 1.80,
+        "AUD": 1 / 1.95,
+        "NZD": 1 / 2.10,
+    }
+    return to_gbp.get(quote_ccy, 1 / 1.30)
+
+
 # Map OANDA-style instrument names to Yahoo Finance tickers
 _YAHOO_TICKER_MAP = {
     # Forex (Yahoo uses =X suffix)
@@ -146,16 +174,17 @@ class YahooBroker(BrokerBase):
         )
 
     def get_account(self) -> AccountSummary:
-        # Calculate holdings value from positions
+        # Calculate holdings value from positions (converted to GBP)
         unrealized = 0.0
         for pos in self._positions:
             try:
                 quote = self.get_price(pos.instrument)
                 mid = (quote.bid + quote.ask) / 2
+                conversion = _pip_value_in_gbp(pos.instrument, pos.units, mid)
                 if pos.direction.value == "BUY":
-                    unrealized += (mid - pos.entry_price) * pos.units
+                    unrealized += (mid - pos.entry_price) * pos.units * conversion
                 else:
-                    unrealized += (pos.entry_price - mid) * pos.units
+                    unrealized += (pos.entry_price - mid) * pos.units * conversion
             except Exception:
                 pass
 
@@ -190,8 +219,9 @@ class YahooBroker(BrokerBase):
 
         fill_price = quote.ask if order.direction.value == "BUY" else quote.bid
 
-        # Simulate spread cost (deducted immediately)
-        spread_cost = (quote.ask - quote.bid) * order.units
+        # Simulate spread cost (deducted immediately, converted to GBP)
+        conversion = _pip_value_in_gbp(order.instrument, order.units, fill_price)
+        spread_cost = (quote.ask - quote.bid) * order.units * conversion
         self._cash -= spread_cost
 
         self._positions.append(
@@ -224,10 +254,11 @@ class YahooBroker(BrokerBase):
         try:
             quote = self.get_price(pos.instrument)
             mid = (quote.bid + quote.ask) / 2
+            conversion = _pip_value_in_gbp(pos.instrument, pos.units, mid)
             if pos.direction.value == "BUY":
-                pnl = (mid - pos.entry_price) * pos.units
+                pnl = (mid - pos.entry_price) * pos.units * conversion
             else:
-                pnl = (pos.entry_price - mid) * pos.units
+                pnl = (pos.entry_price - mid) * pos.units * conversion
             self._cash += pnl
         except Exception:
             pass  # Position closed, P&L lost — acceptable for paper

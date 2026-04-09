@@ -436,11 +436,14 @@ class TradingEngine:
                             close_reason = "Take profit hit"
 
                     if close_reason:
-                        # Calculate P&L
+                        # Calculate P&L (convert to account currency)
+                        from stockio.broker.yahoo import _pip_value_in_gbp
+
+                        conversion = _pip_value_in_gbp(instrument, units, exit_price)
                         if direction == "BUY":
-                            pnl = (exit_price - entry_price) * units
+                            pnl = (exit_price - entry_price) * units * conversion
                         else:
-                            pnl = (entry_price - exit_price) * units
+                            pnl = (entry_price - exit_price) * units * conversion
 
                         # Close at broker
                         try:
@@ -482,12 +485,15 @@ class TradingEngine:
                 pnl = 0.0
                 exit_price = entry_price
                 try:
+                    from stockio.broker.yahoo import _pip_value_in_gbp
+
                     quote = self._broker.get_price(instrument)
                     exit_price = (quote.bid + quote.ask) / 2
+                    conversion = _pip_value_in_gbp(instrument, units, exit_price)
                     if direction == "BUY":
-                        pnl = (exit_price - entry_price) * units
+                        pnl = (exit_price - entry_price) * units * conversion
                     else:
-                        pnl = (entry_price - exit_price) * units
+                        pnl = (entry_price - exit_price) * units * conversion
                 except Exception:
                     pass
 
