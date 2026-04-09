@@ -18,6 +18,7 @@ log = structlog.get_logger()
 
 # Feature names expected by the LightGBM model (order matters for prediction)
 FEATURE_NAMES = [
+    # Technical (13)
     "ema_cross_short_mid",
     "ema_cross_mid_long",
     "macd_histogram",
@@ -31,6 +32,14 @@ FEATURE_NAMES = [
     "close_vs_ema_long",
     "range_vs_atr",
     "sentiment",
+    # Temporal (7)
+    "session_asia",
+    "session_london",
+    "session_newyork",
+    "session_overlap",
+    "day_of_week",
+    "hour_sin",
+    "hour_cos",
 ]
 
 MIN_TRAINING_SAMPLES = 200
@@ -435,6 +444,16 @@ class InstrumentScorer:
         sentiment = features.get("sentiment", 0.0)
         score += sentiment * 1.0
         max_score += 1.0
+
+        # Session context — signals are more reliable during active sessions
+        if features.get("session_overlap", 0) == 1.0:
+            score *= 1.2  # London/NY overlap = strongest signals
+        elif features.get("session_asia", 0) == 1.0 and adx < 25:
+            score *= 0.6  # Asian ranging = weak signals
+
+        # Friday late: reduce confidence (position squaring)
+        if features.get("day_of_week", 0) > 0.9 and features.get("hour_cos", 0) < -0.5:
+            score *= 0.7
 
         if max_score == 0:
             return Signal(

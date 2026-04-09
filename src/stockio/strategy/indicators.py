@@ -140,4 +140,37 @@ def build_feature_vector(df: pd.DataFrame, settings: Settings) -> dict[str, floa
     else:
         features["range_vs_atr"] = 1.0
 
+    # Temporal features
+    features.update(build_temporal_features(df.index[-1]))
+
+    return features
+
+
+def build_temporal_features(timestamp) -> dict[str, float]:
+    """Compute time-of-day and session features from a candle timestamp."""
+    import math
+
+    # Handle pandas Timestamp or datetime
+    if hasattr(timestamp, "hour"):
+        hour = timestamp.hour
+        weekday = timestamp.weekday()  # 0=Monday, 4=Friday
+    else:
+        hour = 12
+        weekday = 2
+
+    features: dict[str, float] = {}
+
+    # Session flags (UTC hours)
+    features["session_asia"] = 1.0 if (hour >= 22 or hour < 7) else 0.0
+    features["session_london"] = 1.0 if 8 <= hour < 17 else 0.0
+    features["session_newyork"] = 1.0 if 13 <= hour < 22 else 0.0
+    features["session_overlap"] = 1.0 if 13 <= hour < 17 else 0.0
+
+    # Day of week (normalized 0-1)
+    features["day_of_week"] = weekday / 4.0
+
+    # Cyclical hour encoding (so 23:00 and 01:00 are close)
+    features["hour_sin"] = math.sin(2 * math.pi * hour / 24)
+    features["hour_cos"] = math.cos(2 * math.pi * hour / 24)
+
     return features

@@ -28,6 +28,14 @@ _YAHOO_TICKER_MAP = {
     "EUR_USD": "EURUSD=X",
     "GBP_USD": "GBPUSD=X",
     "USD_JPY": "USDJPY=X",
+    "AUD_USD": "AUDUSD=X",
+    "NZD_USD": "NZDUSD=X",
+    "USD_CAD": "USDCAD=X",
+    "USD_CHF": "USDCHF=X",
+    "EUR_GBP": "EURGBP=X",
+    "EUR_JPY": "EURJPY=X",
+    "GBP_JPY": "GBPJPY=X",
+    "AUD_JPY": "AUDJPY=X",
     # Commodities
     "XAU_USD": "GC=F",  # Gold futures
     "XAG_USD": "SI=F",  # Silver futures

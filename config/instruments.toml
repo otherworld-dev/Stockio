@@ -51,3 +51,75 @@ type = "commodity"
 news_keywords = ["oil price", "brent crude", "OPEC", "crude oil"]
 trading_hours = { start = "01:00", end = "22:00" }
 spread_typical = 0.04
+
+[AUD_USD]
+display_name = "AUD/USD"
+pip_size = 0.0001
+min_units = 1
+type = "forex"
+news_keywords = ["AUD/USD", "australian dollar", "RBA", "Reserve Bank of Australia"]
+trading_hours = { start = "00:00", end = "23:59" }
+spread_typical = 0.00016
+
+[NZD_USD]
+display_name = "NZD/USD"
+pip_size = 0.0001
+min_units = 1
+type = "forex"
+news_keywords = ["NZD/USD", "new zealand dollar", "RBNZ", "kiwi dollar"]
+trading_hours = { start = "00:00", end = "23:59" }
+spread_typical = 0.00020
+
+[USD_CAD]
+display_name = "USD/CAD"
+pip_size = 0.0001
+min_units = 1
+type = "forex"
+news_keywords = ["USD/CAD", "dollar loonie", "Bank of Canada", "canadian dollar", "oil price"]
+trading_hours = { start = "00:00", end = "23:59" }
+spread_typical = 0.00018
+
+[USD_CHF]
+display_name = "USD/CHF"
+pip_size = 0.0001
+min_units = 1
+type = "forex"
+news_keywords = ["USD/CHF", "dollar franc", "Swiss National Bank", "SNB", "safe haven"]
+trading_hours = { start = "00:00", end = "23:59" }
+spread_typical = 0.00016
+
+[EUR_GBP]
+display_name = "EUR/GBP"
+pip_size = 0.0001
+min_units = 1
+type = "forex"
+news_keywords = ["EUR/GBP", "euro pound", "ECB", "Bank of England"]
+trading_hours = { start = "00:00", end = "23:59" }
+spread_typical = 0.00015
+
+[EUR_JPY]
+display_name = "EUR/JPY"
+pip_size = 0.01
+min_units = 1
+type = "forex"
+news_keywords = ["EUR/JPY", "euro yen", "ECB", "Bank of Japan", "risk sentiment"]
+trading_hours = { start = "00:00", end = "23:59" }
+spread_typical = 0.018
+
+[GBP_JPY]
+display_name = "GBP/JPY"
+pip_size = 0.01
+min_units = 1
+type = "forex"
+news_keywords = ["GBP/JPY", "pound yen", "Bank of England", "Bank of Japan", "carry trade"]
+trading_hours = { start = "00:00", end = "23:59" }
+spread_typical = 0.025
+
+[AUD_JPY]
+display_name = "AUD/JPY"
+pip_size = 0.01
+min_units = 1
+type = "forex"
+news_keywords = ["AUD/JPY", "aussie yen", "RBA", "risk appetite", "carry trade"]
+trading_hours = { start = "00:00", end = "23:59" }
+spread_typical = 0.020
