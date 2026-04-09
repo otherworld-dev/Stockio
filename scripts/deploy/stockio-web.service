@@ -12,12 +12,8 @@ ExecStart=/opt/stockio/.venv/bin/stockio web --host 0.0.0.0 --port 5000
 Restart=always
 RestartSec=10
 
-# Security hardening
+# Security hardening (LXC-compatible — no namespace features)
 NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/opt/stockio/data /opt/stockio/models /opt/stockio/logs
-PrivateTmp=true
 
 # Environment
 EnvironmentFile=/opt/stockio/.env

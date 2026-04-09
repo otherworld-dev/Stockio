@@ -12,12 +12,8 @@ ExecStart=/opt/stockio/.venv/bin/stockio run
 Restart=always
 RestartSec=30
 
-# Security hardening
+# Security hardening (LXC-compatible — no namespace features)
 NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/opt/stockio/data /opt/stockio/models /opt/stockio/logs
-PrivateTmp=true
 
 # Environment
 EnvironmentFile=/opt/stockio/.env
