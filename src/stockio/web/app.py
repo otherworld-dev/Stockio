@@ -270,6 +270,21 @@ def api_engine_status():
 
 
 # ---------------------------------------------------------------------------
+# Economic calendar
+# ---------------------------------------------------------------------------
+
+
+@app.route("/api/calendar")
+def api_calendar():
+    """Return upcoming economic events."""
+    slot_name = request.args.get("instance", "paper")
+    slot = get_slot(slot_name)
+    if not slot or not slot.engine:
+        return jsonify([])
+    return jsonify(slot.engine._calendar.get_all_upcoming_dict())
+
+
+# ---------------------------------------------------------------------------
 # Visualisation APIs
 # ---------------------------------------------------------------------------
 

@@ -40,6 +40,11 @@ FEATURE_NAMES = [
     "day_of_week",
     "hour_sin",
     "hour_cos",
+    # Calendar (4)
+    "hours_until_high_event",
+    "hours_until_medium_event",
+    "is_event_window",
+    "events_next_4h",
 ]
 
 MIN_TRAINING_SAMPLES = 200
@@ -454,6 +459,21 @@ class InstrumentScorer:
         # Friday late: reduce confidence (position squaring)
         if features.get("day_of_week", 0) > 0.9 and features.get("hour_cos", 0) < -0.5:
             score *= 0.7
+
+        # Economic calendar — don't trade during high-impact event windows
+        if features.get("is_event_window", 0) == 1.0:
+            return Signal(
+                instrument=instrument,
+                direction=Direction.HOLD,
+                confidence=0.0,
+                timestamp=datetime.now(UTC),
+                features=features,
+            )
+
+        # Reduce confidence when event is imminent
+        hours_until = features.get("hours_until_high_event", 1.0)
+        if hours_until < 1.0 / 168:  # Less than 1 hour (normalized)
+            score *= 0.5
 
         if max_score == 0:
             return Signal(

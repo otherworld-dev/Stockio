@@ -225,6 +225,11 @@ class TradingEngine:
         self._notifier = notifier
         self._outcome_tracker = OutcomeTracker(settings, settings.data_dir)
 
+        # Economic calendar
+        from stockio.strategy.calendar import EconomicCalendar
+
+        self._calendar = EconomicCalendar(settings)
+
         # Circuit breakers for external services
         self._cb_oanda = CircuitBreaker("oanda")
         self._cb_newsapi = CircuitBreaker("newsapi")
@@ -274,6 +279,10 @@ class TradingEngine:
                 oanda_failed += 1
                 self._cb_oanda.record_failure()
 
+        # Refresh economic calendar if needed
+        if self._calendar.needs_refresh():
+            self._calendar.refresh()
+
         # Step 2: Compute indicators and score each instrument
         signals: dict[str, Signal] = {}
         for name in self._warmed_up:
@@ -283,6 +292,8 @@ class TradingEngine:
                 if df.empty:
                     continue
                 features = build_feature_vector(df, self._settings)
+                # Merge calendar features
+                features.update(self._calendar.get_features(name))
                 self._latest_features[name] = features
                 sentiment = self._sentiment.get(name, 0.0)
                 signal = self._scorer.score_instrument(name, features, sentiment)
@@ -290,8 +301,11 @@ class TradingEngine:
             except Exception:
                 cycle_log.exception("scoring_failed", instrument=name)
 
-        # Step 3: Rank instruments
+        # Step 3: Rank instruments and filter correlated pairs
+        from stockio.strategy.correlation import filter_correlated_signals
+
         ranked = self._scorer.rank_instruments(signals)
+        ranked = filter_correlated_signals(ranked, set())
 
         if ranked:
             cycle_log.info(
