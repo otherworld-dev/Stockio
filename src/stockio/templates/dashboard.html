@@ -164,6 +164,38 @@
 
   .no-data { color: var(--text-dim); font-style: italic; padding: 16px 0; font-size: 0.85rem; }
 
+  /* Bot Summary */
+  .panel.summary-panel {
+    border-left: 3px solid var(--accent);
+    background: linear-gradient(135deg, var(--card) 0%, rgba(79,195,247,0.06) 100%);
+  }
+  .panel.summary-panel .summary-text {
+    font-size: 1rem; line-height: 1.6; color: var(--text);
+  }
+
+  /* Collapsible panels */
+  .panel.collapsible .panel-title {
+    cursor: pointer; user-select: none; display: flex; align-items: center; gap: 8px;
+  }
+  .panel.collapsible .panel-title .collapse-arrow {
+    display: inline-block; font-size: 0.7rem; color: var(--text-dim);
+    transition: transform 0.2s; flex-shrink: 0;
+  }
+  .panel.collapsible .panel-body { display: none; }
+  .panel.collapsible.open .panel-body { display: block; }
+  .panel.collapsible.open .panel-title .collapse-arrow { transform: rotate(90deg); }
+
+  /* Alert banner */
+  #alertBanner {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 2000;
+    padding: 12px 24px; font-size: 0.9rem; font-weight: 600;
+    text-align: center; transform: translateY(-100%);
+    transition: transform 0.35s ease; font-family: var(--font);
+  }
+  #alertBanner.visible { transform: translateY(0); }
+  #alertBanner.trade { background: var(--green); color: #000; }
+  #alertBanner.halted { background: #ff9800; color: #000; }
+
   /* Responsive */
   @media (max-width: 900px) {
     .cards { grid-template-columns: repeat(2, 1fr); }
@@ -258,6 +290,9 @@
 </head>
 <body>
 
+<!-- Alert Banner -->
+<div id="alertBanner"></div>
+
 <!-- Header -->
 <div class="header">
   <span class="header-title">Stockio <span class="version-badge">{{ version|default('v0.1') }}</span></span>
@@ -295,6 +330,12 @@
     </div>
   </div>
 
+  <!-- Bot Summary -->
+  <div class="panel summary-panel">
+    <div class="panel-title">Bot Summary</div>
+    <div class="summary-text" id="botSummary">Loading...</div>
+  </div>
+
   <!-- P&L Chart -->
   <div class="panel">
     <div class="panel-title">Equity Over Time</div>
@@ -322,10 +363,12 @@
   </div>
 
   <!-- Bot Thinking Log -->
-  <div class="panel">
-    <div class="panel-title">Bot Thinking Log</div>
-    <div id="botLogWrap">
-      <p class="no-data">Loading...</p>
+  <div class="panel collapsible">
+    <div class="panel-title" onclick="togglePanel(this)"><span class="collapse-arrow">&#9654;</span> Bot Thinking Log</div>
+    <div class="panel-body">
+      <div id="botLogWrap">
+        <p class="no-data">Loading...</p>
+      </div>
     </div>
   </div>
 
@@ -348,18 +391,22 @@
   </div>
 
   <!-- Technical Indicator Gauges -->
-  <div class="panel">
-    <div class="panel-title">Technical Indicators</div>
-    <div class="indicator-grid" id="indicatorGrid">
-      <p class="no-data">Loading...</p>
+  <div class="panel collapsible">
+    <div class="panel-title" onclick="togglePanel(this)"><span class="collapse-arrow">&#9654;</span> Technical Indicators</div>
+    <div class="panel-body">
+      <div class="indicator-grid" id="indicatorGrid">
+        <p class="no-data">Loading...</p>
+      </div>
     </div>
   </div>
 
   <!-- Decision Waterfall -->
-  <div class="panel">
-    <div class="panel-title">Decision Waterfall</div>
-    <div class="waterfall-list" id="waterfallList">
-      <p class="no-data">Loading...</p>
+  <div class="panel collapsible">
+    <div class="panel-title" onclick="togglePanel(this)"><span class="collapse-arrow">&#9654;</span> Decision Waterfall</div>
+    <div class="panel-body">
+      <div class="waterfall-list" id="waterfallList">
+        <p class="no-data">Loading...</p>
+      </div>
     </div>
   </div>
 
@@ -372,10 +419,12 @@
   </div>
 
   <!-- Trade Outcome Tracker -->
-  <div class="panel">
-    <div class="panel-title">Trade Outcome Tracker</div>
-    <div id="tradeOutcomes">
-      <p class="no-data">Loading...</p>
+  <div class="panel collapsible">
+    <div class="panel-title" onclick="togglePanel(this)"><span class="collapse-arrow">&#9654;</span> Trade Outcome Tracker</div>
+    <div class="panel-body">
+      <div id="tradeOutcomes">
+        <p class="no-data">Loading...</p>
+      </div>
     </div>
   </div>
 
@@ -416,6 +465,11 @@
 let activeInstance = 'paper';
 let equityChart = null;
 let refreshTimer = null;
+let _lastSignals = [];
+let _lastEngineStatus = null;
+let _lastTrade = null;
+let _alertTimeout = null;
+let _lastAlertTradeId = null;
 
 /* ── Helpers ── */
 function api(path) {
@@ -587,11 +641,27 @@ async function refreshSignals() {
   ]);
   if (!signals || !signals.length) {
     wrap.innerHTML = '<p class="no-data">No signals available</p>';
+    _lastSignals = [];
     return;
   }
+  _lastSignals = signals;
   const sentMap = (sentiment && sentiment.combined) ? sentiment.combined : (sentiment || {});
+
+  // Separate HOLD from actionable signals
+  const actionable = signals.filter(s => s.direction && s.direction.toUpperCase() !== 'HOLD');
+  const holdCount = signals.length - actionable.length;
+
+  // Sort by confidence descending
+  actionable.sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
+
+  if (!actionable.length) {
+    wrap.innerHTML = '<p class="no-data">No actionable signals</p>'
+      + (holdCount ? '<p style="font-size:0.78rem;color:var(--text-dim);margin-top:6px">' + holdCount + ' instrument' + (holdCount !== 1 ? 's' : '') + ' on HOLD (hidden)</p>' : '');
+    return;
+  }
+
   let html = '<table><thead><tr><th>Instrument</th><th>Direction</th><th>Confidence</th><th>Sentiment</th><th>RSI 14</th><th>MACD</th><th>ADX</th></tr></thead><tbody>';
-  signals.forEach(s => {
+  actionable.forEach(s => {
     const sent = sentMap[s.instrument] != null ? sentMap[s.instrument] : s.sentiment;
     const sentColor = sent > 0 ? 'color:var(--green)' : (sent < 0 ? 'color:var(--red)' : '');
     html += '<tr>'
@@ -605,6 +675,9 @@ async function refreshSignals() {
       + '</tr>';
   });
   html += '</tbody></table>';
+  if (holdCount) {
+    html += '<p style="font-size:0.78rem;color:var(--text-dim);margin-top:8px">' + holdCount + ' instrument' + (holdCount !== 1 ? 's' : '') + ' on HOLD (hidden)</p>';
+  }
   wrap.innerHTML = html;
 }
 
@@ -613,8 +686,10 @@ async function refreshTrades() {
   const data = await fetchJSON('/api/trades?limit=50');
   if (!data || !data.length) {
     wrap.innerHTML = '<p class="no-data">No trades recorded</p>';
+    _lastTrade = null;
     return;
   }
+  _lastTrade = data[0];
   let html = '<table><thead><tr><th>Time</th><th>Instrument</th><th>Direction</th><th>Units</th><th>Price</th><th>SL</th><th>TP</th><th>Confidence</th><th>Trade ID</th></tr></thead><tbody>';
   data.forEach(t => {
     html += '<tr>'
@@ -670,6 +745,7 @@ function toggleLog(header) {
 async function refreshEngine() {
   const d = await fetchJSON('/api/engine-status');
   if (!d) return;
+  _lastEngineStatus = d;
   document.getElementById('engCycles').textContent = d.cycle_count != null ? d.cycle_count : '--';
   document.getElementById('engAccuracy').textContent = d.model_accuracy != null ? (d.model_accuracy * 100).toFixed(1) + '%' : '--';
   document.getElementById('engSamples').textContent = d.training_samples != null ? d.training_samples : '--';
@@ -997,6 +1073,84 @@ async function refreshTradeOutcomes() {
   }
 }
 
+/* ── Collapsible panels ── */
+function togglePanel(titleEl) {
+  const panel = titleEl.closest('.panel.collapsible');
+  if (panel) panel.classList.toggle('open');
+}
+
+/* ── Bot Summary ── */
+function refreshSummary() {
+  const el = document.getElementById('botSummary');
+  const eng = _lastEngineStatus;
+  const signals = _lastSignals || [];
+  const btn = document.getElementById('startStopBtn');
+  const isStopped = btn && btn.classList.contains('stopped');
+
+  if (isStopped && !(eng && eng.halted)) {
+    el.textContent = 'Bot is stopped.';
+    return;
+  }
+  if (eng && eng.halted) {
+    el.innerHTML = '<span style="color:#ff9800">\u26A0 TRADING HALTED: ' + escHtml(eng.halt_reason || 'Circuit breaker triggered') + '</span>';
+    return;
+  }
+
+  const actionable = signals.filter(s => s.direction && s.direction.toUpperCase() !== 'HOLD');
+  const totalInstruments = signals.length;
+  const cycles = eng ? (eng.cycle_count || 0) : 0;
+  const tradeCount = _lastTrade ? 'at least 1' : '0';
+
+  if (actionable.length > 0) {
+    actionable.sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
+    const top = actionable[0];
+    const confPct = top.confidence != null ? (top.confidence * 100).toFixed(1) + '%' : '?';
+    el.textContent = 'Watching ' + actionable.length + ' potential trade' + (actionable.length !== 1 ? 's' : '')
+      + '. Strongest: ' + (top.instrument || '?') + ' ' + (top.direction || '?') + ' at ' + confPct + ' confidence. '
+      + cycles + ' cycle' + (cycles !== 1 ? 's' : '') + ' completed.';
+  } else {
+    el.textContent = 'Analyzing ' + totalInstruments + ' instrument' + (totalInstruments !== 1 ? 's' : '')
+      + '. No actionable signals this cycle.';
+  }
+}
+
+/* ── Alert Banner ── */
+function refreshAlertBanner() {
+  const banner = document.getElementById('alertBanner');
+  const eng = _lastEngineStatus;
+
+  // Check for halt
+  if (eng && eng.halted) {
+    showBanner('\u26A0 Trading halted: ' + (eng.halt_reason || 'Circuit breaker triggered'), 'halted');
+    return;
+  }
+
+  // Check for recent trade (within 60 seconds)
+  if (_lastTrade && _lastTrade.timestamp) {
+    const tradeTime = new Date(_lastTrade.timestamp).getTime();
+    const now = Date.now();
+    const tradeId = _lastTrade.trade_id || _lastTrade.id || _lastTrade.timestamp;
+    if ((now - tradeTime) < 60000 && tradeId !== _lastAlertTradeId) {
+      _lastAlertTradeId = tradeId;
+      const t = _lastTrade;
+      const msg = '\u2713 Trade executed: ' + (t.direction || '') + ' ' + (t.instrument || '') + ' '
+        + (t.units != null ? fmt(t.units, 0) + ' units' : '') + (t.price != null ? ' at ' + fmt(t.price, 5) : '');
+      showBanner(msg, 'trade');
+      return;
+    }
+  }
+}
+
+function showBanner(text, type) {
+  const banner = document.getElementById('alertBanner');
+  banner.textContent = text;
+  banner.className = type + ' visible';
+  if (_alertTimeout) clearTimeout(_alertTimeout);
+  _alertTimeout = setTimeout(() => {
+    banner.classList.remove('visible');
+  }, 30000);
+}
+
 /* ── Refresh all ── */
 function refreshAll() {
   refreshStatus();
@@ -1012,6 +1166,9 @@ function refreshAll() {
   refreshWaterfall();
   refreshModelLearning();
   refreshTradeOutcomes();
+  // Summary and alert depend on cached data from above fetches.
+  // Use a short delay so the async fetches have time to populate state.
+  setTimeout(() => { refreshSummary(); refreshAlertBanner(); }, 2000);
 }
 
 /* ── Init ── */
