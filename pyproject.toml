@@ -23,6 +23,7 @@ dependencies = [
     "psutil>=5.9",
     "flask>=3.0",
     "click>=8.1",
+    "yfinance>=0.2.31",
 ]
 
 [project.optional-dependencies]

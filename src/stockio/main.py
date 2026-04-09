@@ -34,7 +34,6 @@ def configure_logging(level: str) -> None:
 def run_bot(cycle_seconds_override: int | None = None) -> None:
     """Run the headless trading bot loop."""
     from stockio import db
-    from stockio.broker import OandaBroker
     from stockio.config import load_instruments, load_settings
     from stockio.engine import TradingEngine
     from stockio.strategy.notifier import TelegramNotifier
@@ -46,19 +45,30 @@ def run_bot(cycle_seconds_override: int | None = None) -> None:
     cycle_seconds = cycle_seconds_override or settings.cycle_seconds
 
     log = structlog.get_logger()
-    log.info(
-        "starting",
-        environment=settings.oanda_environment,
-        granularity=settings.granularity,
-        cycle_seconds=cycle_seconds,
-    )
 
     db.set_default_db(settings.get_db_path())
 
     instruments = load_instruments()
     log.info("instruments_loaded", instruments=list(instruments.keys()))
 
-    broker = OandaBroker(settings)
+    # Auto-select broker: OANDA if credentials exist, Yahoo Finance otherwise
+    if settings.oanda_api_token and settings.oanda_account_id:
+        from stockio.broker import OandaBroker
+
+        broker = OandaBroker(settings)
+        broker_name = "oanda"
+    else:
+        from stockio.broker import YahooBroker
+
+        broker = YahooBroker(initial_budget=settings.initial_budget)
+        broker_name = "yahoo (paper mode — no OANDA credentials)"
+
+    log.info(
+        "starting",
+        broker=broker_name,
+        granularity=settings.granularity,
+        cycle_seconds=cycle_seconds,
+    )
     notifier = TelegramNotifier(settings)
     sentiment = SentimentAnalyzer(settings)
     engine = TradingEngine(

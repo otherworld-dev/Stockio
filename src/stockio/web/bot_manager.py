@@ -118,7 +118,13 @@ def _run_bot(slot: BotSlot, generation: int) -> None:
         settings = _settings
         instruments = load_instruments()
 
-        broker = OandaBroker(settings)
+        if settings.oanda_api_token and settings.oanda_account_id:
+            broker = OandaBroker(settings)
+        else:
+            from stockio.broker import YahooBroker
+
+            broker = YahooBroker(initial_budget=settings.initial_budget)
+
         notifier = TelegramNotifier(settings)
         sentiment = SentimentAnalyzer(settings)
         engine = TradingEngine(

@@ -2,5 +2,6 @@
 
 from stockio.broker.base import BrokerBase
 from stockio.broker.oanda import OandaBroker
+from stockio.broker.yahoo import YahooBroker
 
-__all__ = ["BrokerBase", "OandaBroker"]
+__all__ = ["BrokerBase", "OandaBroker", "YahooBroker"]
