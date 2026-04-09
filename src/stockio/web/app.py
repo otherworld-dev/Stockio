@@ -213,7 +213,7 @@ def api_bot_log():
 def api_settings():
     if request.method == "GET":
         settings = load_settings()
-        return jsonify({
+        defaults = {
             "granularity": settings.granularity,
             "min_confidence": settings.min_confidence,
             "risk_per_trade": settings.risk_per_trade,
@@ -223,7 +223,17 @@ def api_settings():
             "daily_loss_limit": settings.daily_loss_limit,
             "max_drawdown": settings.max_drawdown,
             "cycle_seconds": settings.cycle_seconds,
-        })
+            "sentiment_refresh_seconds": settings.sentiment_refresh_seconds,
+        }
+        # Override with any DB-saved settings
+        result = {}
+        for k, v in defaults.items():
+            saved = db.get_setting(k)
+            try:
+                result[k] = type(v)(saved) if saved else v
+            except (ValueError, TypeError):
+                result[k] = v
+        return jsonify(result)
     else:
         data = request.get_json(silent=True) or {}
         for key, value in data.items():

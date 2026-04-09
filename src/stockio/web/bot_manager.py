@@ -158,7 +158,13 @@ def _run_bot(slot: BotSlot, generation: int) -> None:
                 slot.last_error = str(exc)
                 log.exception("bot_cycle_error", instance=slot.name)
 
-            slot.shutdown_event.wait(timeout=settings.cycle_seconds)
+            # Check for updated cycle_seconds from dashboard settings
+            try:
+                saved_cycle = db.get_setting("cycle_seconds")
+                cycle_wait = int(saved_cycle) if saved_cycle else settings.cycle_seconds
+            except (ValueError, TypeError):
+                cycle_wait = settings.cycle_seconds
+            slot.shutdown_event.wait(timeout=cycle_wait)
 
     except Exception as exc:
         slot.last_error = str(exc)

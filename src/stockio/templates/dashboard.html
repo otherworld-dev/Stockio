@@ -276,7 +276,8 @@
     <div class="form-group"><label class="form-label">Max Positions</label><input class="form-input" id="set_max_positions" type="number" step="1"></div>
     <div class="form-group"><label class="form-label">Daily Loss Limit</label><input class="form-input" id="set_daily_loss_limit" type="number" step="0.01"></div>
     <div class="form-group"><label class="form-label">Max Drawdown</label><input class="form-input" id="set_max_drawdown" type="number" step="0.01"></div>
-    <div class="form-group"><label class="form-label">Cycle Seconds</label><input class="form-input" id="set_cycle_seconds" type="number" step="1"></div>
+    <div class="form-group"><label class="form-label">Cycle Seconds</label><input class="form-input" id="set_cycle_seconds" type="number" step="1" min="60" placeholder="300 = 5min"></div>
+    <div class="form-group"><label class="form-label">Sentiment Refresh (sec)</label><input class="form-input" id="set_sentiment_refresh_seconds" type="number" step="1" min="300" placeholder="3600 = 1hr"></div>
     <div class="modal-actions">
       <button class="btn-cancel" onclick="closeSettings()">Cancel</button>
       <button class="btn-save" onclick="saveSettings()">Save</button>
@@ -558,7 +559,7 @@ async function refreshEngine() {
 }
 
 /* ── Settings ── */
-const settingsKeys = ['min_confidence','risk_per_trade','stop_loss_atr_mult','take_profit_atr_mult','max_positions','daily_loss_limit','max_drawdown','cycle_seconds'];
+const settingsKeys = ['min_confidence','risk_per_trade','stop_loss_atr_mult','take_profit_atr_mult','max_positions','daily_loss_limit','max_drawdown','cycle_seconds','sentiment_refresh_seconds'];
 
 async function openSettings() {
   const d = await fetchJSON('/api/settings');
