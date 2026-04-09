@@ -505,11 +505,19 @@ class InstrumentScorer:
 
     def rank_instruments(self, signals: dict[str, Signal]) -> list[Signal]:
         """Rank signals by confidence, filtering out HOLD and low-confidence."""
+        # Check DB override for min_confidence
+        try:
+            from stockio import db
+
+            saved = db.get_setting("min_confidence")
+            threshold = float(saved) if saved else self._settings.min_confidence
+        except Exception:
+            threshold = self._settings.min_confidence
+
         tradeable = [
             s
             for s in signals.values()
-            if s.direction != Direction.HOLD
-            and s.confidence >= self._settings.min_confidence
+            if s.direction != Direction.HOLD and s.confidence >= threshold
         ]
         tradeable.sort(key=lambda s: s.confidence, reverse=True)
         return tradeable

@@ -293,3 +293,25 @@ def set_setting(key: str, value: str) -> None:
             "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
             (key, value),
         )
+
+
+def get_float_setting(key: str, default: float) -> float:
+    """Read a setting as float, falling back to default if missing or invalid."""
+    saved = get_setting(key)
+    if saved:
+        try:
+            return float(saved)
+        except (ValueError, TypeError):
+            pass
+    return default
+
+
+def get_int_setting(key: str, default: int) -> int:
+    """Read a setting as int, falling back to default if missing or invalid."""
+    saved = get_setting(key)
+    if saved:
+        try:
+            return int(float(saved))
+        except (ValueError, TypeError):
+            pass
+    return default

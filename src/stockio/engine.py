@@ -127,33 +127,35 @@ class RiskManager:
         self._weekly_pnl += pnl
 
     def check(self, account: AccountSummary) -> tuple[bool, str]:
-        """Run all risk checks. Returns (ok, reason)."""
+        """Run all risk checks. Returns (ok, reason). Reads DB overrides."""
         if self._halted:
             return False, f"Trading halted: {self._halt_reason}"
 
         s = self._settings
+        max_pos = db.get_int_setting("max_positions", s.max_positions)
+        daily_lim = db.get_float_setting("daily_loss_limit", s.daily_loss_limit)
+        weekly_lim = db.get_float_setting("weekly_loss_limit", s.weekly_loss_limit)
+        max_dd = db.get_float_setting("max_drawdown", s.max_drawdown)
 
         # Max positions
-        if account.open_position_count >= s.max_positions:
-            return False, f"Max positions ({s.max_positions}) reached"
+        if account.open_position_count >= max_pos:
+            return False, f"Max positions ({max_pos}) reached"
 
         # Daily loss limit
         if self._peak_equity > 0:
-            daily_limit = s.daily_loss_limit * self._peak_equity
-            if self._daily_pnl < -daily_limit:
-                return False, f"Daily loss limit ({s.daily_loss_limit:.0%}) hit"
+            if self._daily_pnl < -(daily_lim * self._peak_equity):
+                return False, f"Daily loss limit ({daily_lim:.0%}) hit"
 
             # Weekly loss limit
-            weekly_limit = s.weekly_loss_limit * self._peak_equity
-            if self._weekly_pnl < -weekly_limit:
-                return False, f"Weekly loss limit ({s.weekly_loss_limit:.0%}) hit"
+            if self._weekly_pnl < -(weekly_lim * self._peak_equity):
+                return False, f"Weekly loss limit ({weekly_lim:.0%}) hit"
 
             # Max drawdown kill switch
             drawdown = (self._peak_equity - account.equity) / self._peak_equity
-            if drawdown >= s.max_drawdown:
+            if drawdown >= max_dd:
                 self._halted = True
                 self._halt_reason = (
-                    f"Max drawdown ({s.max_drawdown:.0%}) breached — "
+                    f"Max drawdown ({max_dd:.0%}) breached — "
                     f"peak={self._peak_equity:.2f}, current={account.equity:.2f}"
                 )
                 return False, self._halt_reason
@@ -168,14 +170,16 @@ def calculate_position_size(
     settings: Settings,
 ) -> int:
     """Calculate position size based on risk per trade and ATR-based stop distance."""
-    risk_amount = account.equity * settings.risk_per_trade
-    stop_distance = atr * settings.stop_loss_atr_mult
+    risk_pct = db.get_float_setting("risk_per_trade", settings.risk_per_trade)
+    sl_mult = db.get_float_setting("stop_loss_atr_mult", settings.stop_loss_atr_mult)
+
+    risk_amount = account.equity * risk_pct
+    stop_distance = atr * sl_mult
 
     if stop_distance <= 0:
         return 0
 
     units = risk_amount / stop_distance
-    # Round down to nearest min_units
     min_u = instrument.min_units
     units = max(min_u, int(math.floor(units / min_u) * min_u))
     return units
@@ -188,8 +192,8 @@ def calculate_stop_take_profit(
     settings: Settings,
 ) -> tuple[float, float]:
     """Calculate stop-loss and take-profit prices."""
-    sl_dist = atr * settings.stop_loss_atr_mult
-    tp_dist = atr * settings.take_profit_atr_mult
+    sl_dist = atr * db.get_float_setting("stop_loss_atr_mult", settings.stop_loss_atr_mult)
+    tp_dist = atr * db.get_float_setting("take_profit_atr_mult", settings.take_profit_atr_mult)
 
     if direction == Direction.BUY:
         stop_loss = round(price - sl_dist, 5)
