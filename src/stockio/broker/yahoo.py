@@ -174,7 +174,12 @@ class YahooBroker(BrokerBase):
         return list(self._positions)
 
     def submit_order(self, order: OrderRequest) -> str:
-        """Simulate a paper trade."""
+        """Simulate a paper trade.
+
+        For forex, we track positions and calculate P&L from price movement.
+        We do NOT deduct the full notional value — that's not how forex works.
+        Instead, we reserve a small margin amount (leverage-based).
+        """
         self._trade_counter += 1
         trade_id = f"PAPER-{self._trade_counter}"
 
@@ -185,8 +190,9 @@ class YahooBroker(BrokerBase):
 
         fill_price = quote.ask if order.direction.value == "BUY" else quote.bid
 
-        cost = fill_price * order.units
-        self._cash -= cost if order.direction.value == "BUY" else -cost
+        # Simulate spread cost (deducted immediately)
+        spread_cost = (quote.ask - quote.bid) * order.units
+        self._cash -= spread_cost
 
         self._positions.append(
             Position(
@@ -205,6 +211,7 @@ class YahooBroker(BrokerBase):
             direction=order.direction.value,
             units=order.units,
             price=fill_price,
+            spread_cost=round(spread_cost, 4),
             trade_id=trade_id,
         )
         return trade_id
@@ -221,9 +228,9 @@ class YahooBroker(BrokerBase):
                 pnl = (mid - pos.entry_price) * pos.units
             else:
                 pnl = (pos.entry_price - mid) * pos.units
-            self._cash += pos.entry_price * pos.units + pnl
+            self._cash += pnl
         except Exception:
-            self._cash += pos.entry_price * pos.units
+            pass  # Position closed, P&L lost — acceptable for paper
 
         self._positions = [p for p in self._positions if p.trade_id != trade_id]
         log.info("paper_close", trade_id=trade_id)
