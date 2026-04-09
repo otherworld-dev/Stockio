@@ -154,8 +154,16 @@ class SentimentAnalyzer:
             return False
         if self._cache_time is None:
             return True
+        # Check DB override for refresh interval
+        try:
+            from stockio import db
+
+            saved = db.get_setting("sentiment_refresh_seconds")
+            interval = int(saved) if saved else self._settings.sentiment_refresh_seconds
+        except Exception:
+            interval = self._settings.sentiment_refresh_seconds
         age = (datetime.now(UTC) - self._cache_time).total_seconds()
-        return age >= self._settings.sentiment_refresh_seconds
+        return age >= interval
 
     def get_sentiment(self, instrument: str) -> float:
         return self._cache.get(instrument, 0.0)
