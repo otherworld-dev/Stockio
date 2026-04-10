@@ -141,6 +141,13 @@ class RiskManager:
         if account.open_position_count >= max_pos:
             return False, f"Max positions ({max_pos}) reached"
 
+        # Margin check — don't trade if margin used exceeds 50% of equity
+        max_margin_pct = db.get_float_setting("max_margin_pct", 0.50)
+        if account.equity > 0 and account.margin_used > 0:
+            margin_pct = account.margin_used / account.equity
+            if margin_pct >= max_margin_pct:
+                return False, f"Margin too high ({margin_pct:.0%}, limit {max_margin_pct:.0%})"
+
         # Daily loss limit
         if self._peak_equity > 0:
             if self._daily_pnl < -(daily_lim * self._peak_equity):

@@ -97,6 +97,7 @@ class Settings(BaseSettings):
     daily_loss_limit: float = 0.03
     weekly_loss_limit: float = 0.05
     max_drawdown: float = 0.15
+    max_margin_pct: float = 0.50
 
     # --- Indicators ---
     ema_periods: list[int] = Field(default_factory=lambda: [9, 21, 50])

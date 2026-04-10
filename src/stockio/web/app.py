@@ -221,6 +221,7 @@ def api_settings():
             "max_positions": settings.max_positions,
             "daily_loss_limit": settings.daily_loss_limit,
             "max_drawdown": settings.max_drawdown,
+            "max_margin_pct": settings.max_margin_pct,
             "cycle_seconds": settings.cycle_seconds,
             "sentiment_refresh_seconds": settings.sentiment_refresh_seconds,
         }

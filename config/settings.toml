@@ -12,6 +12,7 @@ max_leverage = 5.0            # Self-imposed leverage limit
 daily_loss_limit = 0.03       # 3% daily loss → halt trading
 weekly_loss_limit = 0.05      # 5% weekly loss → halt trading
 max_drawdown = 0.15           # 15% drawdown → kill switch (manual restart)
+max_margin_pct = 0.50         # 50% max margin usage → stop opening positions
 
 [indicators]
 ema_periods = [9, 21, 50]
