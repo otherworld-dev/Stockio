@@ -278,6 +278,36 @@ class TradingEngine:
         # Heartbeat tracking
         self._last_heartbeat: datetime | None = None
 
+        # Sync with broker on startup
+        self._sync_on_startup()
+
+    def _sync_on_startup(self) -> None:
+        """Sync DB trades with actual broker positions on startup."""
+        try:
+            open_db_trades = db.get_open_trades()
+            if not open_db_trades:
+                return
+
+            broker_positions = {p.trade_id: p for p in self._broker.get_positions()}
+
+            closed_count = 0
+            for trade in open_db_trades:
+                trade_id = trade["trade_id"]
+                if trade_id not in broker_positions:
+                    # Position was closed while bot was offline
+                    db.close_trade(
+                        trade_id=trade_id,
+                        exit_price=trade["price"],  # Best we have
+                        pnl=0.0,
+                        close_reason="Closed while bot offline",
+                    )
+                    closed_count += 1
+
+            if closed_count:
+                log.info("startup_sync", closed_stale_trades=closed_count)
+        except Exception:
+            log.debug("startup_sync_skipped")
+
     def run_cycle(self) -> None:
         """Execute one trading cycle."""
         self._cycle_count += 1
@@ -355,8 +385,9 @@ class TradingEngine:
         # Step 6: Resolve pending outcomes for model training
         self._resolve_and_maybe_retrain(cycle_log)
 
-        # Step 6: Persist snapshot and bot log to SQLite
+        # Step 7: Persist snapshot, bot log, and pending outcomes to SQLite
         self._persist_cycle(cycle_log, signals, ranked)
+        self._outcome_tracker.persist_pending()
 
         cycle_log.info(
             "cycle_complete",

@@ -97,6 +97,18 @@ CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS pending_outcomes (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    instrument     TEXT NOT NULL,
+    direction      TEXT NOT NULL,
+    confidence     REAL NOT NULL,
+    entry_price    REAL NOT NULL,
+    atr            REAL NOT NULL,
+    features_json  TEXT NOT NULL,
+    horizon_cycle  INTEGER NOT NULL,
+    timestamp      TEXT NOT NULL
+);
 """
 
 
@@ -363,3 +375,50 @@ def get_int_setting(key: str, default: int) -> int:
         except (ValueError, TypeError):
             pass
     return default
+
+
+# ---------------------------------------------------------------------------
+# Pending outcomes persistence
+# ---------------------------------------------------------------------------
+
+
+def save_pending_outcomes(outcomes: list[dict]) -> None:
+    """Persist pending outcomes to SQLite (called on shutdown / periodically)."""
+    with _get_conn() as conn:
+        conn.execute("DELETE FROM pending_outcomes")
+        for o in outcomes:
+            conn.execute(
+                """INSERT INTO pending_outcomes
+                   (instrument, direction, confidence, entry_price, atr,
+                    features_json, horizon_cycle, timestamp)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    o["instrument"],
+                    o["direction"],
+                    o["confidence"],
+                    o["entry_price"],
+                    o["atr"],
+                    json.dumps(o.get("features", {})),
+                    o["horizon_cycle"],
+                    o["timestamp"],
+                ),
+            )
+
+
+def load_pending_outcomes() -> list[dict]:
+    """Load pending outcomes from SQLite (called on startup)."""
+    with _get_conn() as conn:
+        rows = conn.execute("SELECT * FROM pending_outcomes ORDER BY id").fetchall()
+        results = []
+        for r in rows:
+            entry = dict(r)
+            with contextlib.suppress(json.JSONDecodeError, TypeError):
+                entry["features"] = json.loads(entry.get("features_json", "{}"))
+            results.append(entry)
+        return results
+
+
+def clear_pending_outcomes() -> None:
+    """Clear persisted pending outcomes (after loading into memory)."""
+    with _get_conn() as conn:
+        conn.execute("DELETE FROM pending_outcomes")

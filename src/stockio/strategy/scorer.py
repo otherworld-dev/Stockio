@@ -90,6 +90,56 @@ class OutcomeTracker:
             maxlen=settings.degradation_window
         )
 
+        # Restore pending outcomes from DB (survives restarts)
+        self._restore_pending()
+
+    def _restore_pending(self) -> None:
+        """Load pending outcomes from DB on startup."""
+        try:
+            from stockio import db
+
+            saved = db.load_pending_outcomes()
+            for o in saved:
+                self._pending.append(
+                    PendingOutcome(
+                        instrument=o["instrument"],
+                        features=o.get("features", {}),
+                        direction=Direction(o["direction"]),
+                        confidence=o["confidence"],
+                        entry_price=o["entry_price"],
+                        atr=o["atr"],
+                        timestamp=datetime.fromisoformat(o["timestamp"]),
+                        horizon_cycle=o["horizon_cycle"],
+                    )
+                )
+            if saved:
+                db.clear_pending_outcomes()
+                log.info("pending_outcomes_restored", count=len(saved))
+        except Exception:
+            log.debug("no_pending_outcomes_to_restore")
+
+    def persist_pending(self) -> None:
+        """Save pending outcomes to DB (called periodically and on shutdown)."""
+        try:
+            from stockio import db
+
+            outcomes = [
+                {
+                    "instrument": p.instrument,
+                    "direction": p.direction.value,
+                    "confidence": p.confidence,
+                    "entry_price": p.entry_price,
+                    "atr": p.atr,
+                    "features": p.features,
+                    "horizon_cycle": p.horizon_cycle,
+                    "timestamp": p.timestamp.isoformat(),
+                }
+                for p in self._pending
+            ]
+            db.save_pending_outcomes(outcomes)
+        except Exception:
+            log.exception("persist_pending_failed")
+
     def record_pending(
         self,
         instrument: str,
