@@ -175,8 +175,14 @@ def calculate_position_size(
     atr: float,
     instrument: InstrumentConfig,
     settings: Settings,
+    current_price: float = 0,
 ) -> int:
-    """Calculate position size based on risk per trade and ATR-based stop distance."""
+    """Calculate position size based on risk per trade and ATR-based stop distance.
+
+    Converts risk to account currency (GBP) using pip value conversion.
+    """
+    from stockio.broker.yahoo import _pip_value_in_gbp
+
     risk_pct = db.get_float_setting("risk_per_trade", settings.risk_per_trade)
     sl_mult = db.get_float_setting("stop_loss_atr_mult", settings.stop_loss_atr_mult)
 
@@ -186,7 +192,14 @@ def calculate_position_size(
     if stop_distance <= 0:
         return 0
 
-    units = risk_amount / stop_distance
+    # Convert stop distance to account currency per unit
+    conversion = _pip_value_in_gbp(instrument.name, 1, current_price or 1.0)
+    stop_in_gbp_per_unit = stop_distance * conversion
+
+    if stop_in_gbp_per_unit <= 0:
+        return 0
+
+    units = risk_amount / stop_in_gbp_per_unit
     min_u = instrument.min_units
     units = max(min_u, int(math.floor(units / min_u) * min_u))
     return units
@@ -578,7 +591,9 @@ class TradingEngine:
                 continue
 
             entry_price = quote.ask if signal.direction == Direction.BUY else quote.bid
-            units = calculate_position_size(account, atr, instrument_cfg, self._settings)
+            units = calculate_position_size(
+                account, atr, instrument_cfg, self._settings, current_price=entry_price
+            )
             if units <= 0:
                 continue
 
