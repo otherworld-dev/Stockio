@@ -52,7 +52,10 @@ def run_bot(cycle_seconds_override: int | None = None) -> None:
     log.info("instruments_loaded", instruments=list(instruments.keys()))
 
     # Auto-select broker: OANDA if credentials exist, Yahoo Finance otherwise
-    if settings.oanda_api_token and settings.oanda_account_id:
+    # Auto-select broker: try practice credentials, then legacy, then Yahoo
+    account_id = settings.oanda_practice_account_id or settings.oanda_account_id
+    api_token = settings.oanda_practice_api_token or settings.oanda_api_token
+    if account_id and api_token:
         from stockio.broker import OandaBroker
 
         broker = OandaBroker(settings)

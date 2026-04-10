@@ -66,9 +66,15 @@ class Settings(BaseSettings):
     """Application settings from .env (secrets) and settings.toml (parameters)."""
 
     # --- Secrets from .env ---
+    # Legacy single-account (still works if set)
     oanda_environment: str = "practice"
     oanda_account_id: str = ""
     oanda_api_token: str = ""
+    # Separate practice/live accounts (preferred)
+    oanda_practice_account_id: str = ""
+    oanda_practice_api_token: str = ""
+    oanda_live_account_id: str = ""
+    oanda_live_api_token: str = ""
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
     news_api_key: str = ""

@@ -14,7 +14,6 @@ from typing import Any
 import structlog
 
 from stockio import db
-from stockio.broker import OandaBroker
 from stockio.config import Settings, load_instruments
 from stockio.engine import TradingEngine
 from stockio.strategy.notifier import TelegramNotifier
@@ -114,6 +113,55 @@ def stop_bot(name: str) -> bool:
         return True
 
 
+def _create_broker_for_slot(slot_name: str, settings: Settings):
+    """Create the appropriate broker for a bot slot.
+
+    Paper slot → OANDA practice account (or Yahoo fallback)
+    Live slot  → OANDA live account (or Yahoo fallback)
+    """
+    from stockio.broker import YahooBroker
+
+    if slot_name == "paper":
+        account_id = (
+            settings.oanda_practice_account_id or settings.oanda_account_id
+        )
+        api_token = (
+            settings.oanda_practice_api_token or settings.oanda_api_token
+        )
+        environment = "practice"
+    elif slot_name == "live":
+        account_id = settings.oanda_live_account_id
+        api_token = settings.oanda_live_api_token
+        environment = "live"
+    else:
+        account_id = ""
+        api_token = ""
+        environment = "practice"
+
+    if account_id and api_token:
+        # Create a temporary settings-like object for OandaBroker
+        from stockio.broker.oanda import OandaBroker
+
+        class _SlotSettings:
+            pass
+
+        s = _SlotSettings()
+        s.oanda_account_id = account_id
+        s.oanda_api_token = api_token
+        s.oanda_environment = environment
+        broker = OandaBroker(s)
+        log.info(
+            "broker_created",
+            slot=slot_name,
+            broker="oanda",
+            environment=environment,
+        )
+        return broker
+
+    log.info("broker_created", slot=slot_name, broker="yahoo_paper")
+    return YahooBroker(initial_budget=settings.initial_budget)
+
+
 def _run_bot(slot: BotSlot, generation: int) -> None:
     """Bot thread main loop."""
     try:
@@ -121,12 +169,7 @@ def _run_bot(slot: BotSlot, generation: int) -> None:
         settings = _settings
         instruments = load_instruments()
 
-        if settings.oanda_api_token and settings.oanda_account_id:
-            broker = OandaBroker(settings)
-        else:
-            from stockio.broker import YahooBroker
-
-            broker = YahooBroker(initial_budget=settings.initial_budget)
+        broker = _create_broker_for_slot(slot.name, settings)
 
         notifier = TelegramNotifier(settings)
         sentiment = SentimentAnalyzer(settings)
