@@ -277,6 +277,9 @@ class TradingEngine:
         self._last_summary_day: int = -1
         # Heartbeat tracking
         self._last_heartbeat: datetime | None = None
+        # Stop-loss cooldown — don't re-enter instruments that just stopped out
+        self._sl_cooldown: dict[str, int] = {}  # instrument → cycle when cooldown expires
+        self._sl_cooldown_cycles = 8  # Wait 8 cycles (~2 hours at M15) after SL hit
 
         # Sync with broker on startup
         self._sync_on_startup()
@@ -487,6 +490,17 @@ class TradingEngine:
                             close_reason = "Take profit hit"
 
                     if close_reason:
+                        # Set cooldown if stop-loss hit
+                        if "Stop loss" in close_reason:
+                            self._sl_cooldown[instrument] = (
+                                self._cycle_count + self._sl_cooldown_cycles
+                            )
+                            log.info(
+                                "sl_cooldown_set",
+                                instrument=instrument,
+                                until_cycle=self._sl_cooldown[instrument],
+                            )
+
                         # Calculate P&L (convert to account currency)
                         from stockio.broker.yahoo import _pip_value_in_gbp
 
@@ -544,6 +558,11 @@ class TradingEngine:
                     state = details.get("state", "")
                     if state:
                         close_reason = f"Closed by broker ({state})"
+                    # If it was a loss, set cooldown
+                    if pnl < 0:
+                        self._sl_cooldown[instrument] = (
+                            self._cycle_count + self._sl_cooldown_cycles
+                        )
                     cycle_log.info(
                         "trade_closed_details",
                         trade_id=trade_id,
@@ -617,6 +636,16 @@ class TradingEngine:
             if signal.instrument in open_instruments:
                 cycle_log.debug(
                     "skipped_duplicate", instrument=signal.instrument
+                )
+                continue
+
+            # Skip instruments in stop-loss cooldown
+            cooldown_until = self._sl_cooldown.get(signal.instrument, 0)
+            if self._cycle_count < cooldown_until:
+                cycle_log.debug(
+                    "skipped_sl_cooldown",
+                    instrument=signal.instrument,
+                    cycles_remaining=cooldown_until - self._cycle_count,
                 )
                 continue
 
