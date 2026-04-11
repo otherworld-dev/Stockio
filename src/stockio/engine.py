@@ -280,6 +280,10 @@ class TradingEngine:
         # Stop-loss cooldown — don't re-enter instruments that just stopped out
         self._sl_cooldown: dict[str, int] = {}  # instrument → cycle when cooldown expires
         self._sl_cooldown_cycles = 8  # Wait 8 cycles (~2 hours at M15) after SL hit
+        # Cached account data — updated each cycle by the bot thread.
+        # The web API reads this instead of calling the broker directly,
+        # avoiding thread-safety issues with the shared requests.Session.
+        self._last_account: AccountSummary | None = None
 
         # Sync with broker on startup
         self._sync_on_startup()
@@ -425,7 +429,11 @@ class TradingEngine:
         # Step 6: Resolve pending outcomes for model training
         self._resolve_and_maybe_retrain(cycle_log)
 
-        # Step 7: Persist snapshot, bot log, and pending outcomes to SQLite
+        # Step 7: Cache account data and persist snapshot to SQLite
+        try:
+            self._last_account = self._broker.get_account()
+        except Exception:
+            cycle_log.exception("account_cache_failed")
         self._persist_cycle(cycle_log, signals, ranked)
         self._outcome_tracker.persist_pending()
 
@@ -445,7 +453,10 @@ class TradingEngine:
     ) -> None:
         """Save snapshot and bot log to SQLite."""
         try:
-            account = self._broker.get_account()
+            account = self._last_account
+            if not account:
+                cycle_log.warning("persist_skipped_no_account")
+                return
             db.record_snapshot(
                 balance=account.balance,
                 equity=account.equity,
@@ -920,9 +931,8 @@ class TradingEngine:
 
         self._last_summary_day = now.day
 
-        try:
-            account = self._broker.get_account()
-        except Exception:
+        account = self._last_account
+        if not account:
             return
 
         stats = {
@@ -959,6 +969,10 @@ class TradingEngine:
     @property
     def scorer(self) -> InstrumentScorer:
         return self._scorer
+
+    @property
+    def last_account(self) -> AccountSummary | None:
+        return self._last_account
 
     @property
     def risk(self) -> RiskManager:
