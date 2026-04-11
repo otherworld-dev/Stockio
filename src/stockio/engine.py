@@ -286,50 +286,62 @@ class TradingEngine:
 
     def _sync_on_startup(self) -> None:
         """Sync DB trades with actual broker positions on startup."""
+        # 1) Close stale DB trades that no longer exist at broker
         try:
             open_db_trades = db.get_open_trades()
-            if not open_db_trades:
-                return
+            if open_db_trades:
+                broker_positions = {p.trade_id: p for p in self._broker.get_positions()}
 
-            broker_positions = {p.trade_id: p for p in self._broker.get_positions()}
+                closed_count = 0
+                for trade in open_db_trades:
+                    trade_id = trade["trade_id"]
+                    instrument = trade["instrument"]
+                    if trade_id not in broker_positions:
+                        pnl = 0.0
+                        exit_price = trade["price"]
+                        close_reason = "Closed while bot offline"
 
-            closed_count = 0
-            for trade in open_db_trades:
-                trade_id = trade["trade_id"]
-                instrument = trade["instrument"]
-                if trade_id not in broker_positions:
-                    # Position was closed while bot was offline — get actual details
-                    pnl = 0.0
-                    exit_price = trade["price"]
-                    close_reason = "Closed while bot offline"
+                        details = self._broker.get_closed_trade_details(trade_id)
+                        if details:
+                            exit_price = details.get("close_price", exit_price)
+                            pnl = details.get("realized_pnl", 0.0)
+                            state = details.get("state", "")
+                            if state:
+                                close_reason = f"Closed while offline ({state})"
 
-                    details = self._broker.get_closed_trade_details(trade_id)
-                    if details:
-                        exit_price = details.get("close_price", exit_price)
-                        pnl = details.get("realized_pnl", 0.0)
-                        state = details.get("state", "")
-                        if state:
-                            close_reason = f"Closed while offline ({state})"
-
-                    db.close_trade(
-                        trade_id=trade_id,
-                        exit_price=exit_price,
-                        pnl=pnl,
-                        close_reason=close_reason,
-                    )
-
-                    # Set cooldown to prevent immediate re-entry after a loss
-                    if pnl < 0:
-                        self._sl_cooldown[instrument] = (
-                            self._sl_cooldown_cycles
+                        db.close_trade(
+                            trade_id=trade_id,
+                            exit_price=exit_price,
+                            pnl=pnl,
+                            close_reason=close_reason,
                         )
 
-                    closed_count += 1
+                        # Always cooldown — PnL from OANDA may be 0 for
+                        # recently closed trades, so don't rely on pnl < 0
+                        self._sl_cooldown[instrument] = self._sl_cooldown_cycles
+                        closed_count += 1
 
-            if closed_count:
-                log.info("startup_sync", closed_stale_trades=closed_count)
+                if closed_count:
+                    log.info("startup_sync", closed_stale_trades=closed_count)
         except Exception:
             log.debug("startup_sync_skipped")
+
+        # 2) Restore cooldowns from recent losing trades already in DB.
+        #    This covers trades closed by the *previous* session — they're
+        #    already CLOSED in DB so the stale-trade sync above won't see them.
+        try:
+            recent_losses = db.get_recently_closed_losses(hours=2)
+            for row in recent_losses:
+                inst = row["instrument"]
+                if inst not in self._sl_cooldown:
+                    self._sl_cooldown[inst] = self._sl_cooldown_cycles
+            if recent_losses:
+                log.info(
+                    "cooldowns_restored",
+                    instruments=[r["instrument"] for r in recent_losses],
+                )
+        except Exception:
+            log.debug("cooldown_restore_skipped")
 
     def run_cycle(self) -> None:
         """Execute one trading cycle."""

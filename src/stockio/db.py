@@ -228,6 +228,18 @@ def get_open_trades() -> list[dict]:
         return [dict(r) for r in rows]
 
 
+def get_recently_closed_losses(hours: int = 4) -> list[dict]:
+    """Return instruments that had losing trades closed within the last N hours."""
+    cutoff = (datetime.now(UTC) - __import__("datetime").timedelta(hours=hours)).isoformat()
+    with _get_conn() as conn:
+        rows = conn.execute(
+            """SELECT DISTINCT instrument FROM trades
+               WHERE status = 'CLOSED' AND pnl < 0 AND exit_time > ?""",
+            (cutoff,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
 def get_trade_history(limit: int = 50) -> list[dict]:
     """Return recent trades, newest first."""
     with _get_conn() as conn:
