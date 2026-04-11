@@ -68,10 +68,26 @@ def api_instances():
 @app.route("/api/instances/<name>/start", methods=["POST"])
 def api_start_instance(name: str):
     ok = start_bot(name)
-    # Account data will be available after the first cycle completes
-    # and populates engine._last_account.  Don't call the broker from
-    # the Flask thread — the dashboard will pick it up on its next poll.
-    return jsonify({"ok": ok, "instance": name})
+
+    # Immediately fetch account data so dashboard updates without waiting
+    account_data = None
+    if ok:
+        import time
+
+        time.sleep(1)  # Brief wait for broker to initialize
+        slot = get_slot(name)
+        if slot and slot.engine:
+            with contextlib.suppress(Exception):
+                acct = slot.engine._broker.get_account()
+                account_data = {
+                    "balance": acct.balance,
+                    "equity": acct.equity,
+                    "unrealized_pnl": acct.unrealized_pnl,
+                    "open_positions": acct.open_position_count,
+                    "currency": acct.currency,
+                }
+
+    return jsonify({"ok": ok, "instance": name, "account": account_data})
 
 
 @app.route("/api/instances/<name>/stop", methods=["POST"])
@@ -87,46 +103,45 @@ def api_stop_instance(name: str):
 
 @app.route("/api/status")
 def api_status():
-    """Portfolio summary — balance, equity, P&L.
-
-    Reads cached account data from the engine (updated each cycle by the
-    bot thread) instead of calling the broker directly.  This avoids
-    thread-safety issues with the shared requests.Session in oandapyV20.
-    """
+    """Portfolio summary — balance, equity, P&L."""
     slot_name = request.args.get("instance", "paper")
     slot = get_slot(slot_name)
 
-    # Read cached account from engine (updated each cycle by the bot thread)
-    account = slot.engine.last_account if slot and slot.engine else None
+    # Try live broker data (thread-safe via OandaBroker._lock)
+    account = None
+    if slot and slot.engine:
+        with contextlib.suppress(Exception):
+            account = slot.engine._broker.get_account()
+
+    if account:
+        return jsonify({
+            "balance": account.balance,
+            "equity": account.equity,
+            "unrealized_pnl": account.unrealized_pnl,
+            "margin_used": account.margin_used,
+            "open_positions": account.open_position_count,
+            "currency": account.currency,
+            "source": "live",
+        })
 
     # Fallback to latest DB snapshot
-    if not account:
-        snapshots = db.get_snapshots(limit=1)
-        latest = snapshots[-1] if snapshots else None
-        if latest:
-            return jsonify({
-                "balance": latest["balance"],
-                "equity": latest["equity"],
-                "unrealized_pnl": latest["unrealized_pnl"],
-                "open_positions": latest["open_positions"],
-                "source": "snapshot",
-            })
+    snapshots = db.get_snapshots(limit=1)
+    latest = snapshots[-1] if snapshots else None
+    if latest:
         return jsonify({
-            "balance": 0,
-            "equity": 0,
-            "unrealized_pnl": 0,
-            "open_positions": 0,
-            "source": "empty",
+            "balance": latest["balance"],
+            "equity": latest["equity"],
+            "unrealized_pnl": latest["unrealized_pnl"],
+            "open_positions": latest["open_positions"],
+            "source": "snapshot",
         })
 
     return jsonify({
-        "balance": account.balance,
-        "equity": account.equity,
-        "unrealized_pnl": account.unrealized_pnl,
-        "margin_used": account.margin_used,
-        "open_positions": account.open_position_count,
-        "currency": account.currency,
-        "source": "engine",
+        "balance": 0,
+        "equity": 0,
+        "unrealized_pnl": 0,
+        "open_positions": 0,
+        "source": "empty",
     })
 
 

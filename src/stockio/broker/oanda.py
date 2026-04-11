@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from datetime import datetime
 
 import oandapyV20
@@ -42,6 +43,12 @@ class OandaBroker(BrokerBase):
             access_token=settings.oanda_api_token,
             environment=settings.oanda_environment,
         )
+        self._lock = threading.Lock()
+
+    def _request(self, req):
+        """Execute an oandapyV20 request under a lock (thread-safe)."""
+        with self._lock:
+            return self._client.request(req)
 
     # ------------------------------------------------------------------
     # Market data
@@ -70,7 +77,7 @@ class OandaBroker(BrokerBase):
             params["to"] = to_time.isoformat()
 
         req = ep_instruments.InstrumentsCandles(instrument=instrument, params=params)
-        resp = self._client.request(req)
+        resp = self._request(req)
 
         candles: list[Candle] = []
         for c in resp.get("candles", []):
@@ -103,7 +110,7 @@ class OandaBroker(BrokerBase):
             accountID=self._account_id,
             params={"instruments": instrument},
         )
-        resp = self._client.request(req)
+        resp = self._request(req)
         price_data = resp["prices"][0]
         return PriceQuote(
             instrument=instrument,
@@ -126,7 +133,7 @@ class OandaBroker(BrokerBase):
     )
     def get_account(self) -> AccountSummary:
         req = ep_accounts.AccountSummary(accountID=self._account_id)
-        resp = self._client.request(req)
+        resp = self._request(req)
         acct = resp["account"]
         return AccountSummary(
             balance=float(acct["balance"]),
@@ -150,7 +157,7 @@ class OandaBroker(BrokerBase):
             accountID=self._account_id,
             params={"state": "OPEN"},
         )
-        resp = self._client.request(req)
+        resp = self._request(req)
 
         positions: list[Position] = []
         for trade in resp.get("trades", []):
@@ -194,7 +201,7 @@ class OandaBroker(BrokerBase):
         req = ep_orders.OrderCreate(
             accountID=self._account_id, data=mkt_order.data
         )
-        resp = self._client.request(req)
+        resp = self._request(req)
 
         trade_id = (
             resp.get("orderFillTransaction", {})
@@ -222,7 +229,7 @@ class OandaBroker(BrokerBase):
             tradeID=trade_id,
             data={"units": "ALL"},
         )
-        self._client.request(req)
+        self._request(req)
         log.info("position_closed", trade_id=trade_id)
 
     def get_closed_trade_details(self, trade_id: str) -> dict | None:
@@ -231,7 +238,7 @@ class OandaBroker(BrokerBase):
             req = ep_trades.TradeDetails(
                 accountID=self._account_id, tradeID=trade_id
             )
-            resp = self._client.request(req)
+            resp = self._request(req)
             trade = resp.get("trade", {})
             return {
                 "close_price": float(trade.get("averageClosePrice", 0)),
