@@ -8,7 +8,6 @@ import oandapyV20
 import oandapyV20.endpoints.accounts as ep_accounts
 import oandapyV20.endpoints.instruments as ep_instruments
 import oandapyV20.endpoints.orders as ep_orders
-import oandapyV20.endpoints.positions as ep_positions
 import oandapyV20.endpoints.pricing as ep_pricing
 import oandapyV20.endpoints.trades as ep_trades
 import structlog
@@ -146,36 +145,27 @@ class OandaBroker(BrokerBase):
         reraise=True,
     )
     def get_positions(self) -> list[Position]:
-        req = ep_positions.OpenPositions(accountID=self._account_id)
+        """Get all open trades (individual trade-level, not aggregated positions)."""
+        req = ep_trades.TradesList(
+            accountID=self._account_id,
+            params={"state": "OPEN"},
+        )
         resp = self._client.request(req)
 
         positions: list[Position] = []
-        for pos in resp.get("positions", []):
-            long_units = int(pos["long"]["units"])
-            short_units = int(pos["short"]["units"])
-
-            if long_units > 0:
-                positions.append(
-                    Position(
-                        instrument=pos["instrument"],
-                        direction=Direction.BUY,
-                        units=long_units,
-                        entry_price=float(pos["long"].get("averagePrice", 0)),
-                        unrealized_pnl=float(pos["long"].get("unrealizedPL", 0)),
-                        trade_id=pos["long"].get("tradeIDs", [""])[0],
-                    )
+        for trade in resp.get("trades", []):
+            units = int(trade["currentUnits"])
+            direction = Direction.BUY if units > 0 else Direction.SELL
+            positions.append(
+                Position(
+                    instrument=trade["instrument"],
+                    direction=direction,
+                    units=abs(units),
+                    entry_price=float(trade.get("price", 0)),
+                    unrealized_pnl=float(trade.get("unrealizedPL", 0)),
+                    trade_id=trade["id"],
                 )
-            if short_units != 0:
-                positions.append(
-                    Position(
-                        instrument=pos["instrument"],
-                        direction=Direction.SELL,
-                        units=abs(short_units),
-                        entry_price=float(pos["short"].get("averagePrice", 0)),
-                        unrealized_pnl=float(pos["short"].get("unrealizedPL", 0)),
-                        trade_id=pos["short"].get("tradeIDs", [""])[0],
-                    )
-                )
+            )
         return positions
 
     # ------------------------------------------------------------------
