@@ -539,6 +539,18 @@ async function toggleInstance() {
   try {
     const r = await fetch('/api/instances/' + activeInstance + '/' + action, { method: 'POST' });
     if (!r.ok) throw new Error(r.status);
+    const data = await r.json();
+    // Update portfolio cards immediately if account data returned
+    if (data.account) {
+      const a = data.account;
+      const cur = a.currency || '';
+      document.getElementById('cardBalance').textContent = fmt(a.balance) + ' ' + cur;
+      document.getElementById('cardEquity').textContent = fmt(a.equity) + ' ' + cur;
+      const pnlEl = document.getElementById('cardPnl');
+      pnlEl.textContent = (a.unrealized_pnl >= 0 ? '+' : '') + fmt(a.unrealized_pnl) + ' ' + cur;
+      pnlEl.className = 'card-value ' + pnlClass(a.unrealized_pnl);
+      document.getElementById('cardPositions').textContent = a.open_positions != null ? a.open_positions : '--';
+    }
   } catch (e) {
     console.warn('Toggle failed:', e);
   }

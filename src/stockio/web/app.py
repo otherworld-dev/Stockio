@@ -68,7 +68,26 @@ def api_instances():
 @app.route("/api/instances/<name>/start", methods=["POST"])
 def api_start_instance(name: str):
     ok = start_bot(name)
-    return jsonify({"ok": ok, "instance": name})
+
+    # Immediately fetch account data so dashboard updates without waiting
+    account_data = None
+    if ok:
+        import time
+
+        time.sleep(1)  # Brief wait for broker to initialize
+        slot = get_slot(name)
+        if slot and slot.engine:
+            with contextlib.suppress(Exception):
+                acct = slot.engine._broker.get_account()
+                account_data = {
+                    "balance": acct.balance,
+                    "equity": acct.equity,
+                    "unrealized_pnl": acct.unrealized_pnl,
+                    "open_positions": acct.open_position_count,
+                    "currency": acct.currency,
+                }
+
+    return jsonify({"ok": ok, "instance": name, "account": account_data})
 
 
 @app.route("/api/instances/<name>/stop", methods=["POST"])
