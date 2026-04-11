@@ -484,6 +484,27 @@ def api_model_learning():
         result["recent_outcomes"] = [
             1 if x else 0 for x in list(tracker._recent_outcomes)
         ]
+    else:
+        # No engine running — read from persisted data
+        import pandas as pd
+
+        settings = load_settings()
+        parquet_path = settings.data_dir / "training_data.parquet"
+        if parquet_path.exists():
+            with contextlib.suppress(Exception):
+                df = pd.read_parquet(parquet_path)
+                result["training_samples"] = len(df)
+                if not df.empty:
+                    recent = df.tail(50)["label"].tolist()
+                    result["recent_outcomes"] = [int(x) for x in recent]
+                    wins = sum(recent)
+                    result["rolling_accuracy"] = (
+                        round(wins / len(recent), 3) if recent else None
+                    )
+
+        # Pending outcomes from DB
+        pending = db.load_pending_outcomes()
+        result["pending_outcomes"] = len(pending)
 
     # Read model metadata if it exists
     settings = load_settings()
