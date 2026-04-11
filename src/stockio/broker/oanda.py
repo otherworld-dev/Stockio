@@ -238,3 +238,20 @@ class OandaBroker(BrokerBase):
         )
         self._client.request(req)
         log.info("position_closed", trade_id=trade_id)
+
+    def get_closed_trade_details(self, trade_id: str) -> dict | None:
+        """Get details of a closed trade from OANDA (actual fill price + P&L)."""
+        try:
+            req = ep_trades.TradeDetails(
+                accountID=self._account_id, tradeID=trade_id
+            )
+            resp = self._client.request(req)
+            trade = resp.get("trade", {})
+            return {
+                "close_price": float(trade.get("averageClosePrice", 0)),
+                "realized_pnl": float(trade.get("realizedPL", 0)),
+                "close_time": trade.get("closeTime", ""),
+                "state": trade.get("state", ""),
+            }
+        except Exception:
+            return None

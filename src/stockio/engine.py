@@ -531,22 +531,46 @@ class TradingEngine:
                         "exit_check_failed", trade_id=trade_id
                     )
             else:
-                # Position no longer at broker (closed externally — live mode)
-                # Try to get the exit details
+                # Position no longer at broker (closed by SL/TP on broker side)
+                # Try to get actual close details from broker
                 pnl = 0.0
                 exit_price = entry_price
-                try:
-                    from stockio.broker.yahoo import _pip_value_in_gbp
+                close_reason = "Closed by broker (SL/TP)"
 
-                    quote = self._broker.get_price(instrument)
-                    exit_price = (quote.bid + quote.ask) / 2
-                    conversion = _pip_value_in_gbp(instrument, units, exit_price)
-                    if direction == "BUY":
-                        pnl = (exit_price - entry_price) * units * conversion
-                    else:
-                        pnl = (entry_price - exit_price) * units * conversion
-                except Exception:
-                    pass
+                details = self._broker.get_closed_trade_details(trade_id)
+                if details:
+                    exit_price = details.get("close_price", entry_price)
+                    pnl = details.get("realized_pnl", 0.0)
+                    state = details.get("state", "")
+                    if state:
+                        close_reason = f"Closed by broker ({state})"
+                    cycle_log.info(
+                        "trade_closed_details",
+                        trade_id=trade_id,
+                        instrument=instrument,
+                        exit_price=exit_price,
+                        pnl=round(pnl, 2),
+                    )
+                else:
+                    # Fallback: estimate from current price
+                    try:
+                        from stockio.broker.yahoo import _pip_value_in_gbp
+
+                        quote = self._broker.get_price(instrument)
+                        exit_price = (quote.bid + quote.ask) / 2
+                        conversion = _pip_value_in_gbp(
+                            instrument, units, exit_price
+                        )
+                        if direction == "BUY":
+                            pnl = (
+                                (exit_price - entry_price) * units * conversion
+                            )
+                        else:
+                            pnl = (
+                                (entry_price - exit_price) * units * conversion
+                            )
+                    except Exception:
+                        pass
 
                 db.close_trade(
                     trade_id=trade_id,

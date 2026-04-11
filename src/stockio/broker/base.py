@@ -50,3 +50,7 @@ class BrokerBase(ABC):
     @abstractmethod
     def close_position(self, trade_id: str) -> None:
         """Close a specific position by trade ID."""
+
+    def get_closed_trade_details(self, trade_id: str) -> dict | None:
+        """Get details of a closed trade. Returns None if not available."""
+        return None
