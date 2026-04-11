@@ -475,7 +475,13 @@ class TradingEngine:
 
             # Check if position still exists at broker
             if trade_id in broker_positions:
-                # Position still open — check SL/TP (paper mode)
+                # OANDA handles SL/TP server-side — skip client-side check
+                from stockio.broker.oanda import OandaBroker
+
+                if isinstance(self._broker, OandaBroker):
+                    continue
+
+                # Position still open — check SL/TP (paper mode only)
                 try:
                     quote = self._broker.get_price(instrument)
                     mid = (quote.bid + quote.ask) / 2
@@ -524,13 +530,14 @@ class TradingEngine:
                             )
                             continue
 
-                        # Record exit in DB
+                        # Record exit in DB and track P&L for risk limits
                         db.close_trade(
                             trade_id=trade_id,
                             exit_price=exit_price,
                             pnl=pnl,
                             close_reason=close_reason,
                         )
+                        self._risk.record_pnl(pnl)
                         cycle_log.info(
                             "position_exited",
                             trade_id=trade_id,
@@ -600,8 +607,9 @@ class TradingEngine:
                     trade_id=trade_id,
                     exit_price=exit_price,
                     pnl=pnl,
-                    close_reason="Closed by broker (SL/TP)",
+                    close_reason=close_reason,
                 )
+                self._risk.record_pnl(pnl)
                 cycle_log.info(
                     "position_closed_externally",
                     trade_id=trade_id,

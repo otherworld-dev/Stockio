@@ -182,12 +182,8 @@ class OandaBroker(BrokerBase):
     # Trading
     # ------------------------------------------------------------------
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(min=1, max=30),
-        retry=retry_if_exception_type(V20Error),
-        reraise=True,
-    )
+    # No retry on order submission — it's not idempotent.
+    # A timeout after the order was filled would cause a duplicate position.
     def submit_order(self, order: OrderRequest) -> str:
         units = order.units if order.direction == Direction.BUY else -order.units
 
