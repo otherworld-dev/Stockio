@@ -199,10 +199,9 @@ class SentimentAnalyzer:
                         name, cfg.display_name, trump_headlines
                     )
 
-                # Weighted combination
-                combined = news_score + (trump_score * self._trump_weight)
-                # Clamp to [-1, 1]
-                combined = max(-1.0, min(1.0, combined))
+                # Weighted average (keeps output in [-1, 1] without clamping)
+                total_weight = 1.0 + self._trump_weight  # 1.0 + 1.5 = 2.5
+                combined = (news_score + trump_score * self._trump_weight) / total_weight
 
                 results[name] = combined
                 self._trump_cache[name] = trump_score
@@ -265,11 +264,9 @@ class SentimentAnalyzer:
         # Reddit (free, no auth)
         headlines.extend(self._fetch_reddit(keywords))
 
-        # Built-in RSS feeds (always available)
-        if not headlines:
-            headlines.extend(self._fetch_rss(keywords, self._settings.rss_feeds))
-        if not headlines:
-            headlines.extend(self._fetch_rss(keywords, _BUILTIN_FEEDS))
+        # Built-in RSS feeds (always included for consistent baseline)
+        headlines.extend(self._fetch_rss(keywords, self._settings.rss_feeds))
+        headlines.extend(self._fetch_rss(keywords, _BUILTIN_FEEDS))
 
         # Deduplicate
         seen = set()

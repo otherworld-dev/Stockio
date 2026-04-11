@@ -113,7 +113,8 @@ class OutcomeTracker:
                     )
                 )
             if saved:
-                db.clear_pending_outcomes()
+                # Don't clear DB yet — wait until next persist_pending() overwrites
+                # This prevents data loss if process crashes before first persist
                 log.info("pending_outcomes_restored", count=len(saved))
         except Exception:
             log.debug("no_pending_outcomes_to_restore")
@@ -191,13 +192,19 @@ class OutcomeTracker:
             move = current_price - outcome.entry_price
             threshold = outcome.atr * self._settings.label_atr_mult
 
-            if outcome.direction == Direction.BUY:
-                correct = move >= threshold
-            else:
-                correct = -move >= threshold
+            # Label: did price go UP by at least threshold?
+            # This is a directional label (1=up, 0=down/flat) independent
+            # of what was predicted. The ML model outputs P(price goes up).
+            price_went_up = move >= threshold
 
-            self._recent_outcomes.append(correct)
-            self._append_training_row(outcome, current_price, correct)
+            # Track prediction accuracy separately
+            if outcome.direction == Direction.BUY:
+                prediction_correct = price_went_up
+            else:
+                prediction_correct = not price_went_up
+
+            self._recent_outcomes.append(prediction_correct)
+            self._append_training_row(outcome, current_price, price_went_up)
             resolved += 1
 
         self._pending.clear()
@@ -241,7 +248,10 @@ class OutcomeTracker:
                 combined = pd.concat([existing, new_rows], ignore_index=True)
             else:
                 combined = new_rows
-            combined.to_parquet(self._parquet_path, index=False)
+            # Atomic write — write to temp then rename (survives crashes)
+            tmp_path = self._parquet_path.with_suffix(".tmp")
+            combined.to_parquet(tmp_path, index=False)
+            tmp_path.replace(self._parquet_path)
             self._write_buffer.clear()
         except Exception:
             log.exception("parquet_flush_failed")
@@ -485,11 +495,6 @@ class InstrumentScorer:
             score -= 0.5
         max_score += 0.5
 
-        # ADX — only trade when trending
-        adx = features.get("adx", 0)
-        if adx < 20:
-            score *= 0.5
-
         # Bollinger %B — extremes
         bb_pct = features.get("bb_percent_b", 0.5)
         if bb_pct < 0.1:
@@ -503,11 +508,16 @@ class InstrumentScorer:
         score += sentiment * 1.0
         max_score += 1.0
 
+        # ADX — only trade when trending (applied AFTER all additive components)
+        adx = features.get("adx", 0)
+        if adx < 20:
+            score *= 0.5
+
         # Session context — signals are more reliable during active sessions
         if features.get("session_overlap", 0) == 1.0:
-            score *= 1.2  # London/NY overlap = strongest signals
+            score *= 1.2
         elif features.get("session_asia", 0) == 1.0 and adx < 25:
-            score *= 0.6  # Asian ranging = weak signals
+            score *= 0.6
 
         # Friday late: reduce confidence (position squaring)
         if features.get("day_of_week", 0) > 0.9 and features.get("hour_cos", 0) < -0.5:

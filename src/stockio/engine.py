@@ -362,7 +362,12 @@ class TradingEngine:
         from stockio.strategy.correlation import filter_correlated_signals
 
         ranked = self._scorer.rank_instruments(signals)
-        ranked = filter_correlated_signals(ranked, set())
+        try:
+            existing_positions = self._broker.get_positions()
+            open_instruments = {p.instrument for p in existing_positions}
+        except Exception:
+            open_instruments = set()
+        ranked = filter_correlated_signals(ranked, open_instruments)
 
         if ranked:
             cycle_log.info(
