@@ -80,7 +80,7 @@ class OutcomeTracker:
 
         # Buffer resolved outcomes before flushing to disk
         self._write_buffer: list[dict] = []
-        self._flush_threshold = 20
+        self._flush_threshold = 1  # Flush immediately — losing data on restart is worse than I/O
 
         # In-memory count to avoid reading parquet on every access
         self._row_count = self._count_existing_rows()
@@ -119,7 +119,10 @@ class OutcomeTracker:
             log.debug("no_pending_outcomes_to_restore")
 
     def persist_pending(self) -> None:
-        """Save pending outcomes to DB (called periodically and on shutdown)."""
+        """Save pending outcomes to DB and flush write buffer to parquet."""
+        # Flush any buffered training data to parquet
+        self._flush_buffer()
+
         try:
             from stockio import db
 
