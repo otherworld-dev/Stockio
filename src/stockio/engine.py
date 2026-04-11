@@ -296,14 +296,34 @@ class TradingEngine:
             closed_count = 0
             for trade in open_db_trades:
                 trade_id = trade["trade_id"]
+                instrument = trade["instrument"]
                 if trade_id not in broker_positions:
-                    # Position was closed while bot was offline
+                    # Position was closed while bot was offline — get actual details
+                    pnl = 0.0
+                    exit_price = trade["price"]
+                    close_reason = "Closed while bot offline"
+
+                    details = self._broker.get_closed_trade_details(trade_id)
+                    if details:
+                        exit_price = details.get("close_price", exit_price)
+                        pnl = details.get("realized_pnl", 0.0)
+                        state = details.get("state", "")
+                        if state:
+                            close_reason = f"Closed while offline ({state})"
+
                     db.close_trade(
                         trade_id=trade_id,
-                        exit_price=trade["price"],  # Best we have
-                        pnl=0.0,
-                        close_reason="Closed while bot offline",
+                        exit_price=exit_price,
+                        pnl=pnl,
+                        close_reason=close_reason,
                     )
+
+                    # Set cooldown to prevent immediate re-entry after a loss
+                    if pnl < 0:
+                        self._sl_cooldown[instrument] = (
+                            self._sl_cooldown_cycles
+                        )
+
                     closed_count += 1
 
             if closed_count:
@@ -570,11 +590,6 @@ class TradingEngine:
                     state = details.get("state", "")
                     if state:
                         close_reason = f"Closed by broker ({state})"
-                    # If it was a loss, set cooldown
-                    if pnl < 0:
-                        self._sl_cooldown[instrument] = (
-                            self._cycle_count + self._sl_cooldown_cycles
-                        )
                     cycle_log.info(
                         "trade_closed_details",
                         trade_id=trade_id,
@@ -602,6 +617,12 @@ class TradingEngine:
                             )
                     except Exception:
                         pass
+
+                # Set cooldown if loss (regardless of whether details were available)
+                if pnl < 0:
+                    self._sl_cooldown[instrument] = (
+                        self._cycle_count + self._sl_cooldown_cycles
+                    )
 
                 db.close_trade(
                     trade_id=trade_id,

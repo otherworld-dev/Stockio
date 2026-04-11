@@ -5,7 +5,7 @@ from __future__ import annotations
 import collections
 import json
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -94,12 +94,42 @@ class OutcomeTracker:
         self._restore_pending()
 
     def _restore_pending(self) -> None:
-        """Load pending outcomes from DB on startup."""
+        """Load pending outcomes from DB on startup.
+
+        On restart the cycle counter resets to 0, so stored horizon_cycle
+        values from the previous session would never be reached.  We check
+        whether the real wall-clock horizon has already elapsed and, if so,
+        set horizon_cycle = 0 so the outcome resolves on the first cycle.
+        """
         try:
             from stockio import db
 
             saved = db.load_pending_outcomes()
+            if not saved:
+                return
+
+            now = datetime.now(UTC)
+            # Approximate bar duration from granularity (e.g. "M15" → 15 min)
+            _GRAN_MINUTES = {"M1": 1, "M5": 5, "M15": 15, "M30": 30, "H1": 60, "H4": 240, "D": 1440}
+            bar_minutes = _GRAN_MINUTES.get(self._settings.granularity, 15)
+            horizon_duration = timedelta(
+                minutes=bar_minutes * self._settings.label_horizon_bars
+            )
+
+            ready_count = 0
             for o in saved:
+                ts = datetime.fromisoformat(o["timestamp"])
+                elapsed = now - ts
+                # If wall-clock horizon has passed, resolve on first cycle
+                if elapsed >= horizon_duration:
+                    horizon = 0
+                    ready_count += 1
+                else:
+                    # Estimate how many cycles remain
+                    remaining_minutes = (horizon_duration - elapsed).total_seconds() / 60
+                    remaining_cycles = max(1, int(remaining_minutes / bar_minutes))
+                    horizon = remaining_cycles
+
                 self._pending.append(
                     PendingOutcome(
                         instrument=o["instrument"],
@@ -108,14 +138,15 @@ class OutcomeTracker:
                         confidence=o["confidence"],
                         entry_price=o["entry_price"],
                         atr=o["atr"],
-                        timestamp=datetime.fromisoformat(o["timestamp"]),
-                        horizon_cycle=o["horizon_cycle"],
+                        timestamp=ts,
+                        horizon_cycle=horizon,
                     )
                 )
-            if saved:
-                # Don't clear DB yet — wait until next persist_pending() overwrites
-                # This prevents data loss if process crashes before first persist
-                log.info("pending_outcomes_restored", count=len(saved))
+            log.info(
+                "pending_outcomes_restored",
+                count=len(saved),
+                ready_to_resolve=ready_count,
+            )
         except Exception:
             log.debug("no_pending_outcomes_to_restore")
 
