@@ -23,7 +23,7 @@ def run(cycle_seconds: int | None):
 
 
 @main.command()
-@click.option("--host", default="0.0.0.0", help="Bind address")
+@click.option("--host", default="0.0.0.0", help="Bind address (use 127.0.0.1 for local only)")
 @click.option("--port", default=5000, type=int, help="Port number")
 @click.option("--debug", is_flag=True, help="Enable Flask debug mode")
 def web(host: str, port: int, debug: bool):
@@ -111,36 +111,53 @@ def pnl():
 
 @main.command()
 def signals():
-    """Dry-run one cycle and show signals (no trading)."""
-
+    """Dry-run: fetch data and show signals without executing any trades."""
     from stockio import db
-    from stockio.broker import OandaBroker
     from stockio.config import load_instruments, load_settings
-    from stockio.engine import TradingEngine
+    from stockio.strategy.indicators import build_feature_vector, compute_indicators
+    from stockio.strategy.scorer import InstrumentScorer
 
     settings = load_settings()
     db.set_default_db(settings.get_db_path())
 
-    click.echo("Fetching data and computing signals...")
+    # Auto-select broker for data only
+    if settings.oanda_practice_account_id or settings.oanda_account_id:
+        from stockio.broker import OandaBroker
+
+        broker = OandaBroker(settings)
+    else:
+        from stockio.broker import YahooBroker
+
+        broker = YahooBroker(initial_budget=settings.initial_budget)
+
     instruments = load_instruments()
-    broker = OandaBroker(settings)
-    engine = TradingEngine(broker=broker, instruments=instruments, settings=settings)
+    scorer = InstrumentScorer(settings, settings.models_dir)
 
-    # Run one cycle (data fetch + indicators only, no trading)
-    engine.run_cycle()
-
+    click.echo("Fetching data and computing signals (dry-run, no trades)...")
     click.echo()
     click.echo(f"{'Instrument':<12} {'Direction':<6} {'Confidence':>10} {'RSI':>6} {'ADX':>6}")
     click.echo("-" * 45)
-    for name, features in engine._latest_features.items():
-        sentiment = engine._sentiment.get(name, 0.0)
-        sig = engine.scorer.score_instrument(name, features, sentiment)
-        click.echo(
-            f"{sig.instrument:<12} {sig.direction.value:<6} "
-            f"{sig.confidence:>9.1%} "
-            f"{features.get('rsi_14', 0):>6.1f} "
-            f"{features.get('adx', 0):>6.1f}"
-        )
+
+    for name in instruments:
+        try:
+            candles = broker.get_candles(
+                instrument=name, granularity=settings.granularity, count=settings.lookback_bars
+            )
+            if not candles:
+                continue
+            df = compute_indicators(candles, settings)
+            if df.empty:
+                continue
+            features = build_feature_vector(df, settings)
+            sig = scorer.score_instrument(name, features, 0.0)
+            click.echo(
+                f"{sig.instrument:<12} {sig.direction.value:<6} "
+                f"{sig.confidence:>9.1%} "
+                f"{features.get('rsi_14', 0):>6.1f} "
+                f"{features.get('adx', 0):>6.1f}"
+            )
+        except Exception as e:
+            click.echo(f"{name:<12} ERROR: {e}")
 
 
 if __name__ == "__main__":

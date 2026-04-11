@@ -254,9 +254,16 @@ def api_settings():
                 result[k] = v
         return jsonify(result)
     else:
+        allowed = {
+            "min_confidence", "risk_per_trade", "stop_loss_atr_mult",
+            "take_profit_atr_mult", "max_positions", "daily_loss_limit",
+            "max_drawdown", "max_margin_pct", "cycle_seconds",
+            "sentiment_refresh_seconds",
+        }
         data = request.get_json(silent=True) or {}
         for key, value in data.items():
-            db.set_setting(key, str(value))
+            if key in allowed:
+                db.set_setting(key, str(value))
         return jsonify({"ok": True})
 
 

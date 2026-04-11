@@ -122,6 +122,9 @@ def _get_db_path() -> str:
     raise RuntimeError("No database path configured — call set_default_db() first")
 
 
+_initialized_dbs: set[str] = set()
+
+
 @contextmanager
 def _get_conn():
     """Open a connection to the active SQLite database."""
@@ -131,19 +134,26 @@ def _get_conn():
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
-    conn.executescript(_SCHEMA)
-    # Migrations for existing DBs
-    for col, default in [
-        ("status", "'OPEN'"),
-        ("exit_price", "NULL"),
-        ("exit_time", "NULL"),
-        ("pnl", "NULL"),
-        ("close_reason", "NULL"),
-    ]:
-        try:
-            conn.execute(f"SELECT {col} FROM trades LIMIT 0")
-        except sqlite3.OperationalError:
-            conn.execute(f"ALTER TABLE trades ADD COLUMN {col} DEFAULT {default}")
+    conn.execute("PRAGMA busy_timeout=5000")
+
+    # Run schema + migrations only once per DB path
+    if path not in _initialized_dbs:
+        conn.executescript(_SCHEMA)
+        for col, default in [
+            ("status", "'OPEN'"),
+            ("exit_price", "NULL"),
+            ("exit_time", "NULL"),
+            ("pnl", "NULL"),
+            ("close_reason", "NULL"),
+        ]:
+            try:
+                conn.execute(f"SELECT {col} FROM trades LIMIT 0")
+            except sqlite3.OperationalError:
+                conn.execute(
+                    f"ALTER TABLE trades ADD COLUMN {col} DEFAULT {default}"
+                )
+        _initialized_dbs.add(path)
+
     try:
         yield conn
         conn.commit()
