@@ -162,9 +162,40 @@ def api_pnl():
     return jsonify(db.get_pnl_summary())
 
 
+@app.route("/api/open-positions")
+def api_open_positions():
+    """Open positions with live P&L from the broker."""
+    slot_name = request.args.get("instance", "paper")
+    slot = get_slot(slot_name)
+    if not slot or not slot.engine:
+        return jsonify([])
+
+    positions = []
+    with contextlib.suppress(Exception):
+        for p in slot.engine._broker.get_positions():
+            # Match with DB trade for SL/TP
+            db_trade = None
+            for t in db.get_open_trades():
+                if t["trade_id"] == p.trade_id:
+                    db_trade = t
+                    break
+            positions.append({
+                "instrument": p.instrument,
+                "direction": p.direction.value,
+                "units": p.units,
+                "entry_price": p.entry_price,
+                "unrealized_pnl": p.unrealized_pnl,
+                "trade_id": p.trade_id,
+                "stop_loss": db_trade["stop_loss"] if db_trade else None,
+                "take_profit": db_trade["take_profit"] if db_trade else None,
+            })
+    return jsonify(positions)
+
+
 @app.route("/api/snapshots")
 def api_snapshots():
-    return jsonify(db.get_snapshots())
+    limit = request.args.get("limit", 500, type=int)
+    return jsonify(db.get_snapshots(limit=limit))
 
 
 # ---------------------------------------------------------------------------
@@ -288,6 +319,12 @@ def api_engine_status():
     except (ValueError, TypeError):
         cycle_secs = engine._settings.cycle_seconds
 
+    risk = engine.risk
+    peak = risk._peak_equity
+    daily_lim = db.get_float_setting("daily_loss_limit", engine._settings.daily_loss_limit)
+    weekly_lim = db.get_float_setting("weekly_loss_limit", engine._settings.weekly_loss_limit)
+    max_dd = db.get_float_setting("max_drawdown", engine._settings.max_drawdown)
+
     return jsonify({
         "running": slot.running,
         "cycle_count": engine.cycle_count,
@@ -306,6 +343,17 @@ def api_engine_status():
             if engine._last_cycle_time else None
         ),
         "cycle_seconds": cycle_secs,
+        "daily_pnl": round(risk._daily_pnl, 2),
+        "weekly_pnl": round(risk._weekly_pnl, 2),
+        "peak_equity": round(peak, 2),
+        "daily_loss_limit": daily_lim,
+        "weekly_loss_limit": weekly_lim,
+        "max_drawdown": max_dd,
+        "current_drawdown": (
+            round((peak - engine.last_account.equity) / peak, 4)
+            if peak > 0 and engine.last_account else 0
+        ),
+        "scoring_mode": engine._scorer.mode if hasattr(engine._scorer, 'mode') else None,
     })
 
 

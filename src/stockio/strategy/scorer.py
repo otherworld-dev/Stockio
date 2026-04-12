@@ -431,6 +431,13 @@ class InstrumentScorer:
         self._use_rules_fallback = False
         self._load_model()
 
+    @property
+    def mode(self) -> str:
+        """Current scoring mode: 'ml' or 'rules'."""
+        if self._model is not None and not self._use_rules_fallback:
+            return "ml"
+        return "rules"
+
     def _load_model(self) -> None:
         """Try to load a trained LightGBM model. Fall back to rules-based if missing."""
         model_path = self._models_dir / "lightgbm_model.txt"

@@ -230,14 +230,84 @@
   #alertBanner.trade { background: var(--green); color: #000; }
   #alertBanner.halted { background: #ff9800; color: #000; }
 
+  /* Open positions panel */
+  .positions-grid { display: flex; flex-wrap: wrap; gap: 12px; }
+  .position-card {
+    background: var(--bg); border: 1px solid var(--card-border); border-radius: 8px;
+    padding: 12px 16px; min-width: 240px; flex: 1;
+  }
+  .position-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .position-inst { font-family: var(--mono); font-weight: 600; font-size: 0.9rem; }
+  .position-detail { font-size: 0.78rem; color: var(--text-dim); line-height: 1.7; }
+  .position-detail span { font-family: var(--mono); color: var(--text); }
+  .sl-tp-gauge { height: 6px; background: #1e1e40; border-radius: 3px; margin-top: 6px; position: relative; overflow: visible; }
+  .sl-tp-gauge .price-marker { position: absolute; top: -3px; width: 4px; height: 12px; border-radius: 2px; }
+  .sl-tp-gauge .sl-zone { position: absolute; left: 0; height: 100%; background: rgba(239,83,80,0.3); border-radius: 3px 0 0 3px; }
+  .sl-tp-gauge .tp-zone { position: absolute; right: 0; height: 100%; background: rgba(76,175,80,0.3); border-radius: 0 3px 3px 0; }
+
+  /* Risk limits */
+  .risk-limits { display: flex; flex-wrap: wrap; gap: 16px; }
+  .risk-item { flex: 1; min-width: 160px; }
+  .risk-label { font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase; margin-bottom: 3px; }
+  .risk-bar-track { height: 8px; background: #1e1e40; border-radius: 4px; overflow: hidden; }
+  .risk-bar-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
+  .risk-value { font-size: 0.72rem; font-family: var(--mono); margin-top: 2px; }
+
+  /* Calendar */
+  .calendar-list { display: flex; flex-direction: column; gap: 6px; }
+  .calendar-event { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--bg); border: 1px solid var(--card-border); border-radius: 6px; font-size: 0.82rem; }
+  .impact-badge { font-size: 0.68rem; font-weight: 700; padding: 2px 8px; border-radius: 10px; text-transform: uppercase; flex-shrink: 0; }
+  .impact-high { background: rgba(239,83,80,0.2); color: var(--red); }
+  .impact-medium { background: rgba(255,152,0,0.2); color: #ff9800; }
+  .impact-low { background: rgba(136,136,170,0.2); color: var(--text-dim); }
+  .calendar-time { font-family: var(--mono); font-size: 0.75rem; color: var(--text-dim); min-width: 70px; flex-shrink: 0; }
+  .calendar-currency { font-family: var(--mono); font-weight: 600; min-width: 36px; flex-shrink: 0; }
+
+  /* Connection lost banner */
+  #connBanner {
+    display: none; padding: 8px 24px; text-align: center; font-size: 0.82rem;
+    font-weight: 600; background: rgba(255,152,0,0.15); color: #ff9800;
+    border-bottom: 1px solid rgba(255,152,0,0.3);
+  }
+  #connBanner.visible { display: block; }
+
+  /* Scoring mode badge */
+  .mode-badge { font-size: 0.7rem; padding: 2px 8px; border-radius: 10px; font-weight: 600; margin-left: 8px; }
+  .mode-badge.rules { background: rgba(136,136,170,0.2); color: var(--text-dim); }
+  .mode-badge.ml { background: rgba(79,195,247,0.2); color: var(--accent); }
+
+  /* Time range buttons */
+  .time-range-btns { display: flex; gap: 4px; margin-bottom: 10px; }
+  .time-range-btn {
+    padding: 3px 10px; font-size: 0.72rem; border: 1px solid var(--card-border);
+    border-radius: 4px; background: var(--card); color: var(--text-dim);
+    cursor: pointer; font-family: var(--font); transition: all 0.15s;
+  }
+  .time-range-btn.active { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 600; }
+
+  /* Scroll hint */
+  .table-wrap { position: relative; }
+  .scrollable-table { position: relative; }
+  .scrollable-table::after {
+    content: ''; position: absolute; top: 0; right: 0; bottom: 0; width: 30px;
+    background: linear-gradient(to right, transparent, var(--card));
+    pointer-events: none; opacity: 0; transition: opacity 0.3s;
+  }
+  .scrollable-table.has-scroll::after { opacity: 1; }
+
   /* Responsive */
   @media (max-width: 900px) {
     .cards { grid-template-columns: repeat(2, 1fr); }
   }
   @media (max-width: 500px) {
     .cards { grid-template-columns: 1fr; }
-    .header { padding: 10px 14px; gap: 10px; }
+    .header { padding: 10px 14px; gap: 8px; flex-direction: row; flex-wrap: wrap; }
+    .header-title { width: 100%; }
+    .header-meta { width: 100%; justify-content: center; }
     .main { padding: 14px; }
+    .waterfall-seg { font-size: 0 !important; }
+    .engine-footer { gap: 12px; }
+    .engine-footer > div { min-width: 120px; }
   }
 
   /* Scrollbar */
@@ -326,6 +396,7 @@
 
 <!-- Alert Banner -->
 <div id="alertBanner"></div>
+<div id="connBanner">Dashboard disconnected &mdash; retrying...</div>
 
 <!-- Header -->
 <div class="header">
@@ -375,6 +446,18 @@
     </div>
   </div>
 
+  <!-- Open Positions -->
+  <div class="panel" id="openPositionsPanel" style="display:none">
+    <div class="panel-title" data-tip="Your currently active trades with live profit/loss">Open Positions</div>
+    <div class="positions-grid" id="openPositionsGrid"></div>
+  </div>
+
+  <!-- Risk Limits -->
+  <div class="panel" id="riskLimitsPanel" style="display:none">
+    <div class="panel-title" data-tip="How close you are to the safety limits that will pause trading">Risk Limits</div>
+    <div class="risk-limits" id="riskLimits"></div>
+  </div>
+
   <!-- Bot Summary -->
   <div class="panel summary-panel">
     <div class="panel-title">Bot Summary</div>
@@ -384,6 +467,12 @@
   <!-- P&L Chart -->
   <div class="panel">
     <div class="panel-title">Equity Over Time</div>
+    <div class="time-range-btns" id="timeRangeBtns">
+      <button class="time-range-btn" data-limit="24" onclick="setTimeRange(24)">6h</button>
+      <button class="time-range-btn" data-limit="96" onclick="setTimeRange(96)">24h</button>
+      <button class="time-range-btn" data-limit="500" onclick="setTimeRange(500)">7d</button>
+      <button class="time-range-btn active" data-limit="0" onclick="setTimeRange(0)">All</button>
+    </div>
     <div class="chart-container">
       <canvas id="equityChart"></canvas>
     </div>
@@ -409,11 +498,27 @@
 
   <!-- Bot Thinking Log -->
   <div class="panel collapsible">
-    <div class="panel-title" onclick="togglePanel(this)"><span class="collapse-arrow">&#9654;</span> Bot Thinking Log</div>
+    <div class="panel-title" tabindex="0" role="button" aria-expanded="false" onclick="togglePanel(this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();togglePanel(this)}"><span class="collapse-arrow">&#9654;</span> Bot Thinking Log</div>
     <div class="panel-body">
       <div id="botLogWrap">
         <p class="no-data">Loading...</p>
       </div>
+    </div>
+  </div>
+
+  <!-- Economic Calendar -->
+  <div class="panel collapsible" id="calendarPanel" style="display:none">
+    <div class="panel-title" tabindex="0" role="button" aria-expanded="false" onclick="togglePanel(this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();togglePanel(this)}"><span class="collapse-arrow">&#9654;</span> Economic Calendar <span style="font-size:0.72rem;color:var(--text-dim);font-weight:400" data-tip="High-impact events can cause large price swings. The bot may avoid trading around them">upcoming events</span></div>
+    <div class="panel-body">
+      <div class="calendar-list" id="calendarList"></div>
+    </div>
+  </div>
+
+  <!-- P&L by Instrument -->
+  <div class="panel collapsible" id="pnlByInstrumentPanel" style="display:none">
+    <div class="panel-title" tabindex="0" role="button" aria-expanded="false" onclick="togglePanel(this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();togglePanel(this)}"><span class="collapse-arrow">&#9654;</span> P&amp;L by Instrument</div>
+    <div class="panel-body">
+      <div class="table-wrap" id="pnlByInstrumentWrap"></div>
     </div>
   </div>
 
@@ -437,7 +542,7 @@
 
   <!-- Technical Indicator Gauges -->
   <div class="panel collapsible">
-    <div class="panel-title" onclick="togglePanel(this)"><span class="collapse-arrow">&#9654;</span> Technical Indicators</div>
+    <div class="panel-title" tabindex="0" role="button" aria-expanded="false" onclick="togglePanel(this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();togglePanel(this)}"><span class="collapse-arrow">&#9654;</span> Technical Indicators</div>
     <div class="panel-body">
       <div class="indicator-grid" id="indicatorGrid">
         <p class="no-data">Loading...</p>
@@ -447,7 +552,7 @@
 
   <!-- Decision Waterfall -->
   <div class="panel collapsible">
-    <div class="panel-title" onclick="togglePanel(this)"><span class="collapse-arrow">&#9654;</span> Decision Waterfall</div>
+    <div class="panel-title" tabindex="0" role="button" aria-expanded="false" onclick="togglePanel(this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();togglePanel(this)}"><span class="collapse-arrow">&#9654;</span> Decision Waterfall <span id="scoringModeBadge" class="mode-badge"></span></div>
     <div class="panel-body">
       <div class="waterfall-list" id="waterfallList">
         <p class="no-data">Loading...</p>
@@ -465,7 +570,7 @@
 
   <!-- Trade Outcome Tracker -->
   <div class="panel collapsible open">
-    <div class="panel-title" onclick="togglePanel(this)"><span class="collapse-arrow">&#9654;</span> Trade Outcome Tracker</div>
+    <div class="panel-title" tabindex="0" role="button" aria-expanded="false" onclick="togglePanel(this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();togglePanel(this)}"><span class="collapse-arrow">&#9654;</span> Trade Outcome Tracker</div>
     <div class="panel-body">
       <div id="tradeOutcomes">
         <p class="no-data">Loading...</p>
@@ -478,7 +583,7 @@
     <div><div class="engine-stat-label">Cycles</div><div class="engine-stat-value" id="engCycles">--</div></div>
     <div><div class="engine-stat-label">Model Accuracy</div><div class="engine-stat-value" id="engAccuracy">--</div></div>
     <div><div class="engine-stat-label">Training Samples</div><div class="engine-stat-value" id="engSamples">--</div></div>
-    <div><div class="engine-stat-label">Pending Outcomes</div><div class="engine-stat-value" id="engPending">--</div></div>
+    <div><div class="engine-stat-label" data-tip="Trades still being evaluated. The bot waits for these to close before learning from them">Pending Outcomes</div><div class="engine-stat-value" id="engPending">--</div></div>
     <div><div class="engine-stat-label">Instruments</div><div class="engine-stat-value" id="engInstruments">--</div></div>
     <div id="engHaltWrap" style="display:none;"><div class="engine-stat-label">Circuit Breaker</div><div class="halted-warning" id="engHalt">HALTED</div></div>
   </div>
@@ -683,6 +788,12 @@ async function refreshInstances() {
   dot.className = 'status-dot ' + (running ? 'running' : 'stopped');
   lbl.textContent = running ? 'Running' : 'Stopped';
 
+  // Show last error if bot stopped with one
+  if (!running && hasError) {
+    lbl.innerHTML = 'Stopped <span style="color:var(--red);font-size:0.75rem;display:block;max-width:300px;white-space:normal" title="' + escHtml(hasError) + '">Error: ' + escHtml(hasError.substring(0, 80)) + (hasError.length > 80 ? '...' : '') + '</span>';
+    dot.className = 'status-dot halted';
+  }
+
   // Override with halt status from engine
   const eng = await fetchJSON('/api/engine-status');
   if (eng && eng.halted) {
@@ -692,15 +803,20 @@ async function refreshInstances() {
 }
 
 async function refreshChart() {
-  const data = await fetchJSON('/api/snapshots');
+  const limitParam = _chartLimit > 0 ? '?limit=' + _chartLimit : '';
+  const data = await fetchJSON('/api/snapshots' + limitParam);
   if (!data || !data.length) return;
   // Capture starting balance from oldest snapshot
   const oldest = data[data.length - 1];
   if (oldest && oldest.balance != null) _startingBalance = oldest.balance;
+  let lastDate = '';
   const labels = data.map(s => {
     try {
       const d = new Date(s.timestamp);
-      return d.toLocaleTimeString(undefined, { hour:'2-digit', minute:'2-digit' });
+      const dateStr = d.toLocaleDateString(undefined, { month:'short', day:'numeric' });
+      const timeStr = d.toLocaleTimeString(undefined, { hour:'2-digit', minute:'2-digit' });
+      if (dateStr !== lastDate) { lastDate = dateStr; return dateStr + ' ' + timeStr; }
+      return timeStr;
     } catch { return ''; }
   });
   const values = data.map(s => s.equity);
@@ -811,7 +927,7 @@ async function refreshSignals() {
       + '<td>' + escHtml(s.instrument) + '</td>'
       + '<td class="' + dirClass(s.direction) + '">' + escHtml(s.direction) + '</td>'
       + '<td>' + (s.confidence != null ? (s.confidence * 100).toFixed(1) + '%' : '--') + '</td>'
-      + '<td style="' + sentColor + '">' + (sent != null ? Number(sent).toFixed(2) : '--') + '</td>'
+      + '<td style="' + sentColor + '">' + (sent != null ? Number(sent).toFixed(2) : '--') + sentimentLabel(sent) + '</td>'
       + '<td>' + (rsi != null ? Number(rsi).toFixed(1) : '--') + rsiLabel + '</td>'
       + '<td>' + (macdVal != null ? Number(macdVal).toFixed(4) : '--') + macdLabel + '</td>'
       + '<td>' + (adxVal != null ? Number(adxVal).toFixed(1) : '--') + adxLabel + '</td>'
@@ -835,7 +951,7 @@ async function refreshTrades() {
   _lastTrade = data[0];
   let totalPnl = 0;
   let closedCount = 0;
-  let html = '<table><thead><tr><th>Time</th><th>Instrument</th><th>Direction</th><th>Units</th><th>Entry</th><th>Exit</th><th>P&amp;L</th><th>Status</th><th>Confidence</th></tr></thead><tbody>';
+  let html = '<table><thead><tr><th>Time</th><th>Instrument</th><th>Direction</th><th>Units</th><th>Entry</th><th data-tip="Stop-loss price. The trade auto-closes here to limit your loss">SL</th><th data-tip="Take-profit price. The trade auto-closes here to lock in profit">TP</th><th>Exit</th><th>P&amp;L</th><th>Status</th><th data-tip="How certain the bot\'s ML model was about the trade direction. This is NOT the probability of profit">Confidence</th></tr></thead><tbody>';
   data.forEach(t => {
     const isClosed = t.status === 'CLOSED';
     const pnl = t.pnl != null ? t.pnl : null;
@@ -850,6 +966,8 @@ async function refreshTrades() {
       + '<td class="' + dirClass(t.direction) + '">' + escHtml(t.direction) + '</td>'
       + '<td>' + (t.units != null ? fmt(t.units, 0) : '--') + '</td>'
       + '<td>' + (t.price != null ? fmt(t.price, 5) : '--') + '</td>'
+      + '<td style="color:var(--red)">' + (t.stop_loss != null ? fmt(t.stop_loss, 5) : '--') + '</td>'
+      + '<td style="color:var(--green)">' + (t.take_profit != null ? fmt(t.take_profit, 5) : '--') + '</td>'
       + '<td>' + (t.exit_price != null ? fmt(t.exit_price, 5) : '--') + '</td>'
       + '<td style="' + pnlColor + ';font-family:var(--mono)">' + (pnl != null ? (pnl >= 0 ? '+' : '') + fmt(pnl, 4) : '--') + '</td>'
       + '<td>' + statusText + '</td>'
@@ -1133,7 +1251,7 @@ async function refreshModelLearning() {
   let leftHtml = '<div class="model-stats">'
     + '<div class="model-stat-card"><div class="card-label">Rolling Accuracy</div><div class="card-value">' + accPct + degradedHtml + '</div></div>'
     + '<div class="model-stat-card"><div class="card-label">Training Samples</div><div class="card-value">' + (data.training_samples != null ? data.training_samples : '--') + '</div></div>'
-    + '<div class="model-stat-card"><div class="card-label">Pending Outcomes</div><div class="card-value">' + (data.pending_outcomes != null ? data.pending_outcomes : '--') + '</div></div>'
+    + '<div class="model-stat-card"><div class="card-label" data-tip="Trades still being evaluated. The bot waits for these to close before learning from them">Pending Outcomes</div><div class="card-value">' + (data.pending_outcomes != null ? data.pending_outcomes : '--') + '</div></div>'
     + '<div class="model-stat-card"><div class="card-label">Last Retrain</div><div class="card-value" style="font-size:0.8rem">' + retrain + '</div></div>'
     + '</div>';
 
@@ -1250,7 +1368,11 @@ async function refreshTradeOutcomes() {
 /* ── Collapsible panels ── */
 function togglePanel(titleEl) {
   const panel = titleEl.closest('.panel.collapsible');
-  if (panel) panel.classList.toggle('open');
+  if (panel) {
+    panel.classList.toggle('open');
+    const expanded = panel.classList.contains('open');
+    titleEl.setAttribute('aria-expanded', expanded);
+  }
 }
 
 /* ── Bot Summary ── */
@@ -1412,6 +1534,213 @@ function refreshNextCycle() {
 // Tick the countdown and last-updated every second
 setInterval(() => { refreshLastUpdated(); refreshNextCycle(); }, 1000);
 
+/* ── Connection tracking ── */
+let _fetchFailCount = 0;
+const _origFetchJSON = fetchJSON;
+fetchJSON = async function(path) {
+  const result = await _origFetchJSON(path);
+  if (result === null) {
+    _fetchFailCount++;
+  } else {
+    _fetchFailCount = 0;
+    document.getElementById('connBanner').classList.remove('visible');
+  }
+  if (_fetchFailCount >= 3) {
+    document.getElementById('connBanner').classList.add('visible');
+  }
+  return result;
+};
+
+/* ── Open Positions ── */
+async function refreshOpenPositions() {
+  const data = await fetchJSON('/api/open-positions');
+  const panel = document.getElementById('openPositionsPanel');
+  const grid = document.getElementById('openPositionsGrid');
+  if (!data || !data.length) { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+
+  let html = '';
+  data.forEach(p => {
+    const pnlColor = p.unrealized_pnl >= 0 ? 'var(--green)' : 'var(--red)';
+    const pnlSign = p.unrealized_pnl >= 0 ? '+' : '';
+    let gaugeHtml = '';
+    if (p.stop_loss != null && p.take_profit != null) {
+      const range = Math.abs(p.take_profit - p.stop_loss);
+      if (range > 0) {
+        const slPct = (Math.abs(p.entry_price - p.stop_loss) / range) * 100;
+        gaugeHtml = '<div class="sl-tp-gauge">'
+          + '<div class="sl-zone" style="width:' + Math.min(slPct, 100).toFixed(0) + '%"></div>'
+          + '<div class="tp-zone" style="width:' + Math.min(100 - slPct, 100).toFixed(0) + '%"></div>'
+          + '<div class="price-marker" style="left:' + slPct.toFixed(0) + '%;background:var(--accent)" title="Entry"></div>'
+          + '</div>'
+          + '<div style="display:flex;justify-content:space-between;font-size:0.68rem;color:var(--text-dim);font-family:var(--mono);margin-top:2px">'
+          + '<span>SL ' + fmt(p.stop_loss, 5) + '</span><span>TP ' + fmt(p.take_profit, 5) + '</span></div>';
+      }
+    }
+    html += '<div class="position-card">'
+      + '<div class="position-header"><span class="position-inst">' + escHtml(p.instrument) + '</span>'
+      + '<span class="' + dirClass(p.direction) + '">' + escHtml(p.direction) + '</span></div>'
+      + '<div class="position-detail">'
+      + 'Entry: <span>' + fmt(p.entry_price, 5) + '</span> &middot; Units: <span>' + fmt(p.units, 0) + '</span><br>'
+      + 'P&L: <span style="color:' + pnlColor + '">' + pnlSign + fmt(p.unrealized_pnl) + '</span>'
+      + '</div>' + gaugeHtml + '</div>';
+  });
+  grid.innerHTML = html;
+}
+
+/* ── Risk Limits ── */
+function refreshRiskLimits() {
+  const eng = _lastEngineStatus;
+  const panel = document.getElementById('riskLimitsPanel');
+  if (!eng || !eng.peak_equity || eng.peak_equity <= 0) { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+
+  const peak = eng.peak_equity;
+  const dailyPnl = eng.daily_pnl || 0;
+  const weeklyPnl = eng.weekly_pnl || 0;
+  const dailyLim = eng.daily_loss_limit || 0.03;
+  const weeklyLim = eng.weekly_loss_limit || 0.05;
+  const maxDd = eng.max_drawdown || 0.15;
+  const currDd = eng.current_drawdown || 0;
+
+  function riskBar(label, current, limit, tooltip) {
+    const pct = limit > 0 ? Math.min(Math.abs(current) / (limit * peak) * 100, 100) : 0;
+    const color = pct > 80 ? 'var(--red)' : pct > 50 ? '#ff9800' : 'var(--green)';
+    const sign = current >= 0 ? '+' : '';
+    return '<div class="risk-item">'
+      + '<div class="risk-label" data-tip="' + tooltip + '">' + label + '</div>'
+      + '<div class="risk-bar-track"><div class="risk-bar-fill" style="width:' + pct.toFixed(1) + '%;background:' + color + '"></div></div>'
+      + '<div class="risk-value">' + sign + fmt(current) + ' / -' + fmt(limit * peak) + ' (' + pct.toFixed(0) + '%)</div>'
+      + '</div>';
+  }
+  function ddBar() {
+    const pct = maxDd > 0 ? Math.min((currDd / maxDd) * 100, 100) : 0;
+    const color = pct > 80 ? 'var(--red)' : pct > 50 ? '#ff9800' : 'var(--green)';
+    return '<div class="risk-item">'
+      + '<div class="risk-label" data-tip="How far equity has fallen from its peak. If this hits the limit, trading halts completely">Drawdown</div>'
+      + '<div class="risk-bar-track"><div class="risk-bar-fill" style="width:' + pct.toFixed(1) + '%;background:' + color + '"></div></div>'
+      + '<div class="risk-value">' + (currDd * 100).toFixed(2) + '% / ' + (maxDd * 100).toFixed(0) + '% (' + pct.toFixed(0) + '% of limit)</div>'
+      + '</div>';
+  }
+
+  document.getElementById('riskLimits').innerHTML =
+    riskBar('Daily P&L', dailyPnl, dailyLim, 'Realized P&L today. If the loss exceeds the limit, new trades are blocked for the day')
+    + riskBar('Weekly P&L', weeklyPnl, weeklyLim, 'Realized P&L this week. If the loss exceeds the limit, new trades are blocked')
+    + ddBar();
+}
+
+/* ── Economic Calendar ── */
+async function refreshCalendar() {
+  const data = await fetchJSON('/api/calendar');
+  const panel = document.getElementById('calendarPanel');
+  const list = document.getElementById('calendarList');
+  if (!data || !data.length) { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+
+  let html = '';
+  data.slice(0, 15).forEach(e => {
+    const impact = (e.impact || 'low').toLowerCase();
+    const impactCls = impact === 'high' ? 'impact-high' : impact === 'medium' ? 'impact-medium' : 'impact-low';
+    let timeStr = '--';
+    if (e.timestamp) {
+      const dt = new Date(e.timestamp);
+      const diff = dt.getTime() - Date.now();
+      if (diff > 0 && diff < 72 * 3600000) {
+        const h = Math.floor(diff / 3600000);
+        const m = Math.floor((diff % 3600000) / 60000);
+        timeStr = 'in ' + h + 'h ' + m + 'm';
+      } else {
+        timeStr = dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      }
+    }
+    html += '<div class="calendar-event">'
+      + '<span class="impact-badge ' + impactCls + '">' + escHtml(impact) + '</span>'
+      + '<span class="calendar-time">' + timeStr + '</span>'
+      + '<span class="calendar-currency">' + escHtml(e.currency || '') + '</span>'
+      + '<span>' + escHtml(e.title || e.event || '') + '</span>'
+      + '</div>';
+  });
+  list.innerHTML = html;
+}
+
+/* ── P&L by Instrument ── */
+async function refreshPnlByInstrument() {
+  const data = await fetchJSON('/api/pnl');
+  const panel = document.getElementById('pnlByInstrumentPanel');
+  const wrap = document.getElementById('pnlByInstrumentWrap');
+  if (!data || !data.instruments || !Object.keys(data.instruments).length) { panel.style.display = 'none'; return; }
+
+  const instruments = data.instruments;
+  // Only show if any instrument has closed trades
+  const hasClosed = Object.values(instruments).some(d => d.closed > 0);
+  if (!hasClosed) { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+
+  let html = '<table><thead><tr><th>Instrument</th><th>Trades</th><th>Wins</th><th>Losses</th><th data-tip="Total realized profit or loss in account currency">P&amp;L</th></tr></thead><tbody>';
+  let totalPnl = 0;
+  Object.entries(instruments).sort((a, b) => b[1].total_pnl - a[1].total_pnl).forEach(([name, d]) => {
+    if (d.closed === 0) return;
+    const pnlColor = d.total_pnl >= 0 ? 'color:var(--green)' : 'color:var(--red)';
+    totalPnl += d.total_pnl;
+    html += '<tr><td>' + escHtml(name) + '</td>'
+      + '<td>' + d.closed + '</td>'
+      + '<td style="color:var(--green)">' + d.wins + '</td>'
+      + '<td style="color:var(--red)">' + d.losses + '</td>'
+      + '<td style="' + pnlColor + ';font-family:var(--mono)">' + (d.total_pnl >= 0 ? '+' : '') + fmt(d.total_pnl) + '</td></tr>';
+  });
+  const totalColor = totalPnl >= 0 ? 'color:var(--green)' : 'color:var(--red)';
+  html += '</tbody></table>'
+    + '<div style="margin-top:8px;font-family:var(--mono);font-size:0.85rem">Total: <span style="' + totalColor + ';font-weight:600">' + (totalPnl >= 0 ? '+' : '') + fmt(totalPnl) + '</span></div>';
+  wrap.innerHTML = html;
+}
+
+/* ── Scoring Mode Badge ── */
+function refreshScoringMode() {
+  const eng = _lastEngineStatus;
+  const badge = document.getElementById('scoringModeBadge');
+  if (!eng || !eng.scoring_mode) { badge.textContent = ''; badge.className = 'mode-badge'; return; }
+  if (eng.scoring_mode === 'ml') {
+    badge.textContent = 'ML (LightGBM)';
+    badge.className = 'mode-badge ml';
+  } else {
+    badge.textContent = 'Rules-based';
+    badge.className = 'mode-badge rules';
+    badge.setAttribute('data-tip', 'Using hand-coded rules until enough training data is collected to train the ML model');
+  }
+}
+
+/* ── Sentiment labels ── */
+function sentimentLabel(val) {
+  if (val == null) return '';
+  if (val > 0.3) return ' <span style="font-size:0.7rem;color:var(--green)">(strongly bullish)</span>';
+  if (val > 0.1) return ' <span style="font-size:0.7rem;color:var(--green)">(mildly bullish)</span>';
+  if (val < -0.3) return ' <span style="font-size:0.7rem;color:var(--red)">(strongly bearish)</span>';
+  if (val < -0.1) return ' <span style="font-size:0.7rem;color:var(--red)">(mildly bearish)</span>';
+  return ' <span style="font-size:0.7rem;color:var(--text-dim)">(neutral)</span>';
+}
+
+/* ── Time range for equity chart ── */
+let _chartLimit = 0; // 0 = all
+function setTimeRange(limit) {
+  _chartLimit = limit;
+  document.querySelectorAll('.time-range-btn').forEach(b => {
+    b.classList.toggle('active', parseInt(b.dataset.limit) === limit);
+  });
+  refreshChart();
+}
+
+/* ── Scroll hint for tables ── */
+function checkScrollHint() {
+  document.querySelectorAll('.scrollable-table').forEach(el => {
+    const wrap = el.querySelector('.table-wrap');
+    if (wrap && wrap.scrollWidth > wrap.clientWidth + 10) {
+      el.classList.add('has-scroll');
+    } else {
+      el.classList.remove('has-scroll');
+    }
+  });
+}
+
 /* ── Refresh all ── */
 function refreshAll() {
   refreshMarketStatus();
@@ -1428,9 +1757,14 @@ function refreshAll() {
   refreshWaterfall();
   refreshModelLearning();
   refreshTradeOutcomes();
-  // Summary and alert depend on cached data from above fetches.
-  // Use a short delay so the async fetches have time to populate state.
-  setTimeout(() => { refreshSummary(); refreshAlertBanner(); refreshHealth(); }, 2000);
+  refreshOpenPositions();
+  refreshCalendar();
+  refreshPnlByInstrument();
+  // Summary, alerts, and derived displays depend on cached data.
+  setTimeout(() => {
+    refreshSummary(); refreshAlertBanner(); refreshHealth();
+    refreshRiskLimits(); refreshScoringMode(); checkScrollHint();
+  }, 2000);
 }
 
 /* ── Init ── */

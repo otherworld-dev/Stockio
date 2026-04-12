@@ -341,16 +341,25 @@ def get_pnl_summary() -> dict:
             by_instrument[inst] = []
         by_instrument[inst].append(trade)
 
+    instruments = {}
+    for inst, trades in by_instrument.items():
+        closed = [t for t in trades if t["status"] == "CLOSED" and t["pnl"] is not None]
+        total_pnl = sum(t["pnl"] for t in closed)
+        wins = sum(1 for t in closed if t["pnl"] > 0)
+        losses = sum(1 for t in closed if t["pnl"] <= 0)
+        instruments[inst] = {
+            "trades": len(trades),
+            "closed": len(closed),
+            "wins": wins,
+            "losses": losses,
+            "total_pnl": round(total_pnl, 4),
+            "last_direction": trades[-1]["direction"],
+            "last_price": trades[-1]["price"],
+        }
+
     return {
         "total_trades": len(rows),
-        "instruments": {
-            inst: {
-                "trades": len(trades),
-                "last_direction": trades[-1]["direction"],
-                "last_price": trades[-1]["price"],
-            }
-            for inst, trades in by_instrument.items()
-        },
+        "instruments": instruments,
     }
 
 
