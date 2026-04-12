@@ -64,6 +64,14 @@
   }
   .market-status.open { background: rgba(76,175,80,0.2); color: var(--green); }
   .market-status.closed { background: rgba(239,83,80,0.2); color: var(--red); }
+  /* Live mode warning */
+  body.live-mode .header { border-bottom: 2px solid var(--red); }
+  .live-warning { display: none; font-size: 0.7rem; background: var(--red); color: #fff; padding: 2px 8px; border-radius: 10px; font-weight: 700; margin-left: 6px; }
+  body.live-mode .live-warning { display: inline-block; }
+  .health-badge { font-size: 0.72rem; padding: 3px 10px; border-radius: 10px; font-weight: 600; }
+  .health-badge.ok { background: rgba(76,175,80,0.2); color: var(--green); }
+  .health-badge.warn { background: rgba(255,152,0,0.2); color: #ff9800; }
+  .health-badge.bad { background: rgba(239,83,80,0.2); color: var(--red); }
   .header-meta { display: flex; align-items: center; gap: 12px; font-size: 0.75rem; color: var(--text-dim); }
   .next-cycle { font-family: var(--mono); }
   .last-updated { font-family: var(--mono); opacity: 0.7; }
@@ -321,16 +329,17 @@
 
 <!-- Header -->
 <div class="header">
-  <span class="header-title">Stockio <span class="version-badge">{{ version|default('v0.1') }}</span></span>
+  <span class="header-title">Stockio <span class="version-badge">{{ version|default('v0.1') }}</span><span class="live-warning">LIVE - REAL FUNDS</span></span>
   <div class="header-spacer"></div>
   <div class="instance-toggle">
-    <button class="instance-btn active" data-instance="paper" onclick="switchInstance('paper')">Paper</button>
-    <button class="instance-btn" data-instance="live" onclick="switchInstance('live')">Live</button>
+    <button class="instance-btn active" data-instance="paper" data-tip="Simulated trading with a practice account. Safe to experiment" onclick="switchInstance('paper')">Paper</button>
+    <button class="instance-btn" data-instance="live" data-tip="Real money trading. Actual funds at risk" onclick="switchInstance('live')">Live</button>
   </div>
   <button id="startStopBtn" class="ctrl-btn stopped" onclick="toggleInstance()">Start</button>
   <span id="statusDot" class="status-dot stopped"></span>
   <span id="statusLabel" class="status-label">Stopped</span>
   <span id="marketStatus" class="market-status closed">Market Closed</span>
+  <span id="healthBadge" class="health-badge"></span>
   <div class="header-meta">
     <span class="next-cycle" id="nextCycleLabel"></span>
     <span class="last-updated" id="lastUpdatedLabel"></span>
@@ -455,7 +464,7 @@
   </div>
 
   <!-- Trade Outcome Tracker -->
-  <div class="panel collapsible">
+  <div class="panel collapsible open">
     <div class="panel-title" onclick="togglePanel(this)"><span class="collapse-arrow">&#9654;</span> Trade Outcome Tracker</div>
     <div class="panel-body">
       <div id="tradeOutcomes">
@@ -480,16 +489,16 @@
 <div class="modal-overlay" id="settingsModal">
   <div class="modal">
     <div class="modal-title">Settings</div>
-    <div class="form-group"><label class="form-label">Min Confidence</label><input class="form-input" id="set_min_confidence" type="number" step="0.01"></div>
-    <div class="form-group"><label class="form-label">Risk Per Trade</label><input class="form-input" id="set_risk_per_trade" type="number" step="0.001"></div>
-    <div class="form-group"><label class="form-label">Stop Loss ATR Mult</label><input class="form-input" id="set_stop_loss_atr_mult" type="number" step="0.1"></div>
-    <div class="form-group"><label class="form-label">Take Profit ATR Mult</label><input class="form-input" id="set_take_profit_atr_mult" type="number" step="0.1"></div>
-    <div class="form-group"><label class="form-label">Max Positions</label><input class="form-input" id="set_max_positions" type="number" step="1"></div>
-    <div class="form-group"><label class="form-label">Daily Loss Limit</label><input class="form-input" id="set_daily_loss_limit" type="number" step="0.01"></div>
-    <div class="form-group"><label class="form-label">Max Drawdown</label><input class="form-input" id="set_max_drawdown" type="number" step="0.01"></div>
-    <div class="form-group"><label class="form-label">Max Margin %</label><input class="form-input" id="set_max_margin_pct" type="number" step="0.05" min="0.1" max="0.9" placeholder="0.50 = 50%"></div>
-    <div class="form-group"><label class="form-label">Cycle Seconds</label><input class="form-input" id="set_cycle_seconds" type="number" step="1" min="60" placeholder="300 = 5min"></div>
-    <div class="form-group"><label class="form-label">Sentiment Refresh (sec)</label><input class="form-input" id="set_sentiment_refresh_seconds" type="number" step="1" min="300" placeholder="3600 = 1hr"></div>
+    <div class="form-group"><label class="form-label" data-tip="Minimum ML model confidence to open a trade. Higher = fewer but more confident trades. Safe range: 0.30-0.60">Min Confidence</label><input class="form-input" id="set_min_confidence" type="number" step="0.01"></div>
+    <div class="form-group"><label class="form-label" data-tip="Fraction of your account risked per trade. 0.01 = 1%. Lower is safer. Safe range: 0.005-0.02">Risk Per Trade</label><input class="form-input" id="set_risk_per_trade" type="number" step="0.001"></div>
+    <div class="form-group"><label class="form-label" data-tip="How far away the stop-loss is placed, as a multiple of ATR (average price range). Higher = wider stop, more room but more risk. Safe range: 1.5-3.0">Stop Loss ATR Mult</label><input class="form-input" id="set_stop_loss_atr_mult" type="number" step="0.1"></div>
+    <div class="form-group"><label class="form-label" data-tip="How far away the take-profit target is placed, as a multiple of ATR. Higher = bigger target but less likely to hit. Safe range: 1.5-4.0">Take Profit ATR Mult</label><input class="form-input" id="set_take_profit_atr_mult" type="number" step="0.1"></div>
+    <div class="form-group"><label class="form-label" data-tip="Maximum number of trades open at once. More positions = more diversification but more capital at risk. Safe range: 1-5">Max Positions</label><input class="form-input" id="set_max_positions" type="number" step="1"></div>
+    <div class="form-group"><label class="form-label" data-tip="Maximum allowed loss in a single day as a fraction of your account. 0.03 = 3%. Trading halts if exceeded. Safe range: 0.02-0.05">Daily Loss Limit</label><input class="form-input" id="set_daily_loss_limit" type="number" step="0.01"></div>
+    <div class="form-group"><label class="form-label" data-tip="Maximum allowed peak-to-trough decline. 0.10 = 10%. Trading halts if exceeded. This is your emergency brake. Safe range: 0.05-0.15">Max Drawdown</label><input class="form-input" id="set_max_drawdown" type="number" step="0.01"></div>
+    <div class="form-group"><label class="form-label" data-tip="Maximum fraction of your account used as margin (collateral). 0.50 = 50%. Blocks new trades if exceeded. Lower = more conservative. Safe range: 0.30-0.50">Max Margin %</label><input class="form-input" id="set_max_margin_pct" type="number" step="0.05" min="0.1" max="0.9" placeholder="0.50 = 50%"></div>
+    <div class="form-group"><label class="form-label" data-tip="How often the bot runs a trading cycle, in seconds. 900 = every 15 minutes. Lower = more frequent checks but more API calls">Cycle Seconds</label><input class="form-input" id="set_cycle_seconds" type="number" step="1" min="60" placeholder="300 = 5min"></div>
+    <div class="form-group"><label class="form-label" data-tip="How often news sentiment is refreshed, in seconds. 3600 = every hour. Lower = more up-to-date sentiment but uses more API credits">Sentiment Refresh (sec)</label><input class="form-input" id="set_sentiment_refresh_seconds" type="number" step="1" min="300" placeholder="3600 = 1hr"></div>
     <div class="modal-actions">
       <button class="btn-cancel" onclick="closeSettings()">Cancel</button>
       <button class="btn-save" onclick="saveSettings()">Save</button>
@@ -554,6 +563,21 @@ function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
+function humanCloseReason(reason) {
+  if (!reason) return 'Closed';
+  const map = {
+    'STOP_LOSS_ORDER': 'Stop-loss hit (auto-closed to limit loss)',
+    'TAKE_PROFIT_ORDER': 'Take-profit hit (closed at target)',
+    'TRAILING_STOP_LOSS_ORDER': 'Trailing stop triggered',
+    'MARKET_ORDER': 'Closed by bot',
+  };
+  // Check for partial matches too (OANDA reasons can vary)
+  for (const [key, val] of Object.entries(map)) {
+    if (reason.toUpperCase().includes(key)) return val;
+  }
+  return reason;
+}
+
 function shortTime(ts) {
   if (!ts) return '--';
   try {
@@ -571,6 +595,7 @@ function switchInstance(name) {
   document.querySelectorAll('.instance-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.instance === name);
   });
+  document.body.classList.toggle('live-mode', name === 'live');
   refreshAll();
 }
 
@@ -579,6 +604,9 @@ async function toggleInstance() {
   const btn = document.getElementById('startStopBtn');
   const isRunning = btn.classList.contains('running');
   const action = isRunning ? 'stop' : 'start';
+  if (activeInstance === 'live') {
+    if (!confirm('This will ' + action + ' live trading with real money. Continue?')) return;
+  }
   try {
     const r = await fetch('/api/instances/' + activeInstance + '/' + action, { method: 'POST' });
     if (!r.ok) throw new Error(r.status);
@@ -627,7 +655,8 @@ async function refreshStatus() {
   const marginFill = document.getElementById('marginBarFill');
   if (d.margin_used != null && d.equity > 0) {
     const marginPct = (d.margin_used / d.equity) * 100;
-    marginLabel.textContent = 'Margin: ' + marginPct.toFixed(1) + '% used';
+    const marginWord = marginPct > 50 ? 'High' : marginPct > 30 ? 'Moderate' : 'Low';
+    marginLabel.textContent = 'Margin: ' + marginWord + ' (' + marginPct.toFixed(1) + '%)';
     marginTrack.style.display = '';
     const color = marginPct > 50 ? 'var(--red)' : marginPct > 30 ? '#ff9800' : 'var(--green)';
     marginFill.style.width = Math.min(marginPct, 100).toFixed(1) + '%';
@@ -691,6 +720,14 @@ async function refreshChart() {
           tension: 0.3,
           pointRadius: 0,
           borderWidth: 2,
+        }, {
+          label: 'Starting Balance',
+          data: Array(labels.length).fill(_startingBalance),
+          borderColor: 'rgba(136, 136, 170, 0.5)',
+          borderDash: [5, 5],
+          borderWidth: 1,
+          pointRadius: 0,
+          fill: false,
         }]
       },
       options: {
@@ -713,6 +750,9 @@ async function refreshChart() {
   } else {
     equityChart.data.labels = labels;
     equityChart.data.datasets[0].data = values;
+    if (equityChart.data.datasets[1]) {
+      equityChart.data.datasets[1].data = Array(labels.length).fill(_startingBalance);
+    }
     equityChart.update('none');
   }
 }
@@ -756,14 +796,25 @@ async function refreshSignals() {
   actionable.forEach(s => {
     const sent = sentMap[s.instrument] != null ? sentMap[s.instrument] : s.sentiment;
     const sentColor = sent > 0 ? 'color:var(--green)' : (sent < 0 ? 'color:var(--red)' : '');
+    const rsi = s.rsi_14;
+    const rsiLabel = rsi != null ? (rsi < 30 ? ' <span style="font-size:0.7rem;color:var(--green)">(oversold)</span>'
+                   : rsi > 70 ? ' <span style="font-size:0.7rem;color:var(--red)">(overbought)</span>'
+                   : ' <span style="font-size:0.7rem;color:var(--text-dim)">(neutral)</span>') : '';
+    const macdVal = s.macd;
+    const macdLabel = macdVal != null ? (macdVal > 0 ? ' <span style="font-size:0.7rem;color:var(--green)">(bullish)</span>'
+                    : macdVal < 0 ? ' <span style="font-size:0.7rem;color:var(--red)">(bearish)</span>'
+                    : '') : '';
+    const adxVal = s.adx;
+    const adxLabel = adxVal != null ? (adxVal >= 25 ? ' <span style="font-size:0.7rem;color:var(--green)">(strong)</span>'
+                   : ' <span style="font-size:0.7rem;color:var(--text-dim)">(weak)</span>') : '';
     html += '<tr>'
       + '<td>' + escHtml(s.instrument) + '</td>'
       + '<td class="' + dirClass(s.direction) + '">' + escHtml(s.direction) + '</td>'
       + '<td>' + (s.confidence != null ? (s.confidence * 100).toFixed(1) + '%' : '--') + '</td>'
       + '<td style="' + sentColor + '">' + (sent != null ? Number(sent).toFixed(2) : '--') + '</td>'
-      + '<td>' + (s.rsi_14 != null ? Number(s.rsi_14).toFixed(1) : '--') + '</td>'
-      + '<td>' + (s.macd != null ? Number(s.macd).toFixed(4) : '--') + '</td>'
-      + '<td>' + (s.adx != null ? Number(s.adx).toFixed(1) : '--') + '</td>'
+      + '<td>' + (rsi != null ? Number(rsi).toFixed(1) : '--') + rsiLabel + '</td>'
+      + '<td>' + (macdVal != null ? Number(macdVal).toFixed(4) : '--') + macdLabel + '</td>'
+      + '<td>' + (adxVal != null ? Number(adxVal).toFixed(1) : '--') + adxLabel + '</td>'
       + '</tr>';
   });
   html += '</tbody></table>';
@@ -791,7 +842,7 @@ async function refreshTrades() {
     if (isClosed && pnl != null) { totalPnl += pnl; closedCount++; }
     const pnlColor = pnl > 0 ? 'color:var(--green)' : (pnl < 0 ? 'color:var(--red)' : '');
     const statusText = isClosed
-      ? '<span style="color:var(--text-dim)">' + escHtml(t.close_reason || 'CLOSED') + '</span>'
+      ? '<span style="color:var(--text-dim)">' + escHtml(humanCloseReason(t.close_reason)) + '</span>'
       : '<span style="color:var(--accent)">OPEN</span>';
     html += '<tr>'
       + '<td>' + shortTime(t.timestamp) + '</td>'
@@ -872,10 +923,12 @@ async function refreshEngine() {
 
 /* ── Settings ── */
 const settingsKeys = ['min_confidence','risk_per_trade','stop_loss_atr_mult','take_profit_atr_mult','max_positions','daily_loss_limit','max_drawdown','max_margin_pct','cycle_seconds','sentiment_refresh_seconds'];
+let _loadedSettings = {};
 
 async function openSettings() {
   const d = await fetchJSON('/api/settings');
   if (d) {
+    _loadedSettings = { ...d };
     settingsKeys.forEach(k => {
       const el = document.getElementById('set_' + k);
       if (el && d[k] != null) el.value = d[k];
@@ -890,10 +943,21 @@ function closeSettings() {
 
 async function saveSettings() {
   const body = {};
+  const changes = [];
   settingsKeys.forEach(k => {
     const el = document.getElementById('set_' + k);
-    if (el && el.value !== '') body[k] = Number(el.value);
+    if (el && el.value !== '') {
+      const newVal = Number(el.value);
+      body[k] = newVal;
+      const oldVal = _loadedSettings[k];
+      if (oldVal != null && Number(oldVal) !== newVal) {
+        changes.push(k.replace(/_/g, ' ') + ': ' + oldVal + ' \u2192 ' + newVal);
+      }
+    }
   });
+  if (changes.length > 0) {
+    if (!confirm('Confirm settings changes:\n\n' + changes.join('\n'))) return;
+  }
   try {
     const r = await fetch(api('/api/settings'), {
       method: 'POST',
@@ -1063,7 +1127,7 @@ async function refreshModelLearning() {
   if (!data) { wrap.innerHTML = '<p class="no-data">No model data</p>'; return; }
 
   const accPct = data.rolling_accuracy != null ? (data.rolling_accuracy * 100).toFixed(1) + '%' : '--';
-  const degradedHtml = data.is_degraded ? ' <span class="degraded-badge">DEGRADED</span>' : '';
+  const degradedHtml = data.is_degraded ? ' <span class="degraded-badge" data-tip="The model\'s recent predictions are less accurate than usual. The bot automatically requires higher confidence to trade when degraded">DEGRADED</span>' : '';
   const retrain = data.last_retrain ? shortTime(data.last_retrain) : '--';
 
   let leftHtml = '<div class="model-stats">'
@@ -1211,16 +1275,62 @@ function refreshSummary() {
   const cycles = eng ? (eng.cycle_count || 0) : 0;
   const tradeCount = _lastTrade ? 'at least 1' : '0';
 
+  let summary = '';
   if (actionable.length > 0) {
     actionable.sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
     const top = actionable[0];
     const confPct = top.confidence != null ? (top.confidence * 100).toFixed(1) + '%' : '?';
-    el.textContent = 'Watching ' + actionable.length + ' potential trade' + (actionable.length !== 1 ? 's' : '')
+    summary = 'Watching ' + actionable.length + ' potential trade' + (actionable.length !== 1 ? 's' : '')
       + '. Strongest: ' + (top.instrument || '?') + ' ' + (top.direction || '?') + ' at ' + confPct + ' confidence. '
       + cycles + ' cycle' + (cycles !== 1 ? 's' : '') + ' completed.';
   } else {
-    el.textContent = 'Analyzing ' + totalInstruments + ' instrument' + (totalInstruments !== 1 ? 's' : '')
+    summary = 'Analyzing ' + totalInstruments + ' instrument' + (totalInstruments !== 1 ? 's' : '')
       + '. No actionable signals this cycle.';
+  }
+
+  // Safety status
+  const warnings = _getHealthWarnings();
+  if (warnings.length === 0) {
+    summary += ' All safety limits within normal range.';
+  } else {
+    summary += ' ' + warnings.join(' ');
+  }
+  el.innerHTML = escHtml(summary);
+}
+
+function _getHealthWarnings() {
+  const warnings = [];
+  const eng = _lastEngineStatus;
+  if (eng && eng.halted) warnings.push('\u26A0 Trading halted: ' + (eng.halt_reason || 'circuit breaker'));
+  // Check margin from last status fetch
+  const marginFill = document.getElementById('marginBarFill');
+  if (marginFill && marginFill.style.width) {
+    const pct = parseFloat(marginFill.style.width);
+    if (pct > 50) warnings.push('\u26A0 Margin usage high (' + pct.toFixed(0) + '%).');
+  }
+  if (eng && eng.model_accuracy != null && eng.model_accuracy < 0.45) {
+    warnings.push('\u26A0 Model accuracy is low (' + (eng.model_accuracy * 100).toFixed(1) + '%).');
+  }
+  return warnings;
+}
+
+function refreshHealth() {
+  const el = document.getElementById('healthBadge');
+  const btn = document.getElementById('startStopBtn');
+  const isStopped = btn && btn.classList.contains('stopped');
+  if (isStopped) { el.textContent = ''; el.className = 'health-badge'; return; }
+
+  const warnings = _getHealthWarnings();
+  const eng = _lastEngineStatus;
+  if (eng && eng.halted) {
+    el.textContent = 'Halted';
+    el.className = 'health-badge bad';
+  } else if (warnings.length > 0) {
+    el.textContent = warnings.length + ' warning' + (warnings.length !== 1 ? 's' : '');
+    el.className = 'health-badge warn';
+  } else {
+    el.textContent = 'All systems normal';
+    el.className = 'health-badge ok';
   }
 }
 
@@ -1292,10 +1402,11 @@ function refreshNextCycle() {
   if (!_lastCycleTime || !_cycleSeconds) { el.textContent = ''; return; }
   const nextTime = _lastCycleTime.getTime() + _cycleSeconds * 1000;
   const remaining = Math.max(0, Math.round((nextTime - Date.now()) / 1000));
-  if (remaining <= 0) { el.textContent = 'Cycle due...'; return; }
+  const mins = Math.floor(_cycleSeconds / 60);
+  if (remaining <= 0) { el.textContent = 'Checking for trades...'; return; }
   const m = Math.floor(remaining / 60);
   const s = remaining % 60;
-  el.textContent = 'Next cycle ' + m + 'm ' + (s < 10 ? '0' : '') + s + 's';
+  el.textContent = 'Next trade check in ' + m + 'm ' + (s < 10 ? '0' : '') + s + 's (every ' + mins + 'min)';
 }
 
 // Tick the countdown and last-updated every second
@@ -1319,7 +1430,7 @@ function refreshAll() {
   refreshTradeOutcomes();
   // Summary and alert depend on cached data from above fetches.
   // Use a short delay so the async fetches have time to populate state.
-  setTimeout(() => { refreshSummary(); refreshAlertBanner(); }, 2000);
+  setTimeout(() => { refreshSummary(); refreshAlertBanner(); refreshHealth(); }, 2000);
 }
 
 /* ── Init ── */
