@@ -244,6 +244,7 @@ class TradingEngine:
         self._instruments = instruments
         self._settings = settings
         self._cycle_count = 0
+        self._last_cycle_time: datetime | None = None
         self._scorer = InstrumentScorer(settings, settings.models_dir)
         self._risk = RiskManager(settings)
         self._notifier = notifier
@@ -350,6 +351,7 @@ class TradingEngine:
     def run_cycle(self) -> None:
         """Execute one trading cycle."""
         self._cycle_count += 1
+        self._last_cycle_time = datetime.now(UTC)
         cycle_log = log.bind(cycle=self._cycle_count)
         cycle_log.info("cycle_start")
 

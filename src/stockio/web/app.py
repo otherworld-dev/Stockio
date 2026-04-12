@@ -280,6 +280,14 @@ def api_engine_status():
         return jsonify({"running": False})
 
     engine = slot.engine
+
+    # Read cycle_seconds from DB settings (same logic as bot loop)
+    try:
+        saved_cycle = db.get_setting("cycle_seconds")
+        cycle_secs = int(saved_cycle) if saved_cycle else engine._settings.cycle_seconds
+    except (ValueError, TypeError):
+        cycle_secs = engine._settings.cycle_seconds
+
     return jsonify({
         "running": slot.running,
         "cycle_count": engine.cycle_count,
@@ -293,6 +301,11 @@ def api_engine_status():
         "pending_outcomes": engine._outcome_tracker.pending_count,
         "halted": engine.risk.is_halted,
         "halt_reason": engine.risk.halt_reason,
+        "last_cycle_time": (
+            engine._last_cycle_time.isoformat()
+            if engine._last_cycle_time else None
+        ),
+        "cycle_seconds": cycle_secs,
     })
 
 

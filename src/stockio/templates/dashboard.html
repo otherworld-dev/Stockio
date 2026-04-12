@@ -58,6 +58,15 @@
   .status-dot.stopped { background: var(--red); }
   .status-dot.halted { background: #ff9800; box-shadow: 0 0 6px #ff9800; }
   .status-label { font-size: 0.85rem; color: var(--text-dim); margin-left: 4px; }
+  .market-status {
+    font-size: 0.75rem; padding: 3px 10px; border-radius: 10px;
+    font-weight: 600; margin-left: 8px;
+  }
+  .market-status.open { background: rgba(76,175,80,0.2); color: var(--green); }
+  .market-status.closed { background: rgba(239,83,80,0.2); color: var(--red); }
+  .header-meta { display: flex; align-items: center; gap: 12px; font-size: 0.75rem; color: var(--text-dim); }
+  .next-cycle { font-family: var(--mono); }
+  .last-updated { font-family: var(--mono); opacity: 0.7; }
   .gear-btn {
     background: none; border: none; color: var(--text-dim); cursor: pointer;
     font-size: 1.3rem; padding: 4px 8px; transition: color 0.15s;
@@ -74,7 +83,24 @@
     padding: 18px 20px;
   }
   .card-label { font-size: 0.78rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+  .card-label[data-tip] { cursor: help; border-bottom: 1px dotted var(--text-dim); }
+  .card-sub { font-size: 0.75rem; color: var(--text-dim); font-family: var(--mono); margin-top: 2px; }
+  .card-sub.positive { color: var(--green); }
+  .card-sub.negative { color: var(--red); }
   .card-value { font-size: 1.6rem; font-weight: 700; font-family: var(--mono); }
+  /* Margin bar */
+  .margin-bar-track { height: 6px; background: #1e1e40; border-radius: 3px; margin-top: 6px; overflow: hidden; }
+  .margin-bar-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+  /* Tooltips */
+  [data-tip] { position: relative; }
+  [data-tip]:hover::after {
+    content: attr(data-tip); position: absolute; bottom: 100%; left: 50%;
+    transform: translateX(-50%); padding: 6px 10px; background: #222244;
+    border: 1px solid var(--card-border); border-radius: 6px; font-size: 0.72rem;
+    color: var(--text); white-space: normal; width: max-content; max-width: 240px;
+    z-index: 100; pointer-events: none; font-weight: 400; text-transform: none;
+    letter-spacing: normal; line-height: 1.4; margin-bottom: 4px;
+  }
   .card-value.positive { color: var(--green); }
   .card-value.negative { color: var(--red); }
 
@@ -304,6 +330,11 @@
   <button id="startStopBtn" class="ctrl-btn stopped" onclick="toggleInstance()">Start</button>
   <span id="statusDot" class="status-dot stopped"></span>
   <span id="statusLabel" class="status-label">Stopped</span>
+  <span id="marketStatus" class="market-status closed">Market Closed</span>
+  <div class="header-meta">
+    <span class="next-cycle" id="nextCycleLabel"></span>
+    <span class="last-updated" id="lastUpdatedLabel"></span>
+  </div>
   <button class="gear-btn" onclick="openSettings()" title="Settings">&#9881;</button>
 </div>
 
@@ -313,20 +344,25 @@
   <!-- Portfolio Cards -->
   <div class="cards">
     <div class="card">
-      <div class="card-label">Balance</div>
+      <div class="card-label" data-tip="Cash in your account, excluding any unrealized profit or loss from open trades">Balance</div>
       <div class="card-value" id="cardBalance">--</div>
+      <div class="card-sub" id="cardReturnPct"></div>
     </div>
     <div class="card">
-      <div class="card-label">Equity</div>
+      <div class="card-label" data-tip="Balance + unrealized P&L. This is what your account is actually worth right now">Equity</div>
       <div class="card-value" id="cardEquity">--</div>
     </div>
     <div class="card">
-      <div class="card-label">Unrealized P&amp;L</div>
+      <div class="card-label" data-tip="Profit or loss on trades that are still open. Becomes realized when you close the trade">Unrealized P&amp;L</div>
       <div class="card-value" id="cardPnl">--</div>
     </div>
     <div class="card">
-      <div class="card-label">Open Positions</div>
+      <div class="card-label" data-tip="Number of trades currently open. The bot limits this based on Max Positions in settings">Open Positions</div>
       <div class="card-value" id="cardPositions">--</div>
+      <div class="card-sub" id="cardMarginLabel"></div>
+      <div class="margin-bar-track" id="marginBarTrack" style="display:none">
+        <div class="margin-bar-fill" id="marginBarFill"></div>
+      </div>
     </div>
   </div>
 
@@ -471,6 +507,10 @@ let _lastEngineStatus = null;
 let _lastTrade = null;
 let _alertTimeout = null;
 let _lastAlertTradeId = null;
+let _lastRefreshTime = null;
+let _startingBalance = null;
+let _lastCycleTime = null;
+let _cycleSeconds = null;
 
 /* ── Helpers ── */
 function api(path) {
@@ -525,6 +565,9 @@ function shortTime(ts) {
 /* ── Instance toggle ── */
 function switchInstance(name) {
   activeInstance = name;
+  _startingBalance = null;
+  _lastCycleTime = null;
+  _cycleSeconds = null;
   document.querySelectorAll('.instance-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.instance === name);
   });
@@ -561,6 +604,7 @@ async function toggleInstance() {
 async function refreshStatus() {
   const d = await fetchJSON('/api/status');
   if (!d) return;
+  _lastRefreshTime = new Date();
   const cur = d.currency || '';
   document.getElementById('cardBalance').textContent = fmt(d.balance) + ' ' + cur;
   document.getElementById('cardEquity').textContent = fmt(d.equity) + ' ' + cur;
@@ -568,6 +612,30 @@ async function refreshStatus() {
   pnlEl.textContent = (d.unrealized_pnl >= 0 ? '+' : '') + fmt(d.unrealized_pnl) + ' ' + cur;
   pnlEl.className = 'card-value ' + pnlClass(d.unrealized_pnl);
   document.getElementById('cardPositions').textContent = d.open_positions != null ? d.open_positions : '--';
+
+  // Return %
+  const retEl = document.getElementById('cardReturnPct');
+  if (_startingBalance && d.equity != null) {
+    const retPct = ((d.equity - _startingBalance) / _startingBalance) * 100;
+    retEl.textContent = (retPct >= 0 ? '+' : '') + retPct.toFixed(2) + '% overall';
+    retEl.className = 'card-sub ' + (retPct >= 0 ? 'positive' : 'negative');
+  }
+
+  // Margin usage bar
+  const marginLabel = document.getElementById('cardMarginLabel');
+  const marginTrack = document.getElementById('marginBarTrack');
+  const marginFill = document.getElementById('marginBarFill');
+  if (d.margin_used != null && d.equity > 0) {
+    const marginPct = (d.margin_used / d.equity) * 100;
+    marginLabel.textContent = 'Margin: ' + marginPct.toFixed(1) + '% used';
+    marginTrack.style.display = '';
+    const color = marginPct > 50 ? 'var(--red)' : marginPct > 30 ? '#ff9800' : 'var(--green)';
+    marginFill.style.width = Math.min(marginPct, 100).toFixed(1) + '%';
+    marginFill.style.background = color;
+  } else {
+    marginLabel.textContent = '';
+    marginTrack.style.display = 'none';
+  }
 }
 
 async function refreshInstances() {
@@ -597,6 +665,9 @@ async function refreshInstances() {
 async function refreshChart() {
   const data = await fetchJSON('/api/snapshots');
   if (!data || !data.length) return;
+  // Capture starting balance from oldest snapshot
+  const oldest = data[data.length - 1];
+  if (oldest && oldest.balance != null) _startingBalance = oldest.balance;
   const labels = data.map(s => {
     try {
       const d = new Date(s.timestamp);
@@ -673,7 +744,15 @@ async function refreshSignals() {
     return;
   }
 
-  let html = '<table><thead><tr><th>Instrument</th><th>Direction</th><th>Confidence</th><th>Sentiment</th><th>RSI 14</th><th>MACD</th><th>ADX</th></tr></thead><tbody>';
+  let html = '<table><thead><tr>'
+    + '<th>Instrument</th>'
+    + '<th>Direction</th>'
+    + '<th data-tip="How sure the bot is about this signal. Higher = stronger conviction">Confidence</th>'
+    + '<th data-tip="News sentiment score. Positive = bullish news, negative = bearish news">Sentiment</th>'
+    + '<th data-tip="Relative Strength Index (0-100). Below 30 = oversold (buy signal), above 70 = overbought (sell signal)">RSI 14</th>'
+    + '<th data-tip="Moving Average Convergence Divergence. Positive = upward momentum, negative = downward momentum">MACD</th>'
+    + '<th data-tip="Average Directional Index. Above 25 = strong trend, below 20 = weak/no trend">ADX</th>'
+    + '</tr></thead><tbody>';
   actionable.forEach(s => {
     const sent = sentMap[s.instrument] != null ? sentMap[s.instrument] : s.sentiment;
     const sentColor = sent > 0 ? 'color:var(--green)' : (sent < 0 ? 'color:var(--red)' : '');
@@ -775,6 +854,8 @@ async function refreshEngine() {
   const d = await fetchJSON('/api/engine-status');
   if (!d) return;
   _lastEngineStatus = d;
+  if (d.last_cycle_time) _lastCycleTime = new Date(d.last_cycle_time);
+  if (d.cycle_seconds) _cycleSeconds = d.cycle_seconds;
   document.getElementById('engCycles').textContent = d.cycle_count != null ? d.cycle_count : '--';
   document.getElementById('engAccuracy').textContent = d.model_accuracy != null ? (d.model_accuracy * 100).toFixed(1) + '%' : '--';
   document.getElementById('engSamples').textContent = d.training_samples != null ? d.training_samples : '--';
@@ -919,10 +1000,10 @@ async function refreshIndicators() {
     html += '<div class="indicator-row">'
       + '<span class="indicator-row-label">' + escHtml(inst) + '</span>'
       + '<div class="gauge-group">'
-      + '<div class="mini-gauge"><span class="mini-gauge-label">RSI 14</span>' + bar(rsi || 50, 0, 100, rsiColor) + '<span class="gauge-value" style="color:' + rsiColor + '">' + (rsi != null ? rsi.toFixed(1) : '--') + '</span></div>'
-      + '<div class="mini-gauge"><span class="mini-gauge-label">BB %B</span>' + bar((d.bb_percent_b || 0.5) * 100, 0, 100, bbColor) + '<span class="gauge-value">' + (d.bb_percent_b != null ? d.bb_percent_b.toFixed(2) : '--') + '</span></div>'
-      + '<div class="mini-gauge"><span class="mini-gauge-label">ADX</span>' + bar(d.adx || 0, 0, 60, adxColor) + '<span class="gauge-value" style="color:' + adxColor + '">' + (d.adx != null ? d.adx.toFixed(1) : '--') + '</span></div>'
-      + '<div class="mini-gauge"><span class="mini-gauge-label">MACD</span>' + bipolar(d.macd_histogram || 0, 0.005, 'var(--green)', 'var(--red)') + '<span class="gauge-value">' + (d.macd_histogram != null ? d.macd_histogram.toFixed(5) : '--') + '</span></div>'
+      + '<div class="mini-gauge"><span class="mini-gauge-label" data-tip="Relative Strength Index. Below 30 = oversold, above 70 = overbought">RSI 14</span>' + bar(rsi || 50, 0, 100, rsiColor) + '<span class="gauge-value" style="color:' + rsiColor + '">' + (rsi != null ? rsi.toFixed(1) : '--') + '</span></div>'
+      + '<div class="mini-gauge"><span class="mini-gauge-label" data-tip="Bollinger Band position. Below 0.2 = near lower band (oversold), above 0.8 = near upper band (overbought)">BB %B</span>' + bar((d.bb_percent_b || 0.5) * 100, 0, 100, bbColor) + '<span class="gauge-value">' + (d.bb_percent_b != null ? d.bb_percent_b.toFixed(2) : '--') + '</span></div>'
+      + '<div class="mini-gauge"><span class="mini-gauge-label" data-tip="Average Directional Index. Measures trend strength. Above 25 = strong trend, below 20 = no clear trend">ADX</span>' + bar(d.adx || 0, 0, 60, adxColor) + '<span class="gauge-value" style="color:' + adxColor + '">' + (d.adx != null ? d.adx.toFixed(1) : '--') + '</span></div>'
+      + '<div class="mini-gauge"><span class="mini-gauge-label" data-tip="MACD histogram. Shows momentum direction and strength. Green = bullish momentum, red = bearish">MACD</span>' + bipolar(d.macd_histogram || 0, 0.005, 'var(--green)', 'var(--red)') + '<span class="gauge-value">' + (d.macd_histogram != null ? d.macd_histogram.toFixed(5) : '--') + '</span></div>'
       + '</div></div>';
   });
   wrap.innerHTML = html;
@@ -1180,8 +1261,49 @@ function showBanner(text, type) {
   }, 30000);
 }
 
+/* ── Market hours ── */
+function isForexOpen() {
+  const now = new Date();
+  const day = now.getUTCDay();   // 0=Sun, 6=Sat
+  const hour = now.getUTCHours();
+  // Forex: Sunday 22:00 UTC → Friday 22:00 UTC
+  if (day === 0 && hour < 22) return false;   // Sunday before open
+  if (day === 6) return false;                 // Saturday
+  if (day === 5 && hour >= 22) return false;   // Friday after close
+  return true;
+}
+
+function refreshMarketStatus() {
+  const el = document.getElementById('marketStatus');
+  const open = isForexOpen();
+  el.textContent = open ? 'Market Open' : 'Market Closed';
+  el.className = 'market-status ' + (open ? 'open' : 'closed');
+}
+
+function refreshLastUpdated() {
+  const el = document.getElementById('lastUpdatedLabel');
+  if (!_lastRefreshTime) { el.textContent = ''; return; }
+  const ago = Math.round((Date.now() - _lastRefreshTime.getTime()) / 1000);
+  el.textContent = 'Updated ' + ago + 's ago';
+}
+
+function refreshNextCycle() {
+  const el = document.getElementById('nextCycleLabel');
+  if (!_lastCycleTime || !_cycleSeconds) { el.textContent = ''; return; }
+  const nextTime = _lastCycleTime.getTime() + _cycleSeconds * 1000;
+  const remaining = Math.max(0, Math.round((nextTime - Date.now()) / 1000));
+  if (remaining <= 0) { el.textContent = 'Cycle due...'; return; }
+  const m = Math.floor(remaining / 60);
+  const s = remaining % 60;
+  el.textContent = 'Next cycle ' + m + 'm ' + (s < 10 ? '0' : '') + s + 's';
+}
+
+// Tick the countdown and last-updated every second
+setInterval(() => { refreshLastUpdated(); refreshNextCycle(); }, 1000);
+
 /* ── Refresh all ── */
 function refreshAll() {
+  refreshMarketStatus();
   refreshStatus();
   refreshInstances();
   refreshChart();
