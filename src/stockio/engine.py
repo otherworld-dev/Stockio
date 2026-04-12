@@ -281,6 +281,10 @@ class TradingEngine:
         # Stop-loss cooldown — don't re-enter instruments that just stopped out
         self._sl_cooldown: dict[str, int] = {}  # instrument → cycle when cooldown expires
         self._sl_cooldown_cycles = 8  # Wait 8 cycles (~2 hours at M15) after SL hit
+        # Daily loss counter — block instrument after repeated losses in a day
+        self._daily_losses: dict[str, int] = {}  # instrument → loss count today
+        self._daily_losses_date: object = None  # date of last reset
+        self._max_daily_losses_per_instrument = 2  # Block after 2 losses/day
         # Cached account data — updated each cycle by the bot thread.
         # The web API reads this instead of calling the broker directly,
         # avoiding thread-safety issues with the shared requests.Session.
@@ -546,11 +550,12 @@ class TradingEngine:
                             close_reason = "Take profit hit"
 
                     if close_reason:
-                        # Set cooldown if stop-loss hit
+                        # Set cooldown and record daily loss if stop-loss hit
                         if "Stop loss" in close_reason:
                             self._sl_cooldown[instrument] = (
                                 self._cycle_count + self._sl_cooldown_cycles
                             )
+                            self._record_instrument_loss(instrument)
                             log.info(
                                 "sl_cooldown_set",
                                 instrument=instrument,
@@ -643,11 +648,12 @@ class TradingEngine:
                     except Exception:
                         pass
 
-                # Set cooldown if loss (regardless of whether details were available)
+                # Set cooldown and record daily loss if loss
                 if pnl < 0:
                     self._sl_cooldown[instrument] = (
                         self._cycle_count + self._sl_cooldown_cycles
                     )
+                    self._record_instrument_loss(instrument)
 
                 db.close_trade(
                     trade_id=trade_id,
@@ -705,6 +711,17 @@ class TradingEngine:
                     "skipped_sl_cooldown",
                     instrument=signal.instrument,
                     cycles_remaining=cooldown_until - self._cycle_count,
+                )
+                continue
+
+            # Skip instruments that have lost too many times today
+            self._reset_daily_losses_if_new_day()
+            daily_count = self._daily_losses.get(signal.instrument, 0)
+            if daily_count >= self._max_daily_losses_per_instrument:
+                cycle_log.debug(
+                    "skipped_daily_loss_limit",
+                    instrument=signal.instrument,
+                    losses_today=daily_count,
                 )
                 continue
 
@@ -812,6 +829,24 @@ class TradingEngine:
                     self._notifier.notify_error(
                         f"Order failed for {signal.instrument}: check logs"
                     )
+
+    def _reset_daily_losses_if_new_day(self) -> None:
+        """Reset the per-instrument daily loss counters at midnight UTC."""
+        today = datetime.now(UTC).date()
+        if today != self._daily_losses_date:
+            self._daily_losses.clear()
+            self._daily_losses_date = today
+
+    def _record_instrument_loss(self, instrument: str) -> None:
+        """Increment the daily loss counter for an instrument."""
+        self._reset_daily_losses_if_new_day()
+        self._daily_losses[instrument] = self._daily_losses.get(instrument, 0) + 1
+        log.info(
+            "daily_loss_recorded",
+            instrument=instrument,
+            losses_today=self._daily_losses[instrument],
+            limit=self._max_daily_losses_per_instrument,
+        )
 
     def _resolve_and_maybe_retrain(self, cycle_log: structlog.BoundLogger) -> None:
         """Resolve pending outcomes and retrain model if enough new data."""

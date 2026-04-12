@@ -15,7 +15,8 @@ log = structlog.get_logger()
 # Instruments that move together (correlated via same underlying factor)
 _CORRELATION_GROUPS: dict[str, list[str]] = {
     # All inversely correlated with USD — going long multiple = concentrated USD short
-    "usd_short": ["EUR_USD", "GBP_USD", "AUD_USD", "NZD_USD"],
+    # USD_CHF moves inversely to these (long USD_CHF ≈ short EUR_USD)
+    "usd_short": ["EUR_USD", "GBP_USD", "AUD_USD", "NZD_USD", "USD_CHF"],
     # All move with risk appetite vs JPY — going long multiple = concentrated JPY short
     "jpy_short": ["USD_JPY", "EUR_JPY", "GBP_JPY", "AUD_JPY"],
     # Commodity currencies — correlated via commodity prices
@@ -31,6 +32,8 @@ _HIGH_CORRELATION_PAIRS: dict[tuple[str, str], float] = {
     ("AUD_JPY", "USD_JPY"): 0.70,
     ("GBP_JPY", "EUR_JPY"): 0.80,
     ("AUD_JPY", "EUR_JPY"): 0.75,
+    ("EUR_USD", "USD_CHF"): 0.90,  # Inverse correlation (same USD exposure)
+    ("GBP_USD", "USD_CHF"): 0.80,
 }
 
 

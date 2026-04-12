@@ -546,6 +546,18 @@ class InstrumentScorer:
         score += sentiment * 1.0
         max_score += 1.0
 
+        # Trend trap filter — don't buy "oversold" in a downtrend or sell
+        # "overbought" in an uptrend.  RSI extremes in a strong trend are
+        # continuation signals, not reversal signals.
+        close_vs_ema = features.get("close_vs_ema_long", 0)
+        macd_hist = features.get("macd_histogram", 0)
+        if rsi_14 < 30 and close_vs_ema < -0.001 and macd_hist < 0:
+            # "Oversold" but price below long EMA with bearish MACD = downtrend
+            score *= 0.3
+        elif rsi_14 > 70 and close_vs_ema > 0.001 and macd_hist > 0:
+            # "Overbought" but price above long EMA with bullish MACD = uptrend
+            score *= 0.3
+
         # ADX — only trade when trending (applied AFTER all additive components)
         adx = features.get("adx", 0)
         if adx < 20:
