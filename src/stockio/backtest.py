@@ -111,6 +111,7 @@ def _fetch_candles_paginated(broker, instrument: str, granularity: str, total_ba
     end = datetime.now(UTC)
     start = end - timedelta(minutes=bar_minutes * total_bars)
     all_candles = []
+    seen_timestamps = set()
     cursor = start
 
     while cursor < end:
@@ -123,7 +124,10 @@ def _fetch_candles_paginated(broker, instrument: str, granularity: str, total_ba
                 to_time=chunk_end,
             )
             if chunk:
-                all_candles.extend(chunk)
+                for c in chunk:
+                    if c.timestamp not in seen_timestamps:
+                        all_candles.append(c)
+                        seen_timestamps.add(c.timestamp)
                 log.info(
                     "backtest_page",
                     instrument=instrument,
