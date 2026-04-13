@@ -289,7 +289,7 @@ def api_settings():
             "min_confidence", "risk_per_trade", "stop_loss_atr_mult",
             "take_profit_atr_mult", "max_positions", "daily_loss_limit",
             "max_drawdown", "max_margin_pct", "cycle_seconds",
-            "sentiment_refresh_seconds",
+            "sentiment_refresh_seconds", "disable_daily_limit",
         }
         data = request.get_json(silent=True) or {}
         for key, value in data.items():
@@ -354,6 +354,7 @@ def api_engine_status():
             if peak > 0 and engine.last_account else 0
         ),
         "scoring_mode": engine._scorer.mode if hasattr(engine._scorer, 'mode') else None,
+        "disable_daily_limit": bool(db.get_setting("disable_daily_limit")),
     })
 
 

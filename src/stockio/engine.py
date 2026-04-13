@@ -148,13 +148,14 @@ class RiskManager:
             if margin_pct >= max_margin_pct:
                 return False, f"Margin too high ({margin_pct:.0%}, limit {max_margin_pct:.0%})"
 
-        # Daily loss limit
+        # Daily loss limit (can be disabled via settings for paper trading)
+        disable_daily = db.get_setting("disable_daily_limit")
         if self._peak_equity > 0:
-            if self._daily_pnl < -(daily_lim * self._peak_equity):
+            if not disable_daily and self._daily_pnl < -(daily_lim * self._peak_equity):
                 return False, f"Daily loss limit ({daily_lim:.0%}) hit"
 
             # Weekly loss limit
-            if self._weekly_pnl < -(weekly_lim * self._peak_equity):
+            if not disable_daily and self._weekly_pnl < -(weekly_lim * self._peak_equity):
                 return False, f"Weekly loss limit ({weekly_lim:.0%}) hit"
 
             # Max drawdown kill switch
@@ -756,6 +757,29 @@ class TradingEngine:
             )
             if units <= 0:
                 continue
+
+            # Scale position size when model is unproven or underperforming
+            acc = self._outcome_tracker.rolling_accuracy
+            live_samples = len(self._outcome_tracker._recent_outcomes)
+            if live_samples < 50:
+                # New model: half size until we have enough live data
+                units = max(instrument_cfg.min_units, units // 2)
+                cycle_log.info(
+                    "position_scaled_new_model",
+                    instrument=signal.instrument,
+                    live_samples=live_samples,
+                    scale="50%",
+                )
+            elif acc is not None and acc < 0.50:
+                # Underperforming: scale proportionally
+                scale = max(0.25, acc / 0.50)
+                units = max(instrument_cfg.min_units, int(units * scale))
+                cycle_log.info(
+                    "position_scaled_low_accuracy",
+                    instrument=signal.instrument,
+                    accuracy=round(acc, 3),
+                    scale=f"{scale:.0%}",
+                )
 
             stop_loss, take_profit = calculate_stop_take_profit(
                 entry_price, signal.direction, atr, self._settings

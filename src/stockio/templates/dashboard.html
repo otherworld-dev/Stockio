@@ -604,6 +604,10 @@
     <div class="form-group"><label class="form-label" data-tip="Maximum fraction of your account used as margin (collateral). 0.50 = 50%. Blocks new trades if exceeded. Lower = more conservative. Safe range: 0.30-0.50">Max Margin %</label><input class="form-input" id="set_max_margin_pct" type="number" step="0.05" min="0.1" max="0.9" placeholder="0.50 = 50%"></div>
     <div class="form-group"><label class="form-label" data-tip="How often the bot runs a trading cycle, in seconds. 900 = every 15 minutes. Lower = more frequent checks but more API calls">Cycle Seconds</label><input class="form-input" id="set_cycle_seconds" type="number" step="1" min="60" placeholder="300 = 5min"></div>
     <div class="form-group"><label class="form-label" data-tip="How often news sentiment is refreshed, in seconds. 3600 = every hour. Lower = more up-to-date sentiment but uses more API credits">Sentiment Refresh (sec)</label><input class="form-input" id="set_sentiment_refresh_seconds" type="number" step="1" min="300" placeholder="3600 = 1hr"></div>
+    <div class="form-group" style="display:flex;align-items:center;gap:10px;margin-top:16px;padding-top:16px;border-top:1px solid var(--card-border)">
+      <label class="form-label" style="margin:0" data-tip="Disable daily and weekly loss limits. Only recommended for paper trading — on live accounts these limits protect you from catastrophic losses">Disable Daily/Weekly Loss Limits</label>
+      <input type="checkbox" id="set_disable_daily_limit" style="width:18px;height:18px;cursor:pointer">
+    </div>
     <div class="modal-actions">
       <button class="btn-cancel" onclick="closeSettings()">Cancel</button>
       <button class="btn-save" onclick="saveSettings()">Save</button>
@@ -794,11 +798,19 @@ async function refreshInstances() {
     dot.className = 'status-dot halted';
   }
 
-  // Override with halt status from engine
+  // Override with halt/limit status from engine
   const eng = await fetchJSON('/api/engine-status');
   if (eng && eng.halted) {
     dot.className = 'status-dot halted';
     lbl.textContent = 'Halted';
+  } else if (eng && eng.peak_equity > 0 && !eng.disable_daily_limit) {
+    if (eng.daily_pnl < -(eng.daily_loss_limit * eng.peak_equity)) {
+      dot.className = 'status-dot halted';
+      lbl.textContent = 'Daily limit reached';
+    } else if (eng.weekly_pnl < -(eng.weekly_loss_limit * eng.peak_equity)) {
+      dot.className = 'status-dot halted';
+      lbl.textContent = 'Weekly limit reached';
+    }
   }
 }
 
@@ -1045,6 +1057,7 @@ let _loadedSettings = {};
 
 async function openSettings() {
   const d = await fetchJSON('/api/settings');
+  const eng = await fetchJSON('/api/engine-status');
   if (d) {
     _loadedSettings = { ...d };
     settingsKeys.forEach(k => {
@@ -1052,6 +1065,9 @@ async function openSettings() {
       if (el && d[k] != null) el.value = d[k];
     });
   }
+  // Load override toggle from engine status
+  const cb = document.getElementById('set_disable_daily_limit');
+  if (cb && eng) cb.checked = !!eng.disable_daily_limit;
   document.getElementById('settingsModal').classList.add('open');
 }
 
@@ -1073,6 +1089,11 @@ async function saveSettings() {
       }
     }
   });
+  // Include override toggle
+  const cb = document.getElementById('set_disable_daily_limit');
+  if (cb) {
+    body.disable_daily_limit = cb.checked ? '1' : '';
+  }
   if (changes.length > 0) {
     if (!confirm('Confirm settings changes:\n\n' + changes.join('\n'))) return;
   }
@@ -1392,6 +1413,20 @@ function refreshSummary() {
     return;
   }
 
+  // Check if daily/weekly limit is hit
+  const dailyLimitHit = eng && eng.peak_equity > 0 && !eng.disable_daily_limit
+    && eng.daily_pnl < -(eng.daily_loss_limit * eng.peak_equity);
+  const weeklyLimitHit = eng && eng.peak_equity > 0 && !eng.disable_daily_limit
+    && eng.weekly_pnl < -(eng.weekly_loss_limit * eng.peak_equity);
+
+  if (dailyLimitHit || weeklyLimitHit) {
+    const which = dailyLimitHit ? 'Daily' : 'Weekly';
+    el.innerHTML = '<span style="color:var(--red);font-size:1.1rem;font-weight:700">\u26D4 ' + which + ' loss limit reached — no new trades until reset.</span>'
+      + '<br><span style="color:var(--text-dim);font-size:0.85rem">The bot is still running and monitoring, but won\'t open new positions. '
+      + (dailyLimitHit ? 'Resets at midnight UTC.' : 'Resets on Monday.') + '</span>';
+    return;
+  }
+
   const actionable = signals.filter(s => s.direction && s.direction.toUpperCase() !== 'HOLD');
   const totalInstruments = signals.length;
   const cycles = eng ? (eng.cycle_count || 0) : 0;
@@ -1473,6 +1508,18 @@ function refreshAlertBanner() {
   if (eng && eng.halted) {
     showBanner('\u26A0 Trading halted: ' + (eng.halt_reason || 'Circuit breaker triggered'), 'halted');
     return;
+  }
+
+  // Check for daily/weekly loss limit
+  if (eng && eng.peak_equity > 0 && !eng.disable_daily_limit) {
+    if (eng.daily_pnl < -(eng.daily_loss_limit * eng.peak_equity)) {
+      showBanner('\u26D4 Daily loss limit reached \u2014 no new trades until midnight UTC', 'halted');
+      return;
+    }
+    if (eng.weekly_pnl < -(eng.weekly_loss_limit * eng.peak_equity)) {
+      showBanner('\u26D4 Weekly loss limit reached \u2014 no new trades until Monday', 'halted');
+      return;
+    }
   }
 
   // Check for recent trade (within 60 seconds)

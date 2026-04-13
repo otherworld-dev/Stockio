@@ -93,6 +93,50 @@ def _build_features_at_bar(df: pd.DataFrame, idx: int, settings: Settings) -> di
     return features
 
 
+def _fetch_candles_paginated(broker, instrument: str, granularity: str, total_bars: int):
+    """Fetch candles in pages of up to 5000 (OANDA limit)."""
+    from datetime import timedelta
+
+    _GRAN_MINUTES = {"M1": 1, "M5": 5, "M15": 15, "M30": 30, "H1": 60, "H4": 240, "D": 1440}
+    bar_minutes = _GRAN_MINUTES.get(granularity, 15)
+
+    if total_bars <= 5000:
+        return broker.get_candles(
+            instrument=instrument, granularity=granularity, count=total_bars
+        )
+
+    # Paginate: fetch from (now - total_bars * bar_duration) in chunks
+    from datetime import UTC, datetime
+
+    end = datetime.now(UTC)
+    start = end - timedelta(minutes=bar_minutes * total_bars)
+    all_candles = []
+    cursor = start
+
+    while cursor < end:
+        chunk_end = min(cursor + timedelta(minutes=bar_minutes * 5000), end)
+        try:
+            chunk = broker.get_candles(
+                instrument=instrument,
+                granularity=granularity,
+                from_time=cursor,
+                to_time=chunk_end,
+            )
+            if chunk:
+                all_candles.extend(chunk)
+                log.info(
+                    "backtest_page",
+                    instrument=instrument,
+                    fetched=len(chunk),
+                    total_so_far=len(all_candles),
+                )
+        except Exception as exc:
+            log.warning("backtest_page_failed", instrument=instrument, error=str(exc))
+        cursor = chunk_end
+
+    return all_candles
+
+
 def generate_training_data(
     settings: Settings,
     instruments: list[str],
@@ -120,10 +164,8 @@ def generate_training_data(
         log.info("backtest_fetching", instrument=instrument, bars=bars)
 
         try:
-            candles = broker.get_candles(
-                instrument=instrument,
-                granularity=settings.granularity,
-                count=bars,
+            candles = _fetch_candles_paginated(
+                broker, instrument, settings.granularity, bars
             )
         except Exception as exc:
             log.warning("backtest_fetch_failed", instrument=instrument, error=str(exc))
