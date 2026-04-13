@@ -1433,6 +1433,14 @@ function _getHealthWarnings() {
   if (eng && eng.model_accuracy != null && eng.model_accuracy < 0.45) {
     warnings.push('\u26A0 Model accuracy is low (' + (eng.model_accuracy * 100).toFixed(1) + '%).');
   }
+  // Check risk limits
+  if (eng && eng.peak_equity > 0) {
+    const dailyPct = eng.daily_loss_limit > 0 ? Math.abs(eng.daily_pnl) / (eng.daily_loss_limit * eng.peak_equity) * 100 : 0;
+    if (dailyPct >= 100) warnings.push('\u26A0 Daily loss limit reached!');
+    else if (dailyPct >= 75) warnings.push('\u26A0 Daily loss at ' + dailyPct.toFixed(0) + '% of limit.');
+    const ddPct = eng.max_drawdown > 0 ? (eng.current_drawdown / eng.max_drawdown) * 100 : 0;
+    if (ddPct >= 80) warnings.push('\u26A0 Drawdown at ' + ddPct.toFixed(0) + '% of limit.');
+  }
   return warnings;
 }
 
