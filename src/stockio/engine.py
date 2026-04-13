@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import collections
 import math
+import threading
 from datetime import UTC, datetime
 
 import structlog
@@ -240,10 +241,12 @@ class TradingEngine:
         instruments: dict[str, InstrumentConfig],
         settings: Settings,
         notifier: TelegramNotifier | None = None,
+        shutdown_event: threading.Event | None = None,
     ) -> None:
         self._broker = broker
         self._instruments = instruments
         self._settings = settings
+        self._shutdown = shutdown_event
         self._cycle_count = 0
         self._last_cycle_time: datetime | None = None
         self._scorer = InstrumentScorer(settings, settings.models_dir)
@@ -371,6 +374,9 @@ class TradingEngine:
         # Step 1: Update candle data
         oanda_failed = 0
         for name in self._instruments:
+            if self._shutdown and self._shutdown.is_set():
+                cycle_log.info("cycle_aborted_shutdown")
+                return
             try:
                 self._update_candles(name)
                 self._cb_oanda.record_success()

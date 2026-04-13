@@ -100,7 +100,7 @@ def start_bot(name: str) -> bool:
 
 
 def stop_bot(name: str) -> bool:
-    """Signal a bot instance to stop."""
+    """Signal a bot instance to stop and wait briefly for it to finish."""
     slot = _slots.get(name)
     if not slot:
         return False
@@ -110,7 +110,12 @@ def stop_bot(name: str) -> bool:
             return False
         slot.shutdown_event.set()
         log.info("bot_stop_requested", instance=name)
-        return True
+
+    # Wait up to 5 seconds for the thread to finish
+    if slot.thread and slot.thread.is_alive():
+        slot.thread.join(timeout=5)
+
+    return True
 
 
 def _create_broker_for_slot(slot_name: str, settings: Settings):
@@ -179,6 +184,7 @@ def _run_bot(slot: BotSlot, generation: int) -> None:
             instruments=instruments,
             settings=settings,
             notifier=notifier,
+            shutdown_event=slot.shutdown_event,
         )
         slot.engine = engine
 
@@ -188,12 +194,17 @@ def _run_bot(slot: BotSlot, generation: int) -> None:
             try:
                 if sentiment.needs_refresh():
                     scores = sentiment.refresh_all(instruments)
+                    if slot.shutdown_event.is_set():
+                        break
                     engine.update_sentiment(scores)
                     slot.last_sentiment = scores
                     slot.last_trump_sentiment = {
                         k: sentiment.get_trump_sentiment(k)
                         for k in instruments
                     }
+
+                if slot.shutdown_event.is_set():
+                    break
 
                 engine.run_cycle()
                 engine.maybe_daily_summary()
