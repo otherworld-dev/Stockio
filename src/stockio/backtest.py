@@ -111,7 +111,6 @@ def _fetch_candles_paginated(broker, instrument: str, granularity: str, total_ba
     end = datetime.now(UTC)
     start = end - timedelta(minutes=bar_minutes * total_bars)
     all_candles = []
-    seen_timestamps = set()
     cursor = start
 
     while cursor < end:
@@ -124,10 +123,7 @@ def _fetch_candles_paginated(broker, instrument: str, granularity: str, total_ba
                 to_time=chunk_end,
             )
             if chunk:
-                for c in chunk:
-                    if c.timestamp not in seen_timestamps:
-                        all_candles.append(c)
-                        seen_timestamps.add(c.timestamp)
+                all_candles.extend(chunk)
                 log.info(
                     "backtest_page",
                     instrument=instrument,
@@ -138,7 +134,15 @@ def _fetch_candles_paginated(broker, instrument: str, granularity: str, total_ba
             log.warning("backtest_page_failed", instrument=instrument, error=str(exc))
         cursor = chunk_end
 
-    return all_candles
+    # Deduplicate by timestamp (page boundaries can overlap)
+    seen = set()
+    deduped = []
+    for c in all_candles:
+        key = c.timestamp.isoformat()
+        if key not in seen:
+            seen.add(key)
+            deduped.append(c)
+    return deduped
 
 
 def generate_training_data(
