@@ -203,11 +203,22 @@ def generate_training_data(
             if atr <= 0:
                 continue
 
-            # Look ahead: did price go up by threshold?
-            future_prices = df.iloc[i + 1 : i + 1 + horizon]["close"]
-            max_future = future_prices.max()
-            threshold = atr * atr_mult
-            label = 1 if (max_future - entry_price) >= threshold else 0
+            # Look ahead: simulate a BUY trade — did price reach TP before SL?
+            # This labels based on actual trade profitability, not just direction.
+            sl_dist = atr * settings.stop_loss_atr_mult   # e.g. 1.5x ATR
+            tp_dist = atr * settings.take_profit_atr_mult  # e.g. 2.0x ATR
+            tp_price = entry_price + tp_dist
+            sl_price = entry_price - sl_dist
+
+            label = 0  # Default: trade would have lost (or gone nowhere)
+            future_bars = df.iloc[i + 1 : i + 1 + horizon]
+            for _, bar in future_bars.iterrows():
+                if bar["low"] <= sl_price:
+                    label = 0  # Hit stop-loss first
+                    break
+                if bar["high"] >= tp_price:
+                    label = 1  # Hit take-profit first
+                    break
 
             row = {
                 "timestamp": df.index[i].isoformat() if hasattr(df.index[i], "isoformat") else str(df.index[i]),

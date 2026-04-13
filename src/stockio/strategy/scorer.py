@@ -67,6 +67,8 @@ class PendingOutcome:
     atr: float
     timestamp: datetime
     horizon_cycle: int  # Cycle number when this outcome should be resolved
+    sl_price: float = 0.0  # Stop-loss price for trade-outcome labelling
+    tp_price: float = 0.0  # Take-profit price for trade-outcome labelling
 
 
 class OutcomeTracker:
@@ -140,6 +142,8 @@ class OutcomeTracker:
                         atr=o["atr"],
                         timestamp=ts,
                         horizon_cycle=horizon,
+                        sl_price=o.get("sl_price", 0.0),
+                        tp_price=o.get("tp_price", 0.0),
                     )
                 )
             log.info(
@@ -168,6 +172,8 @@ class OutcomeTracker:
                     "features": p.features,
                     "horizon_cycle": p.horizon_cycle,
                     "timestamp": p.timestamp.isoformat(),
+                    "sl_price": p.sl_price,
+                    "tp_price": p.tp_price,
                 }
                 for p in self._pending
             ]
@@ -186,6 +192,16 @@ class OutcomeTracker:
         current_cycle: int,
     ) -> None:
         """Record a new prediction to be resolved later."""
+        sl_mult = self._settings.stop_loss_atr_mult
+        tp_mult = self._settings.take_profit_atr_mult
+
+        if direction == Direction.BUY:
+            sl_price = entry_price - atr * sl_mult
+            tp_price = entry_price + atr * tp_mult
+        else:
+            sl_price = entry_price + atr * sl_mult
+            tp_price = entry_price - atr * tp_mult
+
         self._pending.append(
             PendingOutcome(
                 instrument=instrument,
@@ -196,11 +212,17 @@ class OutcomeTracker:
                 atr=atr,
                 timestamp=datetime.now(UTC),
                 horizon_cycle=current_cycle + self._settings.label_horizon_bars,
+                sl_price=sl_price,
+                tp_price=tp_price,
             )
         )
 
     def resolve_outcomes(self, current_cycle: int, get_price_fn) -> int:
-        """Check pending outcomes that have reached their horizon.
+        """Check pending outcomes — resolve if SL/TP hit or horizon reached.
+
+        Labels are based on trade profitability: did the price reach the
+        take-profit level before hitting the stop-loss?  This aligns the
+        ML model with actual trade outcomes rather than just direction.
 
         get_price_fn(instrument) -> float should return current mid price.
         Returns number of outcomes resolved.
@@ -209,38 +231,45 @@ class OutcomeTracker:
         remaining: list[PendingOutcome] = []
 
         for outcome in self._pending:
-            if current_cycle < outcome.horizon_cycle:
-                remaining.append(outcome)
-                continue
-
             try:
                 current_price = get_price_fn(outcome.instrument)
             except Exception:
                 log.exception("outcome_price_fetch_failed", instrument=outcome.instrument)
-                remaining.append(outcome)  # Try again next cycle
+                remaining.append(outcome)
                 continue
 
-            move = current_price - outcome.entry_price
-            threshold = outcome.atr * self._settings.label_atr_mult
-
-            # Label: did price go UP by at least threshold?
-            # This is a directional label (1=up, 0=down/flat) independent
-            # of what was predicted. The ML model outputs P(price goes up).
-            price_went_up = move >= threshold
-
-            # Track prediction accuracy separately
+            # Check if SL or TP has been hit (works for both BUY and SELL)
+            hit_tp = False
+            hit_sl = False
             if outcome.direction == Direction.BUY:
-                prediction_correct = price_went_up
-            else:
-                prediction_correct = not price_went_up
+                if current_price >= outcome.tp_price:
+                    hit_tp = True
+                elif current_price <= outcome.sl_price:
+                    hit_sl = True
+            else:  # SELL
+                if current_price <= outcome.tp_price:
+                    hit_tp = True
+                elif current_price >= outcome.sl_price:
+                    hit_sl = True
 
-            self._recent_outcomes.append(prediction_correct)
-            self._append_training_row(outcome, current_price, price_went_up)
-            resolved += 1
+            if hit_tp or hit_sl:
+                # Resolved early — SL or TP was hit before horizon
+                trade_won = hit_tp
+                self._recent_outcomes.append(trade_won)
+                self._append_training_row(outcome, current_price, trade_won)
+                resolved += 1
+            elif current_cycle >= outcome.horizon_cycle:
+                # Horizon reached without hitting SL or TP — label as loss
+                # (the trade didn't reach its target in time)
+                self._recent_outcomes.append(False)
+                self._append_training_row(outcome, current_price, False)
+                resolved += 1
+            else:
+                # Still waiting
+                remaining.append(outcome)
 
         self._pending.clear()
         self._pending.extend(remaining)
-        # Flush any remaining buffered rows after resolving
         if resolved > 0:
             self._flush_buffer()
         return resolved
