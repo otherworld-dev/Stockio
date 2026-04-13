@@ -25,6 +25,7 @@ def compute_indicators(candles: list[Candle], settings: Settings) -> pd.DataFram
         }
     )
     df.set_index("timestamp", inplace=True)
+    df = df[~df.index.duplicated(keep="first")]
 
     # EMA
     for period in settings.ema_periods:
