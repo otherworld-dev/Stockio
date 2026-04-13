@@ -110,6 +110,16 @@ def pnl():
 
 
 @main.command()
+@click.option("--bars", default=1000, type=int, help="Number of historical bars per instrument")
+@click.option("--no-train", is_flag=True, help="Generate data only, skip model training")
+def backtest(bars: int, no_train: bool):
+    """Generate ML training data from historical prices and train the model."""
+    from stockio.backtest import run_backtest
+
+    run_backtest(bars=bars, train=not no_train)
+
+
+@main.command()
 def signals():
     """Dry-run: fetch data and show signals without executing any trades."""
     from stockio import db
