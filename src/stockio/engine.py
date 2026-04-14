@@ -881,12 +881,22 @@ class TradingEngine:
     def _resolve_and_maybe_retrain(self, cycle_log: structlog.BoundLogger) -> None:
         """Resolve pending outcomes and retrain model if enough new data."""
 
-        def _get_mid_price(instrument: str) -> float:
+        def _get_price_range(instrument: str) -> tuple[float, float, float]:
+            """Return (mid, low, high) from recent candles for outcome checking."""
+            cache = self._candle_cache.get(instrument)
+            if cache and len(cache) >= self._settings.label_horizon_bars:
+                recent = list(cache)[-self._settings.label_horizon_bars:]
+                low = min(c.low for c in recent)
+                high = max(c.high for c in recent)
+                mid = (recent[-1].close)
+                return mid, low, high
+            # Fallback to current price
             quote = self._broker.get_price(instrument)
-            return (quote.bid + quote.ask) / 2
+            mid = (quote.bid + quote.ask) / 2
+            return mid, mid, mid
 
         resolved = self._outcome_tracker.resolve_outcomes(
-            self._cycle_count, _get_mid_price
+            self._cycle_count, _get_price_range
         )
         if resolved > 0:
             acc = self._outcome_tracker.rolling_accuracy

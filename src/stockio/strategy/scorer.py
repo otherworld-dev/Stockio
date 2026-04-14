@@ -217,14 +217,14 @@ class OutcomeTracker:
             )
         )
 
-    def resolve_outcomes(self, current_cycle: int, get_price_fn) -> int:
+    def resolve_outcomes(self, current_cycle: int, get_price_range_fn) -> int:
         """Check pending outcomes — resolve if SL/TP hit or horizon reached.
 
         Labels are based on trade profitability: did the price reach the
-        take-profit level before hitting the stop-loss?  This aligns the
-        ML model with actual trade outcomes rather than just direction.
+        take-profit level before hitting the stop-loss?  Uses candle
+        high/low ranges to catch intra-bar touches (matching backtest).
 
-        get_price_fn(instrument) -> float should return current mid price.
+        get_price_range_fn(instrument) -> (mid, low, high) from recent candles.
         Returns number of outcomes resolved.
         """
         resolved = 0
@@ -232,40 +232,41 @@ class OutcomeTracker:
 
         for outcome in self._pending:
             try:
-                current_price = get_price_fn(outcome.instrument)
+                mid, low, high = get_price_range_fn(outcome.instrument)
             except Exception:
                 log.exception("outcome_price_fetch_failed", instrument=outcome.instrument)
                 remaining.append(outcome)
                 continue
 
-            # Check if SL or TP has been hit (works for both BUY and SELL)
+            # Check if SL or TP has been touched using candle range
             hit_tp = False
             hit_sl = False
             if outcome.direction == Direction.BUY:
-                if current_price >= outcome.tp_price:
+                if high >= outcome.tp_price:
                     hit_tp = True
-                elif current_price <= outcome.sl_price:
+                if low <= outcome.sl_price:
                     hit_sl = True
             else:  # SELL
-                if current_price <= outcome.tp_price:
+                if low <= outcome.tp_price:
                     hit_tp = True
-                elif current_price >= outcome.sl_price:
+                if high >= outcome.sl_price:
                     hit_sl = True
 
+            # If both hit in the same range, SL takes priority (conservative)
+            if hit_sl and hit_tp:
+                hit_tp = False
+
             if hit_tp or hit_sl:
-                # Resolved early — SL or TP was hit before horizon
                 trade_won = hit_tp
                 self._recent_outcomes.append(trade_won)
-                self._append_training_row(outcome, current_price, trade_won)
+                self._append_training_row(outcome, mid, trade_won)
                 resolved += 1
             elif current_cycle >= outcome.horizon_cycle:
-                # Horizon reached without hitting SL or TP — label as loss
-                # (the trade didn't reach its target in time)
+                # Horizon reached without hitting either — label as loss
                 self._recent_outcomes.append(False)
-                self._append_training_row(outcome, current_price, False)
+                self._append_training_row(outcome, mid, False)
                 resolved += 1
             else:
-                # Still waiting
                 remaining.append(outcome)
 
         self._pending.clear()
