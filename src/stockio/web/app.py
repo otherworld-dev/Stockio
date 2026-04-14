@@ -205,18 +205,17 @@ def api_snapshots():
 
 @app.route("/api/signals")
 def api_signals():
-    """Return last cycle's signals from the running engine."""
+    """Return last cycle's actual scored signals (not re-computed)."""
     slot_name = request.args.get("instance", "paper")
     slot = get_slot(slot_name)
     if not slot or not slot.engine:
         return jsonify([])
 
-    # Access the engine's latest features to reconstruct signals
     engine = slot.engine
     signals = []
-    for name, features in engine._latest_features.items():
+    for name, sig in engine._last_signals.items():
+        features = engine._latest_features.get(name, {})
         sentiment = engine._sentiment.get(name, 0.0)
-        sig = engine.scorer.score_instrument(name, features, sentiment)
         signals.append({
             "instrument": sig.instrument,
             "direction": sig.direction.value,

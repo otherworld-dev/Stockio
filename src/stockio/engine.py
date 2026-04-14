@@ -248,6 +248,7 @@ class TradingEngine:
         self._settings = settings
         self._shutdown = shutdown_event
         self._cycle_count = 0
+        self._last_signals: dict[str, Signal] = {}  # Cached from last cycle
         self._last_cycle_time: datetime | None = None
         self._scorer = InstrumentScorer(settings, settings.models_dir)
         self._risk = RiskManager(settings)
@@ -406,6 +407,9 @@ class TradingEngine:
                 signals[name] = signal
             except Exception:
                 cycle_log.exception("scoring_failed", instrument=name)
+
+        # Cache scored signals for the dashboard API
+        self._last_signals = signals
 
         # Step 3: Rank instruments and filter correlated pairs
         from stockio.strategy.correlation import filter_correlated_signals
