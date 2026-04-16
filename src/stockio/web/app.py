@@ -430,6 +430,28 @@ def api_indicators():
     return jsonify(result)
 
 
+@app.route("/api/price-history")
+def api_price_history():
+    """Recent close prices per instrument for sparkline charts."""
+    slot_name = request.args.get("instance", "paper")
+    slot = get_slot(slot_name)
+    if not slot or not slot.engine:
+        return jsonify({})
+
+    bars = request.args.get("bars", 50, type=int)
+    result = {}
+    for name, cache in slot.engine.candle_cache.items():
+        candles = list(cache)[-bars:]
+        if candles:
+            result[name] = {
+                "closes": [round(c.close, 5) for c in candles],
+                "highs": [round(c.high, 5) for c in candles],
+                "lows": [round(c.low, 5) for c in candles],
+                "timestamps": [c.timestamp.isoformat() for c in candles],
+            }
+    return jsonify(result)
+
+
 @app.route("/api/scoring-breakdown")
 def api_scoring_breakdown():
     """Decision waterfall — how each factor contributes to the score."""

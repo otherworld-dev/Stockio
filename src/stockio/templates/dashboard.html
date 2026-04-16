@@ -285,6 +285,18 @@
   }
   .time-range-btn.active { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 600; }
 
+  /* Sparkline price charts */
+  .sparkline-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+  .sparkline-card {
+    background: var(--bg); border: 1px solid var(--card-border); border-radius: 8px;
+    padding: 10px 14px; position: relative;
+  }
+  .sparkline-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+  .sparkline-inst { font-family: var(--mono); font-weight: 600; font-size: 0.85rem; }
+  .sparkline-price { font-family: var(--mono); font-size: 0.8rem; }
+  .sparkline-change { font-size: 0.72rem; font-family: var(--mono); }
+  .sparkline-canvas { width: 100%; height: 50px; }
+
   /* Scroll hint */
   .table-wrap { position: relative; }
   .scrollable-table { position: relative; }
@@ -483,6 +495,16 @@
     <div class="panel-title">Signals</div>
     <div class="table-wrap" id="signalsWrap">
       <p class="no-data">Loading...</p>
+    </div>
+  </div>
+
+  <!-- Price Charts -->
+  <div class="panel collapsible open">
+    <div class="panel-title" tabindex="0" role="button" aria-expanded="true" onclick="togglePanel(this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();togglePanel(this)}"><span class="collapse-arrow">&#9654;</span> Price Charts <span style="font-size:0.72rem;color:var(--text-dim);font-weight:400">last 50 candles</span></div>
+    <div class="panel-body">
+      <div class="sparkline-grid" id="sparklineGrid">
+        <p class="no-data">Loading...</p>
+      </div>
     </div>
   </div>
 
@@ -716,6 +738,11 @@ async function toggleInstance() {
   if (activeInstance === 'live') {
     if (!confirm('This will ' + action + ' live trading with real money. Continue?')) return;
   }
+
+  // Disable button while processing
+  btn.disabled = true;
+  btn.textContent = isRunning ? 'Stopping...' : 'Starting...';
+
   try {
     const r = await fetch('/api/instances/' + activeInstance + '/' + action, { method: 'POST' });
     if (!r.ok) throw new Error(r.status);
@@ -734,7 +761,12 @@ async function toggleInstance() {
   } catch (e) {
     console.warn('Toggle failed:', e);
   }
+
+  btn.disabled = false;
+  // Poll a few times to pick up the state change
   setTimeout(refreshInstances, 500);
+  setTimeout(refreshInstances, 2000);
+  setTimeout(refreshInstances, 5000);
 }
 
 /* ── Refresh functions ── */
@@ -1719,6 +1751,102 @@ async function refreshCalendar() {
 }
 
 /* ── P&L by Instrument ── */
+/* ── Price Sparklines ── */
+async function refreshSparklines() {
+  const data = await fetchJSON('/api/price-history?bars=50');
+  const grid = document.getElementById('sparklineGrid');
+  if (!data || !Object.keys(data).length) { grid.innerHTML = '<p class="no-data">No price data</p>'; return; }
+
+  // Sort instruments alphabetically
+  const instruments = Object.keys(data).sort();
+  let html = '';
+  instruments.forEach(inst => {
+    const d = data[inst];
+    if (!d.closes || d.closes.length < 2) return;
+    const closes = d.closes;
+    const current = closes[closes.length - 1];
+    const first = closes[0];
+    const change = ((current - first) / first) * 100;
+    const changeColor = change >= 0 ? 'var(--green)' : 'var(--red)';
+    const changeSign = change >= 0 ? '+' : '';
+    const decimals = current > 10 ? 2 : current > 1 ? 4 : 5;
+
+    html += '<div class="sparkline-card">'
+      + '<div class="sparkline-header">'
+      + '<span class="sparkline-inst">' + escHtml(inst) + '</span>'
+      + '<span><span class="sparkline-price">' + current.toFixed(decimals) + '</span> '
+      + '<span class="sparkline-change" style="color:' + changeColor + '">' + changeSign + change.toFixed(2) + '%</span></span>'
+      + '</div>'
+      + '<canvas class="sparkline-canvas" id="spark_' + inst.replace(/[^a-zA-Z0-9]/g, '_') + '"></canvas>'
+      + '</div>';
+  });
+  grid.innerHTML = html;
+
+  // Draw sparklines on each canvas
+  instruments.forEach(inst => {
+    const d = data[inst];
+    if (!d.closes || d.closes.length < 2) return;
+    const canvasId = 'spark_' + inst.replace(/[^a-zA-Z0-9]/g, '_');
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    drawSparkline(canvas, d.closes);
+  });
+}
+
+function drawSparkline(canvas, values) {
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  ctx.scale(dpr, dpr);
+
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+  const stepX = w / (values.length - 1);
+
+  // Determine color based on overall direction
+  const up = values[values.length - 1] >= values[0];
+  const lineColor = up ? '#4caf50' : '#ef5350';
+  const fillColor = up ? 'rgba(76,175,80,0.1)' : 'rgba(239,83,80,0.1)';
+
+  // Fill area
+  ctx.beginPath();
+  ctx.moveTo(0, h);
+  values.forEach((v, i) => {
+    const x = i * stepX;
+    const y = h - ((v - min) / range) * (h - 4) - 2;
+    if (i === 0) ctx.lineTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.lineTo(w, h);
+  ctx.closePath();
+  ctx.fillStyle = fillColor;
+  ctx.fill();
+
+  // Line
+  ctx.beginPath();
+  values.forEach((v, i) => {
+    const x = i * stepX;
+    const y = h - ((v - min) / range) * (h - 4) - 2;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.strokeStyle = lineColor;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Current price dot
+  const lastX = (values.length - 1) * stepX;
+  const lastY = h - ((values[values.length - 1] - min) / range) * (h - 4) - 2;
+  ctx.beginPath();
+  ctx.arc(lastX, lastY, 3, 0, Math.PI * 2);
+  ctx.fillStyle = lineColor;
+  ctx.fill();
+}
+
 async function refreshPnlByInstrument() {
   const data = await fetchJSON('/api/pnl');
   const panel = document.getElementById('pnlByInstrumentPanel');
@@ -1815,6 +1943,7 @@ function refreshAll() {
   refreshOpenPositions();
   refreshCalendar();
   refreshPnlByInstrument();
+  refreshSparklines();
   // Summary, alerts, and derived displays depend on cached data.
   setTimeout(() => {
     refreshSummary(); refreshAlertBanner(); refreshHealth();
