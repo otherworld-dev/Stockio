@@ -96,6 +96,32 @@ def api_stop_instance(name: str):
     return jsonify({"ok": ok, "instance": name})
 
 
+@app.route("/api/instances/<name>/close-all", methods=["POST"])
+def api_close_all(name: str):
+    """Close all open positions for an instance."""
+    slot = get_slot(name)
+    if not slot or not slot.engine:
+        return jsonify({"ok": False, "error": "Bot not running"})
+
+    closed = []
+    try:
+        positions = slot.engine._broker.get_positions()
+        for p in positions:
+            with contextlib.suppress(Exception):
+                slot.engine._broker.close_position(p.trade_id)
+                db.close_trade(
+                    trade_id=p.trade_id,
+                    exit_price=0,  # Will be updated on next sync
+                    pnl=p.unrealized_pnl,
+                    close_reason="Manual close (dashboard)",
+                )
+                closed.append(p.instrument)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+    return jsonify({"ok": True, "closed": closed})
+
+
 # ---------------------------------------------------------------------------
 # Portfolio & status
 # ---------------------------------------------------------------------------
@@ -426,6 +452,29 @@ def api_indicators():
             "ema_cross_mid_long": round(features.get("ema_cross_mid_long", 0), 5),
             "close_vs_ema_long": round(features.get("close_vs_ema_long", 0), 5),
             "range_vs_atr": round(features.get("range_vs_atr", 0), 2),
+        }
+    return jsonify(result)
+
+
+@app.route("/api/optimization-levels")
+def api_optimization_levels():
+    """Show what optimization level each instrument is on."""
+    slot_name = request.args.get("instance", "paper")
+    slot = get_slot(slot_name)
+    if not slot or not slot.engine:
+        return jsonify({})
+
+    from stockio.strategy.optimizer import get_instrument_params
+
+    result = {}
+    for name in slot.engine._instruments:
+        params = get_instrument_params(name, slot.engine._settings, slot.engine._settings.data_dir)
+        result[name] = {
+            "level": params.level,
+            "sl_mult": params.sl_atr_mult,
+            "tp_mult": params.tp_atr_mult,
+            "trades_analyzed": params.trades_analyzed,
+            "win_rate": round(params.win_rate, 3),
         }
     return jsonify(result)
 

@@ -419,6 +419,7 @@
     <button class="instance-btn" data-instance="live" data-tip="Real money trading. Actual funds at risk" onclick="switchInstance('live')">Live</button>
   </div>
   <button id="startStopBtn" class="ctrl-btn stopped" onclick="toggleInstance()">Start</button>
+  <button id="closeAllBtn" class="ctrl-btn" style="border-color:#ff9800;color:#ff9800;display:none" onclick="closeAllPositions()">Close All</button>
   <span id="statusDot" class="status-dot stopped"></span>
   <span id="statusLabel" class="status-label">Stopped</span>
   <span id="marketStatus" class="market-status closed">Market Closed</span>
@@ -1639,12 +1640,31 @@ fetchJSON = async function(path) {
 };
 
 /* ── Open Positions ── */
+async function closeAllPositions() {
+  if (!confirm('Close ALL open positions? This will exit all trades at current prices.')) return;
+  try {
+    const r = await fetch('/api/instances/' + activeInstance + '/close-all', { method: 'POST' });
+    const data = await r.json();
+    if (data.ok) {
+      setTimeout(refreshAll, 1000);
+    } else {
+      alert('Failed: ' + (data.error || 'unknown error'));
+    }
+  } catch (e) { console.warn('Close all failed:', e); }
+}
+
 async function refreshOpenPositions() {
   const data = await fetchJSON('/api/open-positions');
   const panel = document.getElementById('openPositionsPanel');
   const grid = document.getElementById('openPositionsGrid');
-  if (!data || !data.length) { panel.style.display = 'none'; return; }
+  const closeBtn = document.getElementById('closeAllBtn');
+  if (!data || !data.length) {
+    panel.style.display = 'none';
+    if (closeBtn) closeBtn.style.display = 'none';
+    return;
+  }
   panel.style.display = '';
+  if (closeBtn) closeBtn.style.display = '';
 
   let html = '';
   data.forEach(p => {

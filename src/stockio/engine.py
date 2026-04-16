@@ -212,10 +212,14 @@ def calculate_stop_take_profit(
     direction: Direction,
     atr: float,
     settings: Settings,
+    sl_mult_override: float | None = None,
+    tp_mult_override: float | None = None,
 ) -> tuple[float, float]:
     """Calculate stop-loss and take-profit prices."""
-    sl_dist = atr * db.get_float_setting("stop_loss_atr_mult", settings.stop_loss_atr_mult)
-    tp_dist = atr * db.get_float_setting("take_profit_atr_mult", settings.take_profit_atr_mult)
+    sl_mult = sl_mult_override or db.get_float_setting("stop_loss_atr_mult", settings.stop_loss_atr_mult)
+    tp_mult = tp_mult_override or db.get_float_setting("take_profit_atr_mult", settings.take_profit_atr_mult)
+    sl_dist = atr * sl_mult
+    tp_dist = atr * tp_mult
 
     if direction == Direction.BUY:
         stop_loss = round(price - sl_dist, 5)
@@ -286,6 +290,8 @@ class TradingEngine:
         # Stop-loss cooldown — don't re-enter instruments that just stopped out
         self._sl_cooldown: dict[str, int] = {}  # instrument → cycle when cooldown expires
         self._sl_cooldown_cycles = 8  # Wait 8 cycles (~2 hours at M15) after SL hit
+        # Trailing stop state — tracks the best price seen for each open trade
+        self._trailing_best: dict[str, float] = {}  # trade_id → best price seen
         # Daily loss counter — block instrument after repeated losses in a day
         self._daily_losses: dict[str, int] = {}  # instrument → loss count today
         self._daily_losses_date: object = None  # date of last reset
@@ -535,6 +541,12 @@ class TradingEngine:
 
             # Check if position still exists at broker
             if trade_id in broker_positions:
+                # Trailing stop — update SL if price has moved favourably
+                self._maybe_trail_stop(
+                    trade_id, instrument, direction, entry_price,
+                    sl, tp, broker_positions[trade_id], cycle_log
+                )
+
                 # OANDA handles SL/TP server-side — skip client-side check
                 from stockio.broker.oanda import OandaBroker
 
@@ -599,6 +611,7 @@ class TradingEngine:
                             close_reason=close_reason,
                         )
                         self._risk.record_pnl(pnl)
+                        self._trailing_best.pop(trade_id, None)
                         cycle_log.info(
                             "position_exited",
                             trade_id=trade_id,
@@ -673,6 +686,7 @@ class TradingEngine:
                     close_reason=close_reason,
                 )
                 self._risk.record_pnl(pnl)
+                self._trailing_best.pop(trade_id, None)
                 cycle_log.info(
                     "position_closed_externally",
                     trade_id=trade_id,
@@ -791,9 +805,25 @@ class TradingEngine:
                     scale=f"{scale:.0%}",
                 )
 
-            stop_loss, take_profit = calculate_stop_take_profit(
-                entry_price, signal.direction, atr, self._settings
+            # Get optimized params if available (Level 2/3)
+            from stockio.strategy.optimizer import get_instrument_params
+
+            inst_params = get_instrument_params(
+                signal.instrument, self._settings, self._settings.data_dir
             )
+            stop_loss, take_profit = calculate_stop_take_profit(
+                entry_price, signal.direction, atr, self._settings,
+                sl_mult_override=inst_params.sl_atr_mult if inst_params.level > 1 else None,
+                tp_mult_override=inst_params.tp_atr_mult if inst_params.level > 1 else None,
+            )
+            if inst_params.level > 1:
+                cycle_log.info(
+                    "using_optimized_params",
+                    instrument=signal.instrument,
+                    level=inst_params.level,
+                    sl_mult=inst_params.sl_atr_mult,
+                    tp_mult=inst_params.tp_atr_mult,
+                )
 
             order = OrderRequest(
                 instrument=signal.instrument,
@@ -882,6 +912,77 @@ class TradingEngine:
             limit=self._max_daily_losses_per_instrument,
         )
 
+    def _maybe_trail_stop(
+        self,
+        trade_id: str,
+        instrument: str,
+        direction: str,
+        entry_price: float,
+        current_sl: float | None,
+        position,  # Position dataclass from broker
+        cycle_log,
+    ) -> None:
+        """Trail the stop-loss behind price as it moves favourably.
+
+        Strategy:
+        - After price moves 1x ATR in our favour, move SL to breakeven
+        - After that, trail SL at 1x ATR behind the best price seen
+        """
+        if not current_sl:
+            return
+
+        features = self._latest_features.get(instrument, {})
+        atr = features.get("atr", 0)
+        if atr <= 0:
+            return
+
+        # Get current price from position's unrealized P&L direction
+        try:
+            quote = self._broker.get_price(instrument)
+            mid = (quote.bid + quote.ask) / 2
+        except Exception:
+            return
+
+        # Track best price seen for this trade
+        best = self._trailing_best.get(trade_id)
+        if direction == "BUY":
+            if best is None or mid > best:
+                self._trailing_best[trade_id] = mid
+                best = mid
+            # Only trail if price has moved at least 1x ATR in our favour
+            if best - entry_price < atr:
+                return
+            # New SL: trail 1x ATR behind best price
+            new_sl = round(best - atr, 5)
+        else:  # SELL
+            if best is None or mid < best:
+                self._trailing_best[trade_id] = mid
+                best = mid
+            if entry_price - best < atr:
+                return
+            new_sl = round(best + atr, 5)
+
+        # Only update if the new SL is better (tighter) than current
+        if direction == "BUY" and new_sl <= current_sl:
+            return
+        if direction == "SELL" and new_sl >= current_sl:
+            return
+
+        # Update at broker and in DB
+        try:
+            self._broker.modify_trade_sl(trade_id, new_sl)
+            db.update_trade_sl(trade_id, new_sl)
+            cycle_log.info(
+                "trailing_stop_updated",
+                trade_id=trade_id,
+                instrument=instrument,
+                old_sl=current_sl,
+                new_sl=new_sl,
+                best_price=best,
+            )
+        except Exception:
+            cycle_log.exception("trailing_stop_failed", trade_id=trade_id)
+
     def _resolve_and_maybe_retrain(self, cycle_log: structlog.BoundLogger) -> None:
         """Resolve pending outcomes and retrain model if enough new data."""
 
@@ -931,6 +1032,17 @@ class TradingEngine:
                 self._scorer.reload_model()
                 self._scorer.set_rules_fallback(False)
                 self._last_retrain_count = current_count
+
+        # Run parameter optimization every 10 cycles
+        if self._cycle_count % 10 == 0:
+            from stockio.strategy.optimizer import maybe_optimize
+
+            optimized = maybe_optimize(self._settings, self._settings.data_dir)
+            if optimized:
+                cycle_log.info(
+                    "params_optimized",
+                    instruments=list(optimized.keys()),
+                )
 
     def _update_candles(self, instrument: str) -> None:
         """Fetch and cache candles for a single instrument."""

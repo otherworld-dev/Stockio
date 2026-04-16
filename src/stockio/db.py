@@ -228,6 +228,15 @@ def get_open_trades() -> list[dict]:
         return [dict(r) for r in rows]
 
 
+def update_trade_sl(trade_id: str, new_sl: float) -> None:
+    """Update the stop-loss price on an open trade (for trailing stops)."""
+    with _get_conn() as conn:
+        conn.execute(
+            "UPDATE trades SET stop_loss = ? WHERE trade_id = ? AND status = 'OPEN'",
+            (new_sl, trade_id),
+        )
+
+
 def get_recently_closed_losses(hours: int = 4) -> list[dict]:
     """Return instruments that had losing trades closed within the last N hours."""
     cutoff = (datetime.now(UTC) - __import__("datetime").timedelta(hours=hours)).isoformat()

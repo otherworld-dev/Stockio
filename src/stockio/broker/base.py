@@ -51,6 +51,9 @@ class BrokerBase(ABC):
     def close_position(self, trade_id: str) -> None:
         """Close a specific position by trade ID."""
 
+    def modify_trade_sl(self, trade_id: str, stop_loss_price: float) -> None:
+        """Update the stop-loss on an existing trade (for trailing stops)."""
+
     def get_closed_trade_details(self, trade_id: str) -> dict | None:
         """Get details of a closed trade. Returns None if not available."""
         return None

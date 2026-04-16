@@ -232,6 +232,17 @@ class OandaBroker(BrokerBase):
         self._request(req)
         log.info("position_closed", trade_id=trade_id)
 
+    def modify_trade_sl(self, trade_id: str, stop_loss_price: float) -> None:
+        """Update the stop-loss on an existing trade (for trailing stops)."""
+        data = {"stopLoss": {"price": str(stop_loss_price)}}
+        req = ep_trades.TradeCRCDO(
+            accountID=self._account_id,
+            tradeID=trade_id,
+            data=data,
+        )
+        self._request(req)
+        log.info("sl_modified", trade_id=trade_id, new_sl=stop_loss_price)
+
     def get_closed_trade_details(self, trade_id: str) -> dict | None:
         """Get details of a closed trade from OANDA (actual fill price + P&L)."""
         try:

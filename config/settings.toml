@@ -1,6 +1,6 @@
 [strategy]
 granularity = "M15"           # Candle timeframe
-min_confidence = 0.45         # Minimum signal confidence to trade
+min_confidence = 0.20         # Minimum signal confidence to trade (low for paper learning)
 lookback_bars = 200           # Bars to keep in cache for indicator calculation
 
 [risk]

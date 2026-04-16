@@ -85,7 +85,7 @@ class Settings(BaseSettings):
 
     # --- Strategy (from settings.toml) ---
     granularity: str = "M15"
-    min_confidence: float = 0.45
+    min_confidence: float = 0.20
     lookback_bars: int = 200
 
     # --- Risk ---

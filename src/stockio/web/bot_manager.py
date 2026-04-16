@@ -109,11 +109,22 @@ def stop_bot(name: str) -> bool:
         if not slot.running:
             return False
         slot.shutdown_event.set()
+        # Bump generation so even if the thread is stuck in init,
+        # it will exit on the next loop iteration check
+        slot.generation += 1
         log.info("bot_stop_requested", instance=name)
 
-    # Wait up to 5 seconds for the thread to finish
+    # Wait up to 10 seconds for the thread to finish
     if slot.thread and slot.thread.is_alive():
-        slot.thread.join(timeout=5)
+        slot.thread.join(timeout=10)
+
+    # If thread is still alive after timeout, force-mark as stopped
+    # (the daemon thread will eventually die on its own)
+    if slot.thread and slot.thread.is_alive():
+        log.warning("bot_stop_timeout", instance=name)
+        with slot.lock:
+            slot.running = False
+            slot.engine = None
 
     return True
 
