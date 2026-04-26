@@ -448,7 +448,7 @@ class TradingEngine:
             cycle_log.info("no_tradeable_signals")
 
         # Step 3b: Get LLM advice for this cycle
-        if self._advisor.enabled and ranked:
+        if self._advisor.enabled:
             try:
                 recent_trades = db.get_trade_history(limit=10)
                 pending = [
