@@ -456,6 +456,24 @@ def api_indicators():
     return jsonify(result)
 
 
+@app.route("/api/llm-advice")
+def api_llm_advice():
+    """Return the LLM advisor's latest advice for this cycle."""
+    slot_name = request.args.get("instance", "paper")
+    slot = get_slot(slot_name)
+    if not slot or not slot.engine:
+        return jsonify({})
+
+    advisor = slot.engine._advisor
+    if not advisor.last_advice:
+        return jsonify({"enabled": advisor.enabled, "advice": None})
+
+    return jsonify({
+        "enabled": advisor.enabled,
+        "advice": advisor.last_advice,
+    })
+
+
 @app.route("/api/optimization-levels")
 def api_optimization_levels():
     """Show what optimization level each instrument is on."""

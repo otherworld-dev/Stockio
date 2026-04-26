@@ -252,6 +252,10 @@ class TradingEngine:
         self._settings = settings
         self._shutdown = shutdown_event
         self._cycle_count = 0
+
+        # LLM trade advisor
+        from stockio.strategy.llm_advisor import LLMAdvisor
+        self._advisor = LLMAdvisor(settings)
         self._last_signals: dict[str, Signal] = {}  # Cached from last cycle
         self._last_cycle_time: datetime | None = None
         self._scorer = InstrumentScorer(settings, settings.models_dir)
@@ -442,6 +446,24 @@ class TradingEngine:
             )
         else:
             cycle_log.info("no_tradeable_signals")
+
+        # Step 3b: Get LLM advice for this cycle
+        if self._advisor.enabled and ranked:
+            try:
+                recent_trades = db.get_trade_history(limit=10)
+                pending = [
+                    {"instrument": s.instrument, "direction": s.direction.value,
+                     "confidence": s.confidence}
+                    for s in ranked
+                ]
+                self._advisor.advise_cycle(
+                    self._latest_features,
+                    self._sentiment,
+                    pending,
+                    recent_trades,
+                )
+            except Exception:
+                cycle_log.exception("llm_advisor_failed")
 
         # Step 4: Check open positions for SL/TP exits
         self._check_position_exits(cycle_log)
@@ -760,6 +782,25 @@ class TradingEngine:
                 )
                 break  # Stop trying if we hit a portfolio-level limit
 
+            # Check LLM advisor decision
+            llm_decision = self._advisor.get_trade_decision(signal.instrument)
+            if llm_decision and not llm_decision.get("take_trade", True):
+                cycle_log.info(
+                    "llm_vetoed",
+                    instrument=signal.instrument,
+                    reason=llm_decision.get("reason", "")[:100],
+                )
+                continue
+
+            # Check if LLM regime says avoid trading entirely
+            regime = self._advisor.regime
+            if regime and regime.get("avoid_trading"):
+                cycle_log.info(
+                    "llm_regime_avoid",
+                    reason=regime.get("reason", "")[:100],
+                )
+                break
+
             features = self._latest_features.get(signal.instrument, {})
             atr = features.get("atr", 0)
             if atr <= 0:
@@ -805,24 +846,45 @@ class TradingEngine:
                     scale=f"{scale:.0%}",
                 )
 
-            # Get optimized params if available (Level 2/3)
-            from stockio.strategy.optimizer import get_instrument_params
+            # Get optimized params: LLM advice > Level 2/3 optimizer > defaults
+            sl_override = None
+            tp_override = None
+            param_source = "default"
 
-            inst_params = get_instrument_params(
-                signal.instrument, self._settings, self._settings.data_dir
-            )
+            # Check LLM-suggested params first
+            if llm_decision:
+                llm_sl = llm_decision.get("sl_mult")
+                llm_tp = llm_decision.get("tp_mult")
+                if llm_sl and 0.8 <= llm_sl <= 3.5:
+                    sl_override = llm_sl
+                if llm_tp and 0.8 <= llm_tp <= 5.0:
+                    tp_override = llm_tp
+                if sl_override or tp_override:
+                    param_source = "llm"
+
+            # Fall back to Level 2/3 optimizer
+            if not sl_override and not tp_override:
+                from stockio.strategy.optimizer import get_instrument_params
+                inst_params = get_instrument_params(
+                    signal.instrument, self._settings, self._settings.data_dir
+                )
+                if inst_params.level > 1:
+                    sl_override = inst_params.sl_atr_mult
+                    tp_override = inst_params.tp_atr_mult
+                    param_source = f"L{inst_params.level}"
+
             stop_loss, take_profit = calculate_stop_take_profit(
                 entry_price, signal.direction, atr, self._settings,
-                sl_mult_override=inst_params.sl_atr_mult if inst_params.level > 1 else None,
-                tp_mult_override=inst_params.tp_atr_mult if inst_params.level > 1 else None,
+                sl_mult_override=sl_override,
+                tp_mult_override=tp_override,
             )
-            if inst_params.level > 1:
+            if param_source != "default":
                 cycle_log.info(
-                    "using_optimized_params",
+                    "using_custom_params",
                     instrument=signal.instrument,
-                    level=inst_params.level,
-                    sl_mult=inst_params.sl_atr_mult,
-                    tp_mult=inst_params.tp_atr_mult,
+                    source=param_source,
+                    sl_mult=sl_override,
+                    tp_mult=tp_override,
                 )
 
             order = OrderRequest(

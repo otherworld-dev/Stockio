@@ -285,6 +285,17 @@
   }
   .time-range-btn.active { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 600; }
 
+  /* LLM Advisor */
+  .llm-regime { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
+  .llm-regime-item { background: var(--bg); border: 1px solid var(--card-border); border-radius: 8px; padding: 8px 14px; }
+  .llm-regime-label { font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase; }
+  .llm-regime-value { font-family: var(--mono); font-size: 0.9rem; font-weight: 600; }
+  .llm-decisions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+  .llm-decision { background: var(--bg); border: 1px solid var(--card-border); border-radius: 6px; padding: 6px 12px; font-size: 0.8rem; }
+  .llm-decision.approved { border-color: var(--green); }
+  .llm-decision.vetoed { border-color: var(--red); }
+  .llm-lessons { font-size: 0.82rem; color: var(--text-dim); line-height: 1.6; border-left: 3px solid var(--accent); padding-left: 12px; margin-top: 10px; }
+
   /* Sparkline price charts */
   .sparkline-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
   .sparkline-card {
@@ -517,6 +528,12 @@
         <p class="no-data">Loading...</p>
       </div>
     </div>
+  </div>
+
+  <!-- LLM Advisor -->
+  <div class="panel" id="llmAdvisorPanel" style="display:none">
+    <div class="panel-title">AI Advisor</div>
+    <div id="llmAdvisorContent"></div>
   </div>
 
   <!-- Bot Thinking Log -->
@@ -1898,6 +1915,58 @@ async function refreshPnlByInstrument() {
 }
 
 /* ── Scoring Mode Badge ── */
+/* ── LLM Advisor Panel ── */
+async function refreshLLMAdvisor() {
+  const data = await fetchJSON('/api/llm-advice');
+  const panel = document.getElementById('llmAdvisorPanel');
+  const content = document.getElementById('llmAdvisorContent');
+  if (!data || !data.enabled || !data.advice) { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+
+  const advice = data.advice;
+  const regime = advice.regime || {};
+  const decisions = advice.trade_decisions || {};
+  const lessons = advice.lessons || '';
+
+  let html = '<div class="llm-regime">';
+  html += '<div class="llm-regime-item"><div class="llm-regime-label">Market Regime</div><div class="llm-regime-value">' + escHtml(regime.type || '--') + '</div></div>';
+  html += '<div class="llm-regime-item"><div class="llm-regime-label">Direction</div><div class="llm-regime-value">' + escHtml(regime.direction || '--') + '</div></div>';
+  if (regime.summary) {
+    html += '<div class="llm-regime-item" style="flex:1"><div class="llm-regime-label">Summary</div><div style="font-size:0.82rem">' + escHtml(regime.summary) + '</div></div>';
+  }
+  if (regime.avoid_trading) {
+    html += '<div class="llm-regime-item" style="border-color:var(--red)"><div class="llm-regime-label" style="color:var(--red)">Warning</div><div style="font-size:0.82rem;color:var(--red)">Avoid trading</div></div>';
+  }
+  html += '</div>';
+
+  // Trade decisions
+  const decisionKeys = Object.keys(decisions);
+  if (decisionKeys.length > 0) {
+    html += '<div style="font-size:0.75rem;color:var(--text-dim);text-transform:uppercase;margin-bottom:6px">Trade Decisions</div>';
+    html += '<div class="llm-decisions">';
+    decisionKeys.forEach(inst => {
+      const d = decisions[inst];
+      const approved = d.take_trade;
+      const cls = approved ? 'approved' : 'vetoed';
+      const icon = approved ? '\u2713' : '\u2717';
+      html += '<div class="llm-decision ' + cls + '">'
+        + '<span style="margin-right:6px">' + icon + '</span>'
+        + '<strong>' + escHtml(inst) + '</strong> '
+        + '<span style="color:var(--text-dim);font-size:0.75rem">' + escHtml(d.reason || '') + '</span>'
+        + (d.sl_mult ? ' <span style="font-family:var(--mono);font-size:0.72rem">SL:' + d.sl_mult + 'x TP:' + d.tp_mult + 'x</span>' : '')
+        + '</div>';
+    });
+    html += '</div>';
+  }
+
+  // Lessons
+  if (lessons) {
+    html += '<div class="llm-lessons">' + escHtml(lessons) + '</div>';
+  }
+
+  content.innerHTML = html;
+}
+
 function refreshScoringMode() {
   const eng = _lastEngineStatus;
   const badge = document.getElementById('scoringModeBadge');
@@ -1964,6 +2033,7 @@ function refreshAll() {
   refreshCalendar();
   refreshPnlByInstrument();
   refreshSparklines();
+  refreshLLMAdvisor();
   // Summary, alerts, and derived displays depend on cached data.
   setTimeout(() => {
     refreshSummary(); refreshAlertBanner(); refreshHealth();
