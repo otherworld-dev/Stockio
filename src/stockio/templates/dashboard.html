@@ -322,6 +322,9 @@
   @media (max-width: 900px) {
     .cards { grid-template-columns: repeat(2, 1fr); }
   }
+  @media (max-width: 900px) {
+    .summary-advisor-grid { grid-template-columns: 1fr !important; }
+  }
   @media (max-width: 500px) {
     .cards { grid-template-columns: 1fr; }
     .header { padding: 10px 14px; gap: 8px; flex-direction: row; flex-wrap: wrap; }
@@ -482,10 +485,16 @@
     <div class="risk-limits" id="riskLimits"></div>
   </div>
 
-  <!-- Bot Summary -->
-  <div class="panel summary-panel">
-    <div class="panel-title">Bot Summary</div>
-    <div class="summary-text" id="botSummary">Loading...</div>
+  <!-- Bot Summary + AI Advisor -->
+  <div class="summary-advisor-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+    <div class="panel summary-panel">
+      <div class="panel-title">Bot Summary</div>
+      <div class="summary-text" id="botSummary">Loading...</div>
+    </div>
+    <div class="panel" id="llmAdvisorPanel">
+      <div class="panel-title">AI Advisor</div>
+      <div id="llmAdvisorContent"><p class="no-data">Waiting for first cycle...</p></div>
+    </div>
   </div>
 
   <!-- P&L Chart -->
@@ -528,12 +537,6 @@
         <p class="no-data">Loading...</p>
       </div>
     </div>
-  </div>
-
-  <!-- LLM Advisor -->
-  <div class="panel" id="llmAdvisorPanel">
-    <div class="panel-title">AI Advisor</div>
-    <div id="llmAdvisorContent"><p class="no-data">Waiting for first cycle...</p></div>
   </div>
 
   <!-- Bot Thinking Log -->
