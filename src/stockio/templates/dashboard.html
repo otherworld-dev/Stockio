@@ -1920,8 +1920,7 @@ async function refreshLLMAdvisor() {
   const data = await fetchJSON('/api/llm-advice');
   const panel = document.getElementById('llmAdvisorPanel');
   const content = document.getElementById('llmAdvisorContent');
-  if (!data || !data.enabled) { panel.style.display = 'none'; return; }
-  if (!data.advice) { content.innerHTML = '<p class="no-data">Waiting for first cycle...</p>'; return; }
+  if (!data || !data.advice) { content.innerHTML = '<p class="no-data">Waiting for first cycle...</p>'; return; }
 
   const advice = data.advice;
   const regime = advice.regime || {};
