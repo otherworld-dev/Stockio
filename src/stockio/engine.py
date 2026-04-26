@@ -377,6 +377,20 @@ class TradingEngine:
         # Heartbeat
         self._maybe_heartbeat(cycle_log)
 
+        # Skip trading when forex markets are closed
+        # Forex hours: Sunday 22:00 UTC → Friday 22:00 UTC
+        # Python weekday: 0=Mon, 4=Fri, 5=Sat, 6=Sun
+        now = datetime.now(UTC)
+        day, hour = now.weekday(), now.hour
+        market_closed = (
+            day == 5                     # All Saturday
+            or (day == 6 and hour < 22)  # Sunday before 22:00
+            or (day == 4 and hour >= 22) # Friday after 22:00
+        )
+        if market_closed:
+            cycle_log.info("cycle_skipped", reason="market_closed")
+            return
+
         # Circuit breaker: skip cycle if OANDA is down
         if self._cb_oanda.is_open:
             cycle_log.warning("cycle_skipped", reason="oanda_circuit_breaker_open")
