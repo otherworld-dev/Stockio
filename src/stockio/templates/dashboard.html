@@ -531,9 +531,9 @@
   </div>
 
   <!-- LLM Advisor -->
-  <div class="panel" id="llmAdvisorPanel" style="display:none">
+  <div class="panel" id="llmAdvisorPanel">
     <div class="panel-title">AI Advisor</div>
-    <div id="llmAdvisorContent"></div>
+    <div id="llmAdvisorContent"><p class="no-data">Waiting for first cycle...</p></div>
   </div>
 
   <!-- Bot Thinking Log -->
@@ -1920,8 +1920,8 @@ async function refreshLLMAdvisor() {
   const data = await fetchJSON('/api/llm-advice');
   const panel = document.getElementById('llmAdvisorPanel');
   const content = document.getElementById('llmAdvisorContent');
-  if (!data || !data.enabled || !data.advice) { panel.style.display = 'none'; return; }
-  panel.style.display = '';
+  if (!data || !data.enabled) { panel.style.display = 'none'; return; }
+  if (!data.advice) { content.innerHTML = '<p class="no-data">Waiting for first cycle...</p>'; return; }
 
   const advice = data.advice;
   const regime = advice.regime || {};
