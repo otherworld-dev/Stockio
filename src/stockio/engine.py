@@ -580,7 +580,7 @@ class TradingEngine:
                 # Trailing stop — update SL if price has moved favourably
                 self._maybe_trail_stop(
                     trade_id, instrument, direction, entry_price,
-                    sl, tp, broker_positions[trade_id], cycle_log
+                    sl, broker_positions[trade_id], cycle_log
                 )
 
                 # OANDA handles SL/TP server-side — skip client-side check
