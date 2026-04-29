@@ -1084,9 +1084,13 @@ async function refreshSignals() {
   wrap.innerHTML = html;
 }
 
+const _strategyBadgeColors = {
+  trend: '#4fc3f7', meanrev: '#ab47bc', momentum: '#ff9800', llm: '#4caf50',
+};
+
 async function refreshTrades() {
   const wrap = document.getElementById('tradesWrap');
-  const data = await fetchJSON('/api/trades?limit=50');
+  const data = await fetchJSON('/api/trades/all-strategies?limit=50');
   if (!data || !data.length) {
     wrap.innerHTML = '<p class="no-data">No trades recorded</p>';
     _lastTrade = null;
@@ -1096,7 +1100,7 @@ async function refreshTrades() {
   _recentTrades = data;
   let totalPnl = 0;
   let closedCount = 0;
-  let html = '<table><thead><tr><th>Time</th><th>Instrument</th><th>Direction</th><th>Units</th><th>Entry</th><th data-tip="Stop-loss price. The trade auto-closes here to limit your loss">SL</th><th data-tip="Take-profit price. The trade auto-closes here to lock in profit">TP</th><th>Exit</th><th>P&amp;L</th><th>Status</th><th data-tip="How certain the bot\'s ML model was about the trade direction. This is NOT the probability of profit">Confidence</th></tr></thead><tbody>';
+  let html = '<table><thead><tr><th>Time</th><th>Strategy</th><th>Instrument</th><th>Direction</th><th>Units</th><th>Entry</th><th data-tip="Stop-loss price. The trade auto-closes here to limit your loss">SL</th><th data-tip="Take-profit price. The trade auto-closes here to lock in profit">TP</th><th>Exit</th><th>P&amp;L</th><th>Status</th><th data-tip="How certain the bot\'s ML model was about the trade direction. This is NOT the probability of profit">Confidence</th></tr></thead><tbody>';
   data.forEach(t => {
     const isClosed = t.status === 'CLOSED';
     const pnl = t.pnl != null ? t.pnl : null;
@@ -1105,8 +1109,11 @@ async function refreshTrades() {
     const statusText = isClosed
       ? '<span style="color:var(--text-dim)">' + escHtml(humanCloseReason(t.close_reason)) + '</span>'
       : '<span style="color:var(--accent)">OPEN</span>';
+    const sColor = _strategyBadgeColors[t.strategy] || 'var(--text-dim)';
+    const sBadge = '<span style="display:inline-block;padding:1px 7px;border-radius:3px;font-size:0.72rem;font-weight:600;border:1px solid ' + sColor + ';color:' + sColor + '">' + escHtml(t.strategy || '--') + '</span>';
     html += '<tr>'
       + '<td>' + shortTime(t.timestamp) + '</td>'
+      + '<td>' + sBadge + '</td>'
       + '<td>' + escHtml(t.instrument) + '</td>'
       + '<td class="' + dirClass(t.direction) + '">' + escHtml(t.direction) + '</td>'
       + '<td>' + (t.units != null ? fmt(t.units, 0) : '--') + '</td>'
@@ -1449,67 +1456,56 @@ async function refreshModelLearning() {
 /* ── Trade Outcomes ── */
 let donutChart = null;
 async function refreshTradeOutcomes() {
-  const data = await fetchJSON('/api/trade-outcomes');
+  const data = await fetchJSON('/api/trade-outcomes/all-strategies');
   const wrap = document.getElementById('tradeOutcomes');
   if (!data) { wrap.innerHTML = '<p class="no-data">No outcome data</p>'; return; }
 
-  const winPct = data.win_ratio != null ? (data.win_ratio * 100).toFixed(1) + '%' : '--';
-  const winColor = data.win_ratio != null && data.win_ratio >= 0.5 ? 'var(--green)' : 'var(--red)';
+  const c = data.combined || {};
+  const winPct = c.win_ratio != null ? (c.win_ratio * 100).toFixed(1) + '%' : '--';
+  const winColor = c.win_ratio != null && c.win_ratio >= 0.5 ? 'var(--green)' : 'var(--red)';
 
   let html = '<div class="outcomes-top">'
     + '<div class="outcomes-big-stats">'
-    + '<div class="big-stat"><div class="big-stat-value">' + (data.total != null ? data.total : '--') + '</div><div class="big-stat-label">Total</div></div>'
-    + '<div class="big-stat"><div class="big-stat-value" style="color:var(--green)">' + (data.wins != null ? data.wins : '--') + '</div><div class="big-stat-label">Wins</div></div>'
-    + '<div class="big-stat"><div class="big-stat-value" style="color:var(--red)">' + (data.losses != null ? data.losses : '--') + '</div><div class="big-stat-label">Losses</div></div>'
+    + '<div class="big-stat"><div class="big-stat-value">' + (c.total || 0) + '</div><div class="big-stat-label">Total</div></div>'
+    + '<div class="big-stat"><div class="big-stat-value" style="color:var(--green)">' + (c.wins || 0) + '</div><div class="big-stat-label">Wins</div></div>'
+    + '<div class="big-stat"><div class="big-stat-value" style="color:var(--red)">' + (c.losses || 0) + '</div><div class="big-stat-label">Losses</div></div>'
     + '<div class="big-stat"><div class="big-stat-value" style="color:' + winColor + '">' + winPct + '</div><div class="big-stat-label">Win Rate</div></div>'
     + '</div>'
     + '<div class="donut-container"><canvas id="donutChart"></canvas></div>'
     + '</div>';
 
-  // Direction breakdown
-  if (data.by_direction) {
-    const buyWin = data.by_direction.BUY ? (data.by_direction.BUY.win_ratio * 100) : 0;
-    const sellWin = data.by_direction.SELL ? (data.by_direction.SELL.win_ratio * 100) : 0;
-    html += '<div class="direction-bars">'
-      + '<div class="dir-bar-group"><div class="dir-bar-label">BUY Win Rate: <span style="font-family:var(--mono);color:var(--green)">' + buyWin.toFixed(1) + '%</span></div><div class="dir-bar-track"><div class="dir-bar-fill" style="width:' + buyWin.toFixed(1) + '%;background:var(--green)"></div></div></div>'
-      + '<div class="dir-bar-group"><div class="dir-bar-label">SELL Win Rate: <span style="font-family:var(--mono);color:var(--red)">' + sellWin.toFixed(1) + '%</span></div><div class="dir-bar-track"><div class="dir-bar-fill" style="width:' + sellWin.toFixed(1) + '%;background:var(--red)"></div></div></div>'
-      + '</div>';
-  }
-
-  // Per-instrument table
-  if (data.by_instrument && Object.keys(data.by_instrument).length) {
-    html += '<div class="table-wrap" style="margin-top:12px"><table><thead><tr><th>Instrument</th><th>Trades</th><th>Wins</th><th>Losses</th><th>Win %</th></tr></thead><tbody>';
-    Object.entries(data.by_instrument).forEach(([name, d]) => {
-      const wr = d.win_ratio != null ? (d.win_ratio * 100).toFixed(1) + '%' : '--';
-      const wrColor = d.win_ratio != null && d.win_ratio >= 0.5 ? 'color:var(--green)' : 'color:var(--red)';
-      html += '<tr><td>' + escHtml(name) + '</td><td>' + (d.total || 0) + '</td><td style="color:var(--green)">' + (d.wins || 0) + '</td><td style="color:var(--red)">' + (d.losses || 0) + '</td><td style="' + wrColor + '">' + wr + '</td></tr>';
+  // Per-strategy breakdown
+  const strategies = data.strategies || {};
+  if (Object.keys(strategies).length) {
+    html += '<div class="table-wrap" style="margin-top:14px"><table><thead><tr><th>Strategy</th><th>Trades</th><th>Wins</th><th>Losses</th><th>Win Rate</th><th style="width:120px"></th></tr></thead><tbody>';
+    Object.entries(strategies).sort((a, b) => (b[1].win_ratio || 0) - (a[1].win_ratio || 0)).forEach(([name, d]) => {
+      if (d.total === 0) return;
+      const sColor = _strategyBadgeColors[name] || 'var(--text-dim)';
+      const sBadge = '<span style="display:inline-block;padding:1px 7px;border-radius:3px;font-size:0.75rem;font-weight:600;border:1px solid ' + sColor + ';color:' + sColor + '">' + escHtml(name) + '</span>';
+      const wr = d.win_ratio != null ? (d.win_ratio * 100).toFixed(1) : 0;
+      const wrColor = d.win_ratio != null && d.win_ratio >= 0.5 ? 'var(--green)' : (d.win_ratio >= 0.35 ? '#ff9800' : 'var(--red)');
+      html += '<tr><td>' + sBadge + '</td>'
+        + '<td>' + d.total + '</td>'
+        + '<td style="color:var(--green)">' + d.wins + '</td>'
+        + '<td style="color:var(--red)">' + d.losses + '</td>'
+        + '<td style="font-family:var(--mono);color:' + wrColor + '">' + wr + '%</td>'
+        + '<td><span class="win-rate-bar" style="width:80px"><span class="win-rate-fill" style="width:' + wr + '%;background:' + wrColor + '"></span></span></td>'
+        + '</tr>';
     });
     html += '</tbody></table></div>';
-  }
-
-  // Recent outcomes
-  if (data.recent && data.recent.length) {
-    html += '<div style="margin-top:14px"><span style="font-size:0.78rem;color:var(--text-dim);text-transform:uppercase">Recent Outcomes</span><div class="recent-outcomes">';
-    data.recent.slice(0, 10).forEach(r => {
-      const isWin = r.label === 1 || r.label === 'win';
-      const icon = isWin ? '&#10003;' : '&#10007;';
-      const cls = isWin ? 'win' : 'loss';
-      html += '<div class="outcome-item"><span class="outcome-icon ' + cls + '">' + icon + '</span>' + escHtml(r.instrument) + ' ' + escHtml(r.direction) + '</div>';
-    });
-    html += '</div></div>';
   }
 
   wrap.innerHTML = html;
 
   // Donut chart
   const donutEl = document.getElementById('donutChart');
-  if (donutEl && data.wins != null && data.losses != null) {
+  if (donutEl && c.wins != null && c.losses != null && c.total > 0) {
     if (donutChart) donutChart.destroy();
     donutChart = new Chart(donutEl.getContext('2d'), {
       type: 'doughnut',
       data: {
         labels: ['Wins', 'Losses'],
-        datasets: [{ data: [data.wins || 0, data.losses || 0], backgroundColor: ['#4caf50', '#ef5350'], borderWidth: 0 }]
+        datasets: [{ data: [c.wins || 0, c.losses || 0], backgroundColor: ['#4caf50', '#ef5350'], borderWidth: 0 }]
       },
       options: {
         responsive: true, maintainAspectRatio: false, cutout: '65%',
@@ -2018,32 +2014,66 @@ function drawSparkline(canvas, values) {
 }
 
 async function refreshPnlByInstrument() {
-  const data = await fetchJSON('/api/pnl');
+  const data = await fetchJSON('/api/pnl/all-strategies');
   const panel = document.getElementById('pnlByInstrumentPanel');
   const wrap = document.getElementById('pnlByInstrumentWrap');
-  if (!data || !data.instruments || !Object.keys(data.instruments).length) { panel.style.display = 'none'; return; }
+  if (!data) { panel.style.display = 'none'; return; }
 
-  const instruments = data.instruments;
-  // Only show if any instrument has closed trades
-  const hasClosed = Object.values(instruments).some(d => d.closed > 0);
-  if (!hasClosed) { panel.style.display = 'none'; return; }
+  // Collect all instruments across strategies
+  const allInstruments = new Set();
+  const strategyNames = ['trend', 'meanrev', 'momentum', 'llm'];
+  for (const name of strategyNames) {
+    if (data[name]) Object.keys(data[name]).forEach(i => allInstruments.add(i));
+  }
+  if (!allInstruments.size) { panel.style.display = 'none'; return; }
   panel.style.display = '';
 
-  let html = '<table><thead><tr><th>Instrument</th><th>Trades</th><th>Wins</th><th>Losses</th><th data-tip="Total realized profit or loss in account currency">P&amp;L</th></tr></thead><tbody>';
-  let totalPnl = 0;
-  Object.entries(instruments).sort((a, b) => b[1].total_pnl - a[1].total_pnl).forEach(([name, d]) => {
-    if (d.closed === 0) return;
-    const pnlColor = d.total_pnl >= 0 ? 'color:var(--green)' : 'color:var(--red)';
-    totalPnl += d.total_pnl;
-    html += '<tr><td>' + escHtml(name) + '</td>'
-      + '<td>' + d.closed + '</td>'
-      + '<td style="color:var(--green)">' + d.wins + '</td>'
-      + '<td style="color:var(--red)">' + d.losses + '</td>'
-      + '<td style="' + pnlColor + ';font-family:var(--mono)">' + (d.total_pnl >= 0 ? '+' : '') + fmt(d.total_pnl) + '</td></tr>';
+  // Build header with strategy columns
+  let html = '<table><thead><tr><th>Instrument</th>';
+  strategyNames.forEach(name => {
+    const sColor = _strategyBadgeColors[name] || 'var(--text-dim)';
+    html += '<th style="text-align:right;color:' + sColor + '">' + name.charAt(0).toUpperCase() + name.slice(1) + '</th>';
   });
-  const totalColor = totalPnl >= 0 ? 'color:var(--green)' : 'color:var(--red)';
-  html += '</tbody></table>'
-    + '<div style="margin-top:8px;font-family:var(--mono);font-size:0.85rem">Total: <span style="' + totalColor + ';font-weight:600">' + (totalPnl >= 0 ? '+' : '') + fmt(totalPnl) + '</span></div>';
+  html += '<th style="text-align:right">Combined</th></tr></thead><tbody>';
+
+  // Rows per instrument
+  const sortedInstruments = [...allInstruments].sort();
+  const strategyTotals = {};
+  strategyNames.forEach(n => { strategyTotals[n] = 0; });
+  let grandTotal = 0;
+
+  sortedInstruments.forEach(inst => {
+    html += '<tr><td>' + escHtml(inst) + '</td>';
+    let rowTotal = 0;
+    strategyNames.forEach(name => {
+      const d = (data[name] || {})[inst];
+      if (d && d.closed > 0) {
+        const pnlColor = d.total_pnl >= 0 ? 'color:var(--green)' : 'color:var(--red)';
+        const winInfo = d.wins + 'W/' + d.losses + 'L';
+        html += '<td style="text-align:right;font-family:var(--mono)"><span style="' + pnlColor + '">' + (d.total_pnl >= 0 ? '+' : '') + fmt(d.total_pnl) + '</span> <span style="font-size:0.7rem;color:var(--text-dim)">' + winInfo + '</span></td>';
+        strategyTotals[name] += d.total_pnl;
+        rowTotal += d.total_pnl;
+      } else {
+        html += '<td style="text-align:right;color:var(--text-dim)">--</td>';
+      }
+    });
+    grandTotal += rowTotal;
+    const rowColor = rowTotal >= 0 ? 'color:var(--green)' : 'color:var(--red)';
+    html += '<td style="text-align:right;font-family:var(--mono);font-weight:600;' + rowColor + '">' + (rowTotal !== 0 ? ((rowTotal >= 0 ? '+' : '') + fmt(rowTotal)) : '--') + '</td>';
+    html += '</tr>';
+  });
+
+  // Totals row
+  html += '<tr style="border-top:2px solid var(--card-border)"><td style="font-weight:700">Total</td>';
+  strategyNames.forEach(name => {
+    const t = strategyTotals[name];
+    const tColor = t >= 0 ? 'color:var(--green)' : 'color:var(--red)';
+    html += '<td style="text-align:right;font-family:var(--mono);font-weight:600;' + tColor + '">' + (t !== 0 ? ((t >= 0 ? '+' : '') + fmt(t)) : '--') + '</td>';
+  });
+  const gColor = grandTotal >= 0 ? 'color:var(--green)' : 'color:var(--red)';
+  html += '<td style="text-align:right;font-family:var(--mono);font-weight:700;' + gColor + '">' + (grandTotal !== 0 ? ((grandTotal >= 0 ? '+' : '') + fmt(grandTotal)) : '--') + '</td>';
+  html += '</tr></tbody></table>';
+
   wrap.innerHTML = html;
 }
 

@@ -781,6 +781,92 @@ def api_snapshots_all_strategies():
     return jsonify(result)
 
 
+@app.route("/api/trades/all-strategies")
+def api_trades_all_strategies():
+    """Trade history aggregated from all strategy accounts."""
+    limit = request.args.get("limit", 50, type=int)
+    settings = load_settings()
+    all_trades = []
+    for name in STRATEGY_SLOTS:
+        try:
+            db.set_active_db(settings.get_db_path(name))
+            trades = db.get_trade_history(limit=limit)
+            for t in trades:
+                t["strategy"] = name
+            all_trades.extend(trades)
+        except Exception:
+            pass
+    # Sort by timestamp descending, take top N
+    all_trades.sort(key=lambda t: t.get("timestamp", ""), reverse=True)
+    # Restore DB
+    instance = request.args.get("instance", "paper")
+    db.set_active_db(settings.get_db_path(instance))
+    return jsonify(all_trades[:limit])
+
+
+@app.route("/api/trade-outcomes/all-strategies")
+def api_trade_outcomes_all_strategies():
+    """Trade outcome stats aggregated from all strategy accounts."""
+    settings = load_settings()
+    result = {"strategies": {}, "combined": {
+        "total": 0, "wins": 0, "losses": 0, "win_ratio": None,
+    }}
+    for name in STRATEGY_SLOTS:
+        try:
+            db.set_active_db(settings.get_db_path(name))
+            pnl = db.get_pnl_summary()
+            wins = sum(
+                i["wins"] for i in pnl.get("instruments", {}).values()
+            )
+            losses = sum(
+                i["losses"] for i in pnl.get("instruments", {}).values()
+            )
+            total = wins + losses
+            result["strategies"][name] = {
+                "total": total, "wins": wins, "losses": losses,
+                "win_ratio": round(wins / total, 3) if total > 0 else None,
+            }
+            result["combined"]["total"] += total
+            result["combined"]["wins"] += wins
+            result["combined"]["losses"] += losses
+        except Exception:
+            pass
+    c = result["combined"]
+    if c["total"] > 0:
+        c["win_ratio"] = round(c["wins"] / c["total"], 3)
+    # Restore DB
+    instance = request.args.get("instance", "paper")
+    db.set_active_db(settings.get_db_path(instance))
+    return jsonify(result)
+
+
+@app.route("/api/pnl/all-strategies")
+def api_pnl_all_strategies():
+    """P&L by instrument across all strategy accounts."""
+    settings = load_settings()
+    result = {}  # {strategy: {instrument: {trades, wins, losses, total_pnl}}}
+    for name in STRATEGY_SLOTS:
+        try:
+            db.set_active_db(settings.get_db_path(name))
+            pnl = db.get_pnl_summary()
+            strategy_data = {}
+            for inst, data in pnl.get("instruments", {}).items():
+                if data.get("closed", 0) > 0:
+                    strategy_data[inst] = {
+                        "closed": data["closed"],
+                        "wins": data["wins"],
+                        "losses": data["losses"],
+                        "total_pnl": data["total_pnl"],
+                    }
+            result[name] = strategy_data
+        except Exception:
+            result[name] = {}
+    # Restore DB
+    instance = request.args.get("instance", "paper")
+    db.set_active_db(settings.get_db_path(instance))
+    return jsonify(result)
+
+
 @app.route("/api/leaderboard")
 def api_leaderboard():
     """Strategy competition leaderboard — balance, P&L, trades for each strategy."""
