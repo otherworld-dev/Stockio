@@ -204,8 +204,16 @@
     background: linear-gradient(135deg, var(--card) 0%, rgba(79,195,247,0.06) 100%);
   }
   .panel.summary-panel .summary-text {
-    font-size: 1rem; line-height: 1.6; color: var(--text);
+    font-size: 0.88rem; line-height: 1.6; color: var(--text);
   }
+  .summary-section { margin-bottom: 12px; }
+  .summary-section:last-child { margin-bottom: 0; }
+  .summary-label { font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+  .summary-trade-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px solid #1e1e40; font-size: 0.8rem; font-family: var(--mono); }
+  .summary-trade-row:last-child { border-bottom: none; }
+  .summary-stats { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 4px; }
+  .summary-stat { font-family: var(--mono); font-size: 0.82rem; }
+  .summary-stat-label { font-size: 0.7rem; color: var(--text-dim); }
 
   /* Collapsible panels */
   .panel.collapsible .panel-title {
@@ -666,6 +674,7 @@ let refreshTimer = null;
 let _lastSignals = [];
 let _lastEngineStatus = null;
 let _lastTrade = null;
+let _recentTrades = [];
 let _alertTimeout = null;
 let _lastAlertTradeId = null;
 let _lastRefreshTime = null;
@@ -1014,6 +1023,7 @@ async function refreshTrades() {
     return;
   }
   _lastTrade = data[0];
+  _recentTrades = data;
   let totalPnl = 0;
   let closedCount = 0;
   let html = '<table><thead><tr><th>Time</th><th>Instrument</th><th>Direction</th><th>Units</th><th>Entry</th><th data-tip="Stop-loss price. The trade auto-closes here to limit your loss">SL</th><th data-tip="Take-profit price. The trade auto-closes here to lock in profit">TP</th><th>Exit</th><th>P&amp;L</th><th>Status</th><th data-tip="How certain the bot\'s ML model was about the trade direction. This is NOT the probability of profit">Confidence</th></tr></thead><tbody>';
@@ -1454,6 +1464,7 @@ function refreshSummary() {
   const el = document.getElementById('botSummary');
   const eng = _lastEngineStatus;
   const signals = _lastSignals || [];
+  const trades = _recentTrades || [];
   const btn = document.getElementById('startStopBtn');
   const isStopped = btn && btn.classList.contains('stopped');
 
@@ -1480,32 +1491,81 @@ function refreshSummary() {
     return;
   }
 
-  const actionable = signals.filter(s => s.direction && s.direction.toUpperCase() !== 'HOLD');
-  const totalInstruments = signals.length;
-  const cycles = eng ? (eng.cycle_count || 0) : 0;
-  const tradeCount = _lastTrade ? 'at least 1' : '0';
+  let html = '';
 
-  let summary = '';
+  // --- Status & signals ---
+  const actionable = signals.filter(s => s.direction && s.direction.toUpperCase() !== 'HOLD');
+  const cycles = eng ? (eng.cycle_count || 0) : 0;
+  const warnings = _getHealthWarnings();
+  html += '<div class="summary-section">';
   if (actionable.length > 0) {
     actionable.sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
     const top = actionable[0];
-    const confPct = top.confidence != null ? (top.confidence * 100).toFixed(1) + '%' : '?';
-    summary = 'Watching ' + actionable.length + ' potential trade' + (actionable.length !== 1 ? 's' : '')
-      + '. Strongest: ' + (top.instrument || '?') + ' ' + (top.direction || '?') + ' at ' + confPct + ' confidence. '
-      + cycles + ' cycle' + (cycles !== 1 ? 's' : '') + ' completed.';
+    html += 'Watching ' + actionable.length + ' signal' + (actionable.length !== 1 ? 's' : '')
+      + '. Strongest: <strong>' + escHtml(top.instrument) + ' ' + escHtml(top.direction) + '</strong> at '
+      + (top.confidence * 100).toFixed(1) + '%. ';
   } else {
-    summary = 'Analyzing ' + totalInstruments + ' instrument' + (totalInstruments !== 1 ? 's' : '')
-      + '. No actionable signals this cycle.';
+    html += 'No actionable signals this cycle. ';
+  }
+  html += cycles + ' cycles completed.';
+  if (warnings.length > 0) html += ' ' + warnings.join(' ');
+  html += '</div>';
+
+  // --- Open positions ---
+  const openTrades = trades.filter(t => t.status === 'OPEN');
+  if (openTrades.length > 0) {
+    html += '<div class="summary-section"><div class="summary-label">Open Positions</div>';
+    openTrades.forEach(t => {
+      const pnlColor = (t.pnl || 0) >= 0 ? 'var(--green)' : 'var(--red)';
+      html += '<div class="summary-trade-row">'
+        + '<span class="' + dirClass(t.direction) + '">' + escHtml(t.direction) + '</span> '
+        + '<span>' + escHtml(t.instrument) + '</span> '
+        + '<span>' + fmt(t.units, 0) + ' units @ ' + fmt(t.price, 5) + '</span> '
+        + '<span style="color:var(--text-dim)">conf ' + (t.confidence != null ? (t.confidence * 100).toFixed(0) + '%' : '--') + '</span>'
+        + '</div>';
+    });
+    html += '</div>';
   }
 
-  // Safety status
-  const warnings = _getHealthWarnings();
-  if (warnings.length === 0) {
-    summary += ' All safety limits within normal range.';
-  } else {
-    summary += ' ' + warnings.join(' ');
+  // --- Recent closed trades (last 5) ---
+  const closed = trades.filter(t => t.status === 'CLOSED').slice(0, 5);
+  if (closed.length > 0) {
+    html += '<div class="summary-section"><div class="summary-label">Recent Trades</div>';
+    closed.forEach(t => {
+      const pnl = t.pnl || 0;
+      const pnlColor = pnl > 0 ? 'var(--green)' : 'var(--red)';
+      const icon = pnl > 0 ? '\u2713' : '\u2717';
+      html += '<div class="summary-trade-row">'
+        + '<span style="color:' + pnlColor + '">' + icon + '</span> '
+        + '<span class="' + dirClass(t.direction) + '">' + escHtml(t.direction) + '</span> '
+        + '<span>' + escHtml(t.instrument) + '</span> '
+        + '<span style="color:' + pnlColor + '">' + (pnl >= 0 ? '+' : '') + fmt(pnl) + '</span> '
+        + '<span style="color:var(--text-dim);font-size:0.72rem">' + escHtml(humanCloseReason(t.close_reason)) + '</span>'
+        + '</div>';
+    });
+    html += '</div>';
   }
-  el.innerHTML = escHtml(summary);
+
+  // --- Performance stats ---
+  const allClosed = trades.filter(t => t.status === 'CLOSED' && t.pnl != null);
+  if (allClosed.length > 0) {
+    const wins = allClosed.filter(t => t.pnl > 0);
+    const losses = allClosed.filter(t => t.pnl <= 0);
+    const totalPnl = allClosed.reduce((s, t) => s + t.pnl, 0);
+    const winRate = allClosed.length > 0 ? (wins.length / allClosed.length * 100) : 0;
+    const avgWin = wins.length > 0 ? wins.reduce((s, t) => s + t.pnl, 0) / wins.length : 0;
+    const avgLoss = losses.length > 0 ? losses.reduce((s, t) => s + Math.abs(t.pnl), 0) / losses.length : 0;
+
+    html += '<div class="summary-section"><div class="summary-label">Performance</div>'
+      + '<div class="summary-stats">'
+      + '<div><div class="summary-stat-label">Win Rate</div><div class="summary-stat" style="color:' + (winRate >= 50 ? 'var(--green)' : 'var(--red)') + '">' + winRate.toFixed(0) + '% (' + wins.length + 'W/' + losses.length + 'L)</div></div>'
+      + '<div><div class="summary-stat-label">Total P&L</div><div class="summary-stat" style="color:' + (totalPnl >= 0 ? 'var(--green)' : 'var(--red)') + '">' + (totalPnl >= 0 ? '+' : '') + fmt(totalPnl) + '</div></div>'
+      + '<div><div class="summary-stat-label">Avg Win</div><div class="summary-stat" style="color:var(--green)">+' + fmt(avgWin) + '</div></div>'
+      + '<div><div class="summary-stat-label">Avg Loss</div><div class="summary-stat" style="color:var(--red)">-' + fmt(avgLoss) + '</div></div>'
+      + '</div></div>';
+  }
+
+  el.innerHTML = html;
 }
 
 function _getHealthWarnings() {
