@@ -156,23 +156,53 @@
   .log-stat-label { color: var(--text-dim); font-size: 0.75rem; }
   .log-stat-value { font-family: var(--mono); font-weight: 600; }
 
-  /* Leaderboard */
-  .leaderboard-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
-  .leaderboard-table th {
-    text-align: left; padding: 8px 10px; color: var(--text-dim); font-size: 0.72rem;
-    text-transform: uppercase; border-bottom: 1px solid var(--card-border);
+  /* Leaderboard hero */
+  .leaderboard-hero { margin-bottom: 20px; }
+  .leaderboard-hero .panel-title { font-size: 1.1rem; }
+  .leaderboard-total {
+    font-size: 0.78rem; color: var(--text-dim); font-weight: 400;
+    margin-left: 12px; font-family: var(--mono);
   }
-  .leaderboard-table td { padding: 8px 10px; border-bottom: 1px solid rgba(42,42,94,0.4); }
+  .leaderboard-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  .leaderboard-table th {
+    text-align: left; padding: 10px 12px; color: var(--text-dim); font-size: 0.72rem;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    border-bottom: 2px solid var(--card-border); white-space: nowrap;
+  }
+  .leaderboard-table th.col-num { text-align: right; }
+  .leaderboard-table th.col-rank { width: 36px; text-align: center; }
+  .leaderboard-table th.col-status { width: 60px; text-align: center; }
+  .leaderboard-table td { padding: 12px 12px; border-bottom: 1px solid rgba(42,42,94,0.3); }
   .leaderboard-table tr:last-child td { border-bottom: none; }
-  .leaderboard-table .rank { font-weight: 700; color: var(--accent); font-family: var(--mono); width: 30px; }
-  .leaderboard-table .strategy-name { font-weight: 600; text-transform: capitalize; }
+  .leaderboard-table tr:hover { background: rgba(79,195,247,0.04); }
+  .leaderboard-table .rank {
+    font-weight: 800; font-family: var(--mono); text-align: center;
+    font-size: 1rem; width: 36px;
+  }
+  .leaderboard-table .rank-1 { color: #ffd700; }
+  .leaderboard-table .rank-2 { color: #c0c0c0; }
+  .leaderboard-table .rank-3 { color: #cd7f32; }
+  .leaderboard-table .rank-4 { color: var(--text-dim); }
+  .leaderboard-table .strategy-name {
+    font-weight: 700; text-transform: capitalize; font-size: 0.95rem;
+  }
+  .leaderboard-table .num {
+    text-align: right; font-family: var(--mono); font-weight: 500;
+  }
   .leaderboard-table .strategy-btn {
-    padding: 3px 10px; border: 1px solid var(--card-border); border-radius: 4px;
-    background: var(--card); color: var(--text-dim); cursor: pointer; font-size: 0.72rem;
+    padding: 4px 14px; border: 1px solid var(--card-border); border-radius: 4px;
+    background: transparent; color: var(--text-dim); cursor: pointer; font-size: 0.75rem;
     font-family: var(--font); transition: all 0.15s;
   }
   .leaderboard-table .strategy-btn:hover { border-color: var(--accent); color: var(--accent); }
   .leaderboard-table .strategy-btn.active { border-color: var(--green); color: var(--green); }
+  .leaderboard-table .win-rate-bar {
+    display: inline-block; width: 50px; height: 6px; background: rgba(255,255,255,0.08);
+    border-radius: 3px; overflow: hidden; vertical-align: middle; margin-left: 6px;
+  }
+  .leaderboard-table .win-rate-fill {
+    height: 100%; border-radius: 3px; transition: width 0.3s;
+  }
 
   /* Engine footer */
   .engine-footer {
@@ -474,59 +504,36 @@
 <!-- Main -->
 <div class="main">
 
-  <!-- Portfolio Cards -->
-  <div class="cards">
-    <div class="card">
-      <div class="card-label" data-tip="Cash in your account, excluding any unrealized profit or loss from open trades">Balance</div>
-      <div class="card-value" id="cardBalance">--</div>
-      <div class="card-sub" id="cardReturnPct"></div>
-    </div>
-    <div class="card">
-      <div class="card-label" data-tip="Balance + unrealized P&L. This is what your account is actually worth right now">Equity</div>
-      <div class="card-value" id="cardEquity">--</div>
-    </div>
-    <div class="card">
-      <div class="card-label" data-tip="Profit or loss on trades that are still open. Becomes realized when you close the trade">Unrealized P&amp;L</div>
-      <div class="card-value" id="cardPnl">--</div>
-    </div>
-    <div class="card">
-      <div class="card-label" data-tip="Number of trades currently open. The bot limits this based on Max Positions in settings">Open Positions</div>
-      <div class="card-value" id="cardPositions">--</div>
-      <div class="card-sub" id="cardMarginLabel"></div>
-      <div class="margin-bar-track" id="marginBarTrack" style="display:none">
-        <div class="margin-bar-fill" id="marginBarFill"></div>
-      </div>
-    </div>
-  </div>
-
   <!-- Strategy Competition Leaderboard -->
-  <div class="panel collapsible open">
-    <div class="panel-title" tabindex="0" role="button" aria-expanded="true" onclick="togglePanel(this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();togglePanel(this)}"><span class="collapse-arrow">&#9654;</span> Strategy Competition
+  <div class="panel leaderboard-hero">
+    <div class="panel-title" style="display:flex;align-items:center">
+      Strategy Competition
+      <span id="leaderboardTotal" class="leaderboard-total"></span>
       <span style="margin-left:auto;display:flex;gap:6px">
-        <button class="ctrl-btn" style="font-size:0.72rem;padding:3px 10px" onclick="event.stopPropagation();startAllStrategies()">Start All</button>
-        <button class="ctrl-btn" style="font-size:0.72rem;padding:3px 10px;border-color:var(--red);color:var(--red)" onclick="event.stopPropagation();stopAllStrategies()">Stop All</button>
+        <button class="ctrl-btn" style="font-size:0.72rem;padding:3px 10px" onclick="startAllStrategies()">Start All</button>
+        <button class="ctrl-btn" style="font-size:0.72rem;padding:3px 10px;border-color:var(--red);color:var(--red)" onclick="stopAllStrategies()">Stop All</button>
       </span>
     </div>
-    <div class="panel-body">
-      <table class="leaderboard-table" id="leaderboardTable">
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>Strategy</th>
-            <th>Status</th>
-            <th>Equity</th>
-            <th>P&amp;L</th>
-            <th>Trades</th>
-            <th>Win Rate</th>
-            <th>Positions</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody id="leaderboardBody">
-          <tr><td colspan="9" class="no-data">Loading...</td></tr>
-        </tbody>
-      </table>
-    </div>
+    <table class="leaderboard-table" id="leaderboardTable">
+      <thead>
+        <tr>
+          <th class="col-rank">#</th>
+          <th>Strategy</th>
+          <th class="col-status">Status</th>
+          <th class="col-num">Balance</th>
+          <th class="col-num">Equity</th>
+          <th class="col-num">Unrl. P&amp;L</th>
+          <th class="col-num">Total P&amp;L</th>
+          <th class="col-num">Trades</th>
+          <th class="col-num">Win Rate</th>
+          <th class="col-num">Positions</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="leaderboardBody">
+        <tr><td colspan="11" class="no-data">Loading...</td></tr>
+      </tbody>
+    </table>
   </div>
 
   <!-- Open Positions -->
@@ -825,16 +832,8 @@ async function toggleInstance() {
     const r = await fetch('/api/instances/' + activeInstance + '/' + action, { method: 'POST' });
     if (!r.ok) throw new Error(r.status);
     const data = await r.json();
-    // Update portfolio cards immediately if account data returned
     if (data.account) {
-      const a = data.account;
-      const cur = a.currency || '';
-      document.getElementById('cardBalance').textContent = fmt(a.balance) + ' ' + cur;
-      document.getElementById('cardEquity').textContent = fmt(a.equity) + ' ' + cur;
-      const pnlEl = document.getElementById('cardPnl');
-      pnlEl.textContent = (a.unrealized_pnl >= 0 ? '+' : '') + fmt(a.unrealized_pnl) + ' ' + cur;
-      pnlEl.className = 'card-value ' + pnlClass(a.unrealized_pnl);
-      document.getElementById('cardPositions').textContent = a.open_positions != null ? a.open_positions : '--';
+      setTimeout(refreshLeaderboard, 500);
     }
   } catch (e) {
     console.warn('Toggle failed:', e);
@@ -852,38 +851,6 @@ async function refreshStatus() {
   const d = await fetchJSON('/api/status');
   if (!d) return;
   _lastRefreshTime = new Date();
-  const cur = d.currency || '';
-  document.getElementById('cardBalance').textContent = fmt(d.balance) + ' ' + cur;
-  document.getElementById('cardEquity').textContent = fmt(d.equity) + ' ' + cur;
-  const pnlEl = document.getElementById('cardPnl');
-  pnlEl.textContent = (d.unrealized_pnl >= 0 ? '+' : '') + fmt(d.unrealized_pnl) + ' ' + cur;
-  pnlEl.className = 'card-value ' + pnlClass(d.unrealized_pnl);
-  document.getElementById('cardPositions').textContent = d.open_positions != null ? d.open_positions : '--';
-
-  // Return %
-  const retEl = document.getElementById('cardReturnPct');
-  if (_startingBalance && d.equity != null) {
-    const retPct = ((d.equity - _startingBalance) / _startingBalance) * 100;
-    retEl.textContent = (retPct >= 0 ? '+' : '') + retPct.toFixed(2) + '% overall';
-    retEl.className = 'card-sub ' + (retPct >= 0 ? 'positive' : 'negative');
-  }
-
-  // Margin usage bar
-  const marginLabel = document.getElementById('cardMarginLabel');
-  const marginTrack = document.getElementById('marginBarTrack');
-  const marginFill = document.getElementById('marginBarFill');
-  if (d.margin_used != null && d.equity > 0) {
-    const marginPct = (d.margin_used / d.equity) * 100;
-    const marginWord = marginPct > 50 ? 'High' : marginPct > 30 ? 'Moderate' : 'Low';
-    marginLabel.textContent = 'Margin: ' + marginWord + ' (' + marginPct.toFixed(1) + '%)';
-    marginTrack.style.display = '';
-    const color = marginPct > 50 ? 'var(--red)' : marginPct > 30 ? '#ff9800' : 'var(--green)';
-    marginFill.style.width = Math.min(marginPct, 100).toFixed(1) + '%';
-    marginFill.style.background = color;
-  } else {
-    marginLabel.textContent = '';
-    marginTrack.style.display = 'none';
-  }
 }
 
 async function refreshInstances() {
@@ -2129,26 +2096,51 @@ async function refreshLeaderboard() {
   const data = await fetchJSON('/api/leaderboard');
   if (!data) return;
   const tbody = document.getElementById('leaderboardBody');
+  const totalEl = document.getElementById('leaderboardTotal');
   if (!data.length) {
-    tbody.innerHTML = '<tr><td colspan="9" class="no-data">No strategy accounts configured</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" class="no-data">No strategy accounts configured</td></tr>';
+    totalEl.textContent = '';
     return;
   }
+
+  // Aggregate totals
+  const totalEquity = data.reduce((s, d) => s + (d.equity || 0), 0);
+  const totalPnl = data.reduce((s, d) => s + (d.total_pnl || 0), 0);
+  const runningCount = data.filter(d => d.running).length;
+  totalEl.innerHTML = runningCount + '/' + data.length + ' running &middot; Combined: ' +
+    '<span style="font-weight:600;color:var(--text)">' + fmt(totalEquity) + '</span>';
+
   tbody.innerHTML = data.map((s, i) => {
+    const rankCls = 'rank rank-' + (i + 1);
+    const rankIcon = i === 0 ? '&#9733;' : (i + 1);
     const pnlCls = s.total_pnl > 0 ? 'positive' : (s.total_pnl < 0 ? 'negative' : '');
+    const urlPnlCls = s.unrealized_pnl > 0 ? 'positive' : (s.unrealized_pnl < 0 ? 'negative' : '');
     const statusDot = s.running
       ? '<span class="status-dot running" style="width:8px;height:8px"></span>'
       : '<span class="status-dot stopped" style="width:8px;height:8px"></span>';
     const btnLabel = s.running ? 'Stop' : 'Start';
     const btnCls = s.running ? 'active' : '';
+
+    // Win rate with mini bar
+    let winRateHtml = '--';
+    if (s.win_rate != null) {
+      const pct = (s.win_rate * 100).toFixed(1);
+      const barColor = s.win_rate >= 0.5 ? 'var(--green)' : (s.win_rate >= 0.35 ? '#ff9800' : 'var(--red)');
+      winRateHtml = pct + '%<span class="win-rate-bar"><span class="win-rate-fill" style="width:' +
+        pct + '%;background:' + barColor + '"></span></span>';
+    }
+
     return `<tr>
-      <td class="rank">${i + 1}</td>
+      <td class="${rankCls}">${rankIcon}</td>
       <td class="strategy-name">${escHtml(s.name)}</td>
-      <td>${statusDot}</td>
-      <td style="font-family:var(--mono)">${fmt(s.equity)}</td>
-      <td style="font-family:var(--mono)" class="${pnlCls}">${fmt(s.total_pnl)}</td>
-      <td style="font-family:var(--mono)">${s.total_trades}</td>
-      <td style="font-family:var(--mono)">${s.win_rate != null ? (s.win_rate * 100).toFixed(1) + '%' : '--'}</td>
-      <td style="font-family:var(--mono)">${s.open_positions}</td>
+      <td style="text-align:center">${statusDot}</td>
+      <td class="num">${fmt(s.balance)}</td>
+      <td class="num" style="font-weight:700">${fmt(s.equity)}</td>
+      <td class="num ${urlPnlCls}">${s.unrealized_pnl !== 0 ? ((s.unrealized_pnl >= 0 ? '+' : '') + fmt(s.unrealized_pnl)) : '--'}</td>
+      <td class="num ${pnlCls}" style="font-weight:600">${s.total_pnl !== 0 ? ((s.total_pnl >= 0 ? '+' : '') + fmt(s.total_pnl)) : '--'}</td>
+      <td class="num">${s.total_trades || 0}</td>
+      <td class="num">${winRateHtml}</td>
+      <td class="num">${s.open_positions}</td>
       <td><button class="strategy-btn ${btnCls}" onclick="toggleStrategy('${escHtml(s.name)}')">${btnLabel}</button></td>
     </tr>`;
   }).join('');
