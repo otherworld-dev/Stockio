@@ -905,13 +905,16 @@ def api_leaderboard():
             db.set_active_db(settings.get_db_path(name))
             pnl = db.get_pnl_summary()
             entry["total_trades"] = pnl.get("total_trades", 0)
-            entry["wins"] = pnl.get("wins", 0)
-            entry["losses"] = pnl.get("losses", 0)
-            entry["total_pnl"] = round(pnl.get("total_pnl", 0), 2)
-            if entry["total_trades"] > 0:
-                entry["win_rate"] = round(
-                    entry["wins"] / entry["total_trades"], 3
-                )
+            # wins/losses/total_pnl are per-instrument — aggregate them
+            instruments = pnl.get("instruments", {})
+            entry["wins"] = sum(i["wins"] for i in instruments.values())
+            entry["losses"] = sum(i["losses"] for i in instruments.values())
+            entry["total_pnl"] = round(
+                sum(i["total_pnl"] for i in instruments.values()), 2
+            )
+            closed = entry["wins"] + entry["losses"]
+            if closed > 0:
+                entry["win_rate"] = round(entry["wins"] / closed, 3)
 
         results.append(entry)
 
