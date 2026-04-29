@@ -562,7 +562,7 @@
 
   <!-- P&L Chart -->
   <div class="panel">
-    <div class="panel-title">Equity Over Time</div>
+    <div class="panel-title">Strategy Equity Over Time</div>
     <div class="time-range-btns" id="timeRangeBtns">
       <button class="time-range-btn" data-limit="24" onclick="setTimeRange(24)">6h</button>
       <button class="time-range-btn" data-limit="96" onclick="setTimeRange(96)">24h</button>
@@ -891,54 +891,112 @@ async function refreshInstances() {
   }
 }
 
+const _strategyColors = {
+  trend:    { line: '#4fc3f7', fill: 'rgba(79,195,247,0.08)' },
+  meanrev:  { line: '#ab47bc', fill: 'rgba(171,71,188,0.08)' },
+  momentum: { line: '#ff9800', fill: 'rgba(255,152,0,0.08)' },
+  llm:      { line: '#4caf50', fill: 'rgba(76,175,80,0.08)' },
+};
+
 async function refreshChart() {
   const limitParam = _chartLimit > 0 ? '?limit=' + _chartLimit : '';
-  const data = await fetchJSON('/api/snapshots' + limitParam);
-  if (!data || !data.length) return;
-  // Capture starting balance from oldest snapshot
-  const oldest = data[data.length - 1];
-  if (oldest && oldest.balance != null) _startingBalance = oldest.balance;
+  const allData = await fetchJSON('/api/snapshots/all-strategies' + limitParam);
+  if (!allData) return;
+
+  // Build unified timeline from all strategies
+  const allTimestamps = new Set();
+  for (const name of Object.keys(allData)) {
+    for (const s of allData[name]) {
+      allTimestamps.add(s.timestamp);
+    }
+  }
+  const sorted = [...allTimestamps].sort();
+  if (!sorted.length) return;
+
+  // Format labels
   let lastDate = '';
-  const labels = data.map(s => {
+  const labels = sorted.map(ts => {
     try {
-      const d = new Date(s.timestamp);
+      const d = new Date(ts);
       const dateStr = d.toLocaleDateString(undefined, { month:'short', day:'numeric' });
       const timeStr = d.toLocaleTimeString(undefined, { hour:'2-digit', minute:'2-digit' });
       if (dateStr !== lastDate) { lastDate = dateStr; return dateStr + ' ' + timeStr; }
       return timeStr;
     } catch { return ''; }
   });
-  const values = data.map(s => s.equity);
+
+  // Build a dataset per strategy
+  const strategies = ['trend', 'meanrev', 'momentum', 'llm'];
+  const datasets = strategies.map(name => {
+    const snaps = allData[name] || [];
+    // Index by timestamp for fast lookup
+    const byTs = {};
+    for (const s of snaps) byTs[s.timestamp] = s.equity;
+
+    // Fill data aligned to unified timeline (carry forward last known value)
+    const data = [];
+    let lastVal = null;
+    for (const ts of sorted) {
+      if (byTs[ts] != null) lastVal = byTs[ts];
+      data.push(lastVal);
+    }
+
+    const colors = _strategyColors[name] || { line: '#888', fill: 'rgba(136,136,170,0.05)' };
+    return {
+      label: name.charAt(0).toUpperCase() + name.slice(1),
+      data: data,
+      borderColor: colors.line,
+      backgroundColor: colors.fill,
+      fill: false,
+      tension: 0.3,
+      pointRadius: 0,
+      borderWidth: 2,
+    };
+  }).filter(ds => ds.data.some(v => v != null));
+
+  // Starting balance reference line
+  const firstEquity = datasets.length ? datasets[0].data.find(v => v != null) : null;
+  if (firstEquity != null) _startingBalance = firstEquity;
+  if (_startingBalance != null) {
+    datasets.push({
+      label: 'Starting Balance',
+      data: Array(labels.length).fill(_startingBalance),
+      borderColor: 'rgba(136, 136, 170, 0.4)',
+      borderDash: [5, 5],
+      borderWidth: 1,
+      pointRadius: 0,
+      fill: false,
+    });
+  }
 
   if (!equityChart) {
     const ctx = document.getElementById('equityChart').getContext('2d');
     equityChart = new Chart(ctx, {
       type: 'line',
-      data: {
-        labels: labels,
-        datasets: [{
-          label: 'Equity',
-          data: values,
-          borderColor: '#4fc3f7',
-          backgroundColor: 'rgba(79, 195, 247, 0.08)',
-          fill: true,
-          tension: 0.3,
-          pointRadius: 0,
-          borderWidth: 2,
-        }, {
-          label: 'Starting Balance',
-          data: Array(labels.length).fill(_startingBalance),
-          borderColor: 'rgba(136, 136, 170, 0.5)',
-          borderDash: [5, 5],
-          borderWidth: 1,
-          pointRadius: 0,
-          fill: false,
-        }]
-      },
+      data: { labels, datasets },
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
+        plugins: {
+          legend: {
+            display: true,
+            position: 'top',
+            labels: {
+              color: '#ccc',
+              usePointStyle: true,
+              pointStyle: 'line',
+              font: { size: 11 },
+              padding: 16,
+            }
+          },
+          tooltip: {
+            callbacks: {
+              label: function(ctx) {
+                return ctx.dataset.label + ': ' + fmt(ctx.parsed.y);
+              }
+            }
+          }
+        },
         scales: {
           x: {
             ticks: { color: '#8888aa', font: { size: 10 }, maxTicksLimit: 12 },
@@ -954,10 +1012,7 @@ async function refreshChart() {
     });
   } else {
     equityChart.data.labels = labels;
-    equityChart.data.datasets[0].data = values;
-    if (equityChart.data.datasets[1]) {
-      equityChart.data.datasets[1].data = Array(labels.length).fill(_startingBalance);
-    }
+    equityChart.data.datasets = datasets;
     equityChart.update('none');
   }
 }

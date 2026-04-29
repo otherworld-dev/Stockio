@@ -759,6 +759,28 @@ def api_trade_outcomes():
 # ---------------------------------------------------------------------------
 
 
+@app.route("/api/snapshots/all-strategies")
+def api_snapshots_all_strategies():
+    """Equity snapshots for all strategy accounts, for the multi-line chart."""
+    limit = request.args.get("limit", 500, type=int)
+    settings = load_settings()
+    result = {}
+    for name in STRATEGY_SLOTS:
+        try:
+            db.set_active_db(settings.get_db_path(name))
+            snapshots = db.get_snapshots(limit=limit)
+            result[name] = [
+                {"timestamp": s["timestamp"], "equity": s["equity"]}
+                for s in snapshots
+            ]
+        except Exception:
+            result[name] = []
+    # Restore DB to request instance
+    instance = request.args.get("instance", "paper")
+    db.set_active_db(settings.get_db_path(instance))
+    return jsonify(result)
+
+
 @app.route("/api/leaderboard")
 def api_leaderboard():
     """Strategy competition leaderboard — balance, P&L, trades for each strategy."""
