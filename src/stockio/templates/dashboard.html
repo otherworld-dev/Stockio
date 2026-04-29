@@ -156,6 +156,24 @@
   .log-stat-label { color: var(--text-dim); font-size: 0.75rem; }
   .log-stat-value { font-family: var(--mono); font-weight: 600; }
 
+  /* Leaderboard */
+  .leaderboard-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  .leaderboard-table th {
+    text-align: left; padding: 8px 10px; color: var(--text-dim); font-size: 0.72rem;
+    text-transform: uppercase; border-bottom: 1px solid var(--card-border);
+  }
+  .leaderboard-table td { padding: 8px 10px; border-bottom: 1px solid rgba(42,42,94,0.4); }
+  .leaderboard-table tr:last-child td { border-bottom: none; }
+  .leaderboard-table .rank { font-weight: 700; color: var(--accent); font-family: var(--mono); width: 30px; }
+  .leaderboard-table .strategy-name { font-weight: 600; text-transform: capitalize; }
+  .leaderboard-table .strategy-btn {
+    padding: 3px 10px; border: 1px solid var(--card-border); border-radius: 4px;
+    background: var(--card); color: var(--text-dim); cursor: pointer; font-size: 0.72rem;
+    font-family: var(--font); transition: all 0.15s;
+  }
+  .leaderboard-table .strategy-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .leaderboard-table .strategy-btn.active { border-color: var(--green); color: var(--green); }
+
   /* Engine footer */
   .engine-footer {
     display: flex; flex-wrap: wrap; gap: 24px; align-items: center;
@@ -626,6 +644,36 @@
       <div id="tradeOutcomes">
         <p class="no-data">Loading...</p>
       </div>
+    </div>
+  </div>
+
+  <!-- Strategy Competition Leaderboard -->
+  <div class="panel collapsible open">
+    <div class="panel-title" tabindex="0" role="button" aria-expanded="true" onclick="togglePanel(this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();togglePanel(this)}"><span class="collapse-arrow">&#9654;</span> Strategy Competition
+      <span style="margin-left:auto;display:flex;gap:6px">
+        <button class="ctrl-btn" style="font-size:0.72rem;padding:3px 10px" onclick="event.stopPropagation();startAllStrategies()">Start All</button>
+        <button class="ctrl-btn" style="font-size:0.72rem;padding:3px 10px;border-color:var(--red);color:var(--red)" onclick="event.stopPropagation();stopAllStrategies()">Stop All</button>
+      </span>
+    </div>
+    <div class="panel-body">
+      <table class="leaderboard-table" id="leaderboardTable">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Strategy</th>
+            <th>Status</th>
+            <th>Equity</th>
+            <th>P&amp;L</th>
+            <th>Trades</th>
+            <th>Win Rate</th>
+            <th>Positions</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="leaderboardBody">
+          <tr><td colspan="9" class="no-data">Loading...</td></tr>
+        </tbody>
+      </table>
     </div>
   </div>
 
@@ -2076,6 +2124,55 @@ function checkScrollHint() {
 }
 
 /* ── Refresh all ── */
+/* ── Strategy Competition ── */
+async function refreshLeaderboard() {
+  const data = await fetchJSON('/api/leaderboard');
+  if (!data) return;
+  const tbody = document.getElementById('leaderboardBody');
+  if (!data.length) {
+    tbody.innerHTML = '<tr><td colspan="9" class="no-data">No strategy accounts configured</td></tr>';
+    return;
+  }
+  tbody.innerHTML = data.map((s, i) => {
+    const pnlCls = s.total_pnl > 0 ? 'positive' : (s.total_pnl < 0 ? 'negative' : '');
+    const statusDot = s.running
+      ? '<span class="status-dot running" style="width:8px;height:8px"></span>'
+      : '<span class="status-dot stopped" style="width:8px;height:8px"></span>';
+    const btnLabel = s.running ? 'Stop' : 'Start';
+    const btnCls = s.running ? 'active' : '';
+    return `<tr>
+      <td class="rank">${i + 1}</td>
+      <td class="strategy-name">${escHtml(s.name)}</td>
+      <td>${statusDot}</td>
+      <td style="font-family:var(--mono)">${fmt(s.equity)}</td>
+      <td style="font-family:var(--mono)" class="${pnlCls}">${fmt(s.total_pnl)}</td>
+      <td style="font-family:var(--mono)">${s.total_trades}</td>
+      <td style="font-family:var(--mono)">${s.win_rate != null ? (s.win_rate * 100).toFixed(1) + '%' : '--'}</td>
+      <td style="font-family:var(--mono)">${s.open_positions}</td>
+      <td><button class="strategy-btn ${btnCls}" onclick="toggleStrategy('${escHtml(s.name)}')">${btnLabel}</button></td>
+    </tr>`;
+  }).join('');
+}
+
+async function toggleStrategy(name) {
+  const data = await fetchJSON('/api/leaderboard');
+  if (!data) return;
+  const strategy = data.find(s => s.name === name);
+  const action = strategy && strategy.running ? 'stop' : 'start';
+  await fetch(`/api/instances/${name}/${action}`, { method: 'POST' });
+  setTimeout(refreshLeaderboard, 1000);
+}
+
+async function startAllStrategies() {
+  await fetch('/api/strategies/start-all', { method: 'POST' });
+  setTimeout(refreshLeaderboard, 1500);
+}
+
+async function stopAllStrategies() {
+  await fetch('/api/strategies/stop-all', { method: 'POST' });
+  setTimeout(refreshLeaderboard, 1500);
+}
+
 function refreshAll() {
   refreshMarketStatus();
   refreshStatus();
@@ -2096,6 +2193,7 @@ function refreshAll() {
   refreshPnlByInstrument();
   refreshSparklines();
   refreshLLMAdvisor();
+  refreshLeaderboard();
   // Summary, alerts, and derived displays depend on cached data.
   setTimeout(() => {
     refreshSummary(); refreshAlertBanner(); refreshHealth();

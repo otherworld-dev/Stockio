@@ -48,6 +48,9 @@ _settings: Settings | None = None
 _slots: dict[str, BotSlot] = {}
 
 
+STRATEGY_SLOTS = ("trend", "meanrev", "momentum", "llm")
+
+
 def init_slots(settings: Settings) -> None:
     """Initialize bot slots from settings."""
     global _settings, _slots
@@ -62,6 +65,12 @@ def init_slots(settings: Settings) -> None:
             db_path=settings.get_db_path("live"),
         ),
     }
+    # Strategy competition slots
+    for name in STRATEGY_SLOTS:
+        _slots[name] = BotSlot(
+            name=name,
+            db_path=settings.get_db_path(name),
+        )
 
 
 def get_slots() -> dict[str, BotSlot]:
@@ -137,6 +146,14 @@ def _create_broker_for_slot(slot_name: str, settings: Settings):
     """
     from stockio.broker import YahooBroker
 
+    # Strategy account ID mapping
+    _strategy_account_ids = {
+        "trend": settings.oanda_trend_account_id,
+        "meanrev": settings.oanda_meanrev_account_id,
+        "momentum": settings.oanda_momentum_account_id,
+        "llm": settings.oanda_llm_account_id,
+    }
+
     if slot_name == "paper":
         account_id = (
             settings.oanda_practice_account_id or settings.oanda_account_id
@@ -149,6 +166,13 @@ def _create_broker_for_slot(slot_name: str, settings: Settings):
         account_id = settings.oanda_live_account_id
         api_token = settings.oanda_live_api_token
         environment = "live"
+    elif slot_name in _strategy_account_ids:
+        account_id = _strategy_account_ids[slot_name]
+        # Strategy accounts use the practice API token
+        api_token = (
+            settings.oanda_practice_api_token or settings.oanda_api_token
+        )
+        environment = "practice"
     else:
         account_id = ""
         api_token = ""
@@ -190,12 +214,15 @@ def _run_bot(slot: BotSlot, generation: int) -> None:
         notifier = TelegramNotifier(settings)
         sentiment = SentimentAnalyzer(settings)
         slot.sentiment_analyzer = sentiment
+        # Strategy slots get their strategy name passed to the engine
+        strategy = slot.name if slot.name in STRATEGY_SLOTS else None
         engine = TradingEngine(
             broker=broker,
             instruments=instruments,
             settings=settings,
             notifier=notifier,
             shutdown_event=slot.shutdown_event,
+            strategy=strategy,
         )
         slot.engine = engine
 

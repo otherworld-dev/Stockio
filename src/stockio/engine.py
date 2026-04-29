@@ -231,6 +231,12 @@ def calculate_stop_take_profit(
     return stop_loss, take_profit
 
 
+def _get_strategies():
+    """Lazy import to avoid circular dependencies."""
+    from stockio.strategy.strategies import STRATEGIES
+    return STRATEGIES
+
+
 # ---------------------------------------------------------------------------
 # Trading engine
 # ---------------------------------------------------------------------------
@@ -246,16 +252,28 @@ class TradingEngine:
         settings: Settings,
         notifier: TelegramNotifier | None = None,
         shutdown_event: threading.Event | None = None,
+        strategy: str | None = None,
     ) -> None:
         self._broker = broker
         self._instruments = instruments
         self._settings = settings
         self._shutdown = shutdown_event
+        self._strategy = strategy
         self._cycle_count = 0
 
-        # LLM trade advisor
+        # LLM trade advisor (disabled for llm strategy — Claude decides directly)
         from stockio.strategy.llm_advisor import LLMAdvisor
-        self._advisor = LLMAdvisor(settings)
+        self._advisor = LLMAdvisor(settings) if strategy != "llm" else LLMAdvisor.__new__(LLMAdvisor)
+
+        # LLM scorer for llm strategy
+        self._llm_scorer = None
+        if strategy == "llm":
+            from stockio.strategy.strategies import LLMScorer
+            self._llm_scorer = LLMScorer(settings)
+            # Create a minimal advisor that's disabled
+            self._advisor._enabled = False
+            self._advisor._last_advice = None
+            self._advisor._last_advice_time = None
         self._last_signals: dict[str, Signal] = {}  # Cached from last cycle
         self._last_cycle_time: datetime | None = None
         self._scorer = InstrumentScorer(settings, settings.models_dir)
@@ -416,6 +434,8 @@ class TradingEngine:
 
         # Step 2: Compute indicators and score each instrument
         signals: dict[str, Signal] = {}
+
+        # First pass: compute features for all instruments
         for name in self._warmed_up:
             try:
                 candles = list(self._candle_cache[name])
@@ -423,14 +443,39 @@ class TradingEngine:
                 if df.empty:
                     continue
                 features = build_feature_vector(df, self._settings)
-                # Merge calendar features
                 features.update(self._calendar.get_features(name))
                 self._latest_features[name] = features
-                sentiment = self._sentiment.get(name, 0.0)
-                signal = self._scorer.score_instrument(name, features, sentiment)
-                signals[name] = signal
             except Exception:
-                cycle_log.exception("scoring_failed", instrument=name)
+                cycle_log.exception("features_failed", instrument=name)
+
+        # Second pass: score using the appropriate strategy
+        if self._strategy == "llm" and self._llm_scorer:
+            # LLM strategy: one batch call for all instruments
+            try:
+                signals = self._llm_scorer.score_all(
+                    self._latest_features, self._sentiment
+                )
+            except Exception:
+                cycle_log.exception("llm_scoring_failed")
+        elif self._strategy and self._strategy in _get_strategies():
+            # Named strategy: use its scoring function
+            strategy_fn = _get_strategies()[self._strategy]
+            for name, features in self._latest_features.items():
+                try:
+                    sentiment = self._sentiment.get(name, 0.0)
+                    signals[name] = strategy_fn(name, features, sentiment)
+                except Exception:
+                    cycle_log.exception("strategy_scoring_failed", instrument=name)
+        else:
+            # Default: use InstrumentScorer (ML or rules-based)
+            for name, features in self._latest_features.items():
+                try:
+                    sentiment = self._sentiment.get(name, 0.0)
+                    signals[name] = self._scorer.score_instrument(
+                        name, features, sentiment
+                    )
+                except Exception:
+                    cycle_log.exception("scoring_failed", instrument=name)
 
         # Cache scored signals for the dashboard API
         self._last_signals = signals
@@ -796,24 +841,26 @@ class TradingEngine:
                 )
                 break  # Stop trying if we hit a portfolio-level limit
 
-            # Check LLM advisor decision
-            llm_decision = self._advisor.get_trade_decision(signal.instrument)
-            if llm_decision and not llm_decision.get("take_trade", True):
-                cycle_log.info(
-                    "llm_vetoed",
-                    instrument=signal.instrument,
-                    reason=llm_decision.get("reason", "")[:100],
-                )
-                continue
+            # Check LLM advisor decision (skip for llm strategy — Claude already decided)
+            llm_decision = None
+            if self._strategy != "llm":
+                llm_decision = self._advisor.get_trade_decision(signal.instrument)
+                if llm_decision and not llm_decision.get("take_trade", True):
+                    cycle_log.info(
+                        "llm_vetoed",
+                        instrument=signal.instrument,
+                        reason=llm_decision.get("reason", "")[:100],
+                    )
+                    continue
 
-            # Check if LLM regime says avoid trading entirely
-            regime = self._advisor.regime
-            if regime and regime.get("avoid_trading"):
-                cycle_log.info(
-                    "llm_regime_avoid",
-                    reason=regime.get("reason", "")[:100],
-                )
-                break
+                # Check if LLM regime says avoid trading entirely
+                regime = self._advisor.regime
+                if regime and regime.get("avoid_trading"):
+                    cycle_log.info(
+                        "llm_regime_avoid",
+                        reason=regime.get("reason", "")[:100],
+                    )
+                    break
 
             features = self._latest_features.get(signal.instrument, {})
             atr = features.get("atr", 0)
@@ -1234,6 +1281,10 @@ class TradingEngine:
     @property
     def cycle_count(self) -> int:
         return self._cycle_count
+
+    @property
+    def strategy(self) -> str | None:
+        return self._strategy
 
     @property
     def scorer(self) -> InstrumentScorer:

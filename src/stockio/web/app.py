@@ -10,7 +10,14 @@ from flask import Flask, jsonify, render_template, request
 
 from stockio import db
 from stockio.config import load_settings
-from stockio.web.bot_manager import get_slot, get_slots, init_slots, start_bot, stop_bot
+from stockio.web.bot_manager import (
+    STRATEGY_SLOTS,
+    get_slot,
+    get_slots,
+    init_slots,
+    start_bot,
+    stop_bot,
+)
 
 log = structlog.get_logger()
 
@@ -745,6 +752,82 @@ def api_trade_outcomes():
             })
 
     return jsonify(result)
+
+
+# ---------------------------------------------------------------------------
+# Strategy competition
+# ---------------------------------------------------------------------------
+
+
+@app.route("/api/leaderboard")
+def api_leaderboard():
+    """Strategy competition leaderboard — balance, P&L, trades for each strategy."""
+    results = []
+    for name in STRATEGY_SLOTS:
+        slot = get_slot(name)
+        if not slot:
+            continue
+
+        entry = {
+            "name": name,
+            "running": slot.running,
+            "balance": 0,
+            "equity": 0,
+            "unrealized_pnl": 0,
+            "open_positions": 0,
+            "total_trades": 0,
+            "wins": 0,
+            "losses": 0,
+            "win_rate": None,
+            "total_pnl": 0,
+        }
+
+        # Live broker data
+        if slot.engine:
+            with contextlib.suppress(Exception):
+                acct = slot.engine._broker.get_account()
+                entry["balance"] = round(acct.balance, 2)
+                entry["equity"] = round(acct.equity, 2)
+                entry["unrealized_pnl"] = round(acct.unrealized_pnl, 2)
+                entry["open_positions"] = acct.open_position_count
+
+        # Trade history from DB
+        with contextlib.suppress(Exception):
+            settings = load_settings()
+            db.set_active_db(settings.get_db_path(name))
+            pnl = db.get_pnl_summary()
+            entry["total_trades"] = pnl.get("total_trades", 0)
+            entry["wins"] = pnl.get("wins", 0)
+            entry["losses"] = pnl.get("losses", 0)
+            entry["total_pnl"] = round(pnl.get("total_pnl", 0), 2)
+            if entry["total_trades"] > 0:
+                entry["win_rate"] = round(
+                    entry["wins"] / entry["total_trades"], 3
+                )
+
+        results.append(entry)
+
+    # Sort by equity descending (highest performing strategy first)
+    results.sort(key=lambda r: r["equity"], reverse=True)
+    return jsonify(results)
+
+
+@app.route("/api/strategies/start-all", methods=["POST"])
+def api_start_all_strategies():
+    """Start all strategy bots at once."""
+    results = {}
+    for name in STRATEGY_SLOTS:
+        results[name] = start_bot(name)
+    return jsonify({"ok": True, "results": results})
+
+
+@app.route("/api/strategies/stop-all", methods=["POST"])
+def api_stop_all_strategies():
+    """Stop all strategy bots at once."""
+    results = {}
+    for name in STRATEGY_SLOTS:
+        results[name] = stop_bot(name)
+    return jsonify({"ok": True, "results": results})
 
 
 # ---------------------------------------------------------------------------

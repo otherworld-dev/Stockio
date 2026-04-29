@@ -75,6 +75,11 @@ class Settings(BaseSettings):
     oanda_practice_api_token: str = ""
     oanda_live_account_id: str = ""
     oanda_live_api_token: str = ""
+    # Strategy competition accounts (share practice API token)
+    oanda_trend_account_id: str = ""
+    oanda_meanrev_account_id: str = ""
+    oanda_momentum_account_id: str = ""
+    oanda_llm_account_id: str = ""
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
     news_api_key: str = ""
