@@ -499,6 +499,36 @@
     </div>
   </div>
 
+  <!-- Strategy Competition Leaderboard -->
+  <div class="panel collapsible open">
+    <div class="panel-title" tabindex="0" role="button" aria-expanded="true" onclick="togglePanel(this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();togglePanel(this)}"><span class="collapse-arrow">&#9654;</span> Strategy Competition
+      <span style="margin-left:auto;display:flex;gap:6px">
+        <button class="ctrl-btn" style="font-size:0.72rem;padding:3px 10px" onclick="event.stopPropagation();startAllStrategies()">Start All</button>
+        <button class="ctrl-btn" style="font-size:0.72rem;padding:3px 10px;border-color:var(--red);color:var(--red)" onclick="event.stopPropagation();stopAllStrategies()">Stop All</button>
+      </span>
+    </div>
+    <div class="panel-body">
+      <table class="leaderboard-table" id="leaderboardTable">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Strategy</th>
+            <th>Status</th>
+            <th>Equity</th>
+            <th>P&amp;L</th>
+            <th>Trades</th>
+            <th>Win Rate</th>
+            <th>Positions</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="leaderboardBody">
+          <tr><td colspan="9" class="no-data">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
   <!-- Open Positions -->
   <div class="panel" id="openPositionsPanel" style="display:none">
     <div class="panel-title" data-tip="Your currently active trades with live profit/loss">Open Positions</div>
@@ -644,36 +674,6 @@
       <div id="tradeOutcomes">
         <p class="no-data">Loading...</p>
       </div>
-    </div>
-  </div>
-
-  <!-- Strategy Competition Leaderboard -->
-  <div class="panel collapsible open">
-    <div class="panel-title" tabindex="0" role="button" aria-expanded="true" onclick="togglePanel(this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();togglePanel(this)}"><span class="collapse-arrow">&#9654;</span> Strategy Competition
-      <span style="margin-left:auto;display:flex;gap:6px">
-        <button class="ctrl-btn" style="font-size:0.72rem;padding:3px 10px" onclick="event.stopPropagation();startAllStrategies()">Start All</button>
-        <button class="ctrl-btn" style="font-size:0.72rem;padding:3px 10px;border-color:var(--red);color:var(--red)" onclick="event.stopPropagation();stopAllStrategies()">Stop All</button>
-      </span>
-    </div>
-    <div class="panel-body">
-      <table class="leaderboard-table" id="leaderboardTable">
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>Strategy</th>
-            <th>Status</th>
-            <th>Equity</th>
-            <th>P&amp;L</th>
-            <th>Trades</th>
-            <th>Win Rate</th>
-            <th>Positions</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody id="leaderboardBody">
-          <tr><td colspan="9" class="no-data">Loading...</td></tr>
-        </tbody>
-      </table>
     </div>
   </div>
 
