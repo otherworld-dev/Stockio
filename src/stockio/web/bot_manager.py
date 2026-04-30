@@ -205,11 +205,14 @@ def _create_broker_for_slot(slot_name: str, settings: Settings):
 def _run_bot(slot: BotSlot, generation: int) -> None:
     """Bot thread main loop."""
     try:
+        log.info("bot_thread_starting", instance=slot.name, db_path=str(slot.db_path))
         db.set_active_db(slot.db_path)
         settings = _settings
         instruments = load_instruments()
 
+        log.info("bot_creating_broker", instance=slot.name)
         broker = _create_broker_for_slot(slot.name, settings)
+        log.info("bot_broker_ready", instance=slot.name, broker_type=type(broker).__name__)
 
         notifier = TelegramNotifier(settings)
         sentiment = SentimentAnalyzer(settings)
@@ -264,6 +267,8 @@ def _run_bot(slot: BotSlot, generation: int) -> None:
     except Exception as exc:
         slot.last_error = str(exc)
         log.exception("bot_thread_crashed", instance=slot.name)
+        import traceback
+        traceback.print_exc()
     finally:
         with slot.lock:
             slot.running = False
