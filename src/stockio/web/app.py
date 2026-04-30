@@ -892,12 +892,14 @@ def api_leaderboard():
 
         # Live broker data
         if slot.engine:
-            with contextlib.suppress(Exception):
+            try:
                 acct = slot.engine._broker.get_account()
                 entry["balance"] = round(acct.balance, 2)
                 entry["equity"] = round(acct.equity, 2)
                 entry["unrealized_pnl"] = round(acct.unrealized_pnl, 2)
                 entry["open_positions"] = acct.open_position_count
+            except Exception:
+                log.exception("leaderboard_broker_error", strategy=name)
 
         # Trade history from DB
         with contextlib.suppress(Exception):
