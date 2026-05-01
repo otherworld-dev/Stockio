@@ -1709,7 +1709,8 @@ function refreshAlertBanner() {
     if ((now - tradeTime) < 60000 && tradeId !== _lastAlertTradeId) {
       _lastAlertTradeId = tradeId;
       const t = _lastTrade;
-      const msg = '\u2713 Trade executed: ' + (t.direction || '') + ' ' + (t.instrument || '') + ' '
+      const stratLabel = t.strategy ? '[' + t.strategy + '] ' : '';
+      const msg = '\u2713 ' + stratLabel + 'Trade executed: ' + (t.direction || '') + ' ' + (t.instrument || '') + ' '
         + (t.units != null ? fmt(t.units, 0) + ' units' : '') + (t.price != null ? ' at ' + fmt(t.price, 5) : '');
       showBanner(msg, 'trade');
       return;
