@@ -47,6 +47,11 @@ class BotSlot:
 _settings: Settings | None = None
 _slots: dict[str, BotSlot] = {}
 
+# Shared resources to avoid duplicate API calls
+_shared_sentiment: dict[str, float] | None = None
+_shared_trump_sentiment: dict[str, float] | None = None
+_shared_sentiment_analyzer: Any = None
+_shared_sentiment_lock = threading.Lock()
 
 STRATEGY_SLOTS = ("trend", "meanrev", "momentum", "llm")
 
@@ -204,6 +209,7 @@ def _create_broker_for_slot(slot_name: str, settings: Settings):
 
 def _run_bot(slot: BotSlot, generation: int) -> None:
     """Bot thread main loop."""
+    global _shared_sentiment, _shared_trump_sentiment, _shared_sentiment_analyzer
     try:
         log.info("bot_thread_starting", instance=slot.name, db_path=str(slot.db_path))
         db.set_active_db(slot.db_path)
@@ -215,10 +221,18 @@ def _run_bot(slot: BotSlot, generation: int) -> None:
         log.info("bot_broker_ready", instance=slot.name, broker_type=type(broker).__name__)
 
         notifier = TelegramNotifier(settings)
-        sentiment = SentimentAnalyzer(settings)
-        slot.sentiment_analyzer = sentiment
-        # Strategy slots get their strategy name passed to the engine
-        strategy = slot.name if slot.name in STRATEGY_SLOTS else None
+        is_strategy = slot.name in STRATEGY_SLOTS
+        strategy = slot.name if is_strategy else None
+
+        # Strategy bots reuse the paper bot's sentiment analyzer to avoid
+        # duplicate API calls. Only non-strategy bots create their own.
+        if is_strategy:
+            sentiment = None  # Will read from shared state
+        else:
+            sentiment = SentimentAnalyzer(settings)
+            slot.sentiment_analyzer = sentiment
+            _shared_sentiment_analyzer = sentiment
+
         engine = TradingEngine(
             broker=broker,
             instruments=instruments,
@@ -229,20 +243,45 @@ def _run_bot(slot: BotSlot, generation: int) -> None:
         )
         slot.engine = engine
 
+        # Strategy bots share the LLM advisor from the paper bot to avoid
+        # duplicate Claude API calls (~80% cost reduction).
+        if is_strategy:
+            paper_slot = _slots.get("paper")
+            if paper_slot and paper_slot.engine:
+                engine._advisor = paper_slot.engine._advisor
+
         while not slot.shutdown_event.is_set():
             if slot.generation != generation:
                 break  # Stale thread — a new one was started
             try:
-                if sentiment.needs_refresh():
-                    scores = sentiment.refresh_all(instruments)
-                    if slot.shutdown_event.is_set():
-                        break
-                    engine.update_sentiment(scores)
-                    slot.last_sentiment = scores
-                    slot.last_trump_sentiment = {
-                        k: sentiment.get_trump_sentiment(k)
-                        for k in instruments
-                    }
+                if is_strategy:
+                    # Read shared sentiment from the paper/primary bot
+                    with _shared_sentiment_lock:
+                        if _shared_sentiment:
+                            engine.update_sentiment(_shared_sentiment)
+                            slot.last_sentiment = _shared_sentiment
+                            slot.last_trump_sentiment = _shared_trump_sentiment or {}
+
+                    # Re-link advisor in case paper bot restarted
+                    paper_slot = _slots.get("paper")
+                    if paper_slot and paper_slot.engine:
+                        engine._advisor = paper_slot.engine._advisor
+                else:
+                    # Primary bot: fetch sentiment and share it
+                    if sentiment.needs_refresh():
+                        scores = sentiment.refresh_all(instruments)
+                        if slot.shutdown_event.is_set():
+                            break
+                        engine.update_sentiment(scores)
+                        slot.last_sentiment = scores
+                        slot.last_trump_sentiment = {
+                            k: sentiment.get_trump_sentiment(k)
+                            for k in instruments
+                        }
+                        # Publish to shared state for strategy bots
+                        with _shared_sentiment_lock:
+                            _shared_sentiment = scores
+                            _shared_trump_sentiment = slot.last_trump_sentiment
 
                 if slot.shutdown_event.is_set():
                     break
