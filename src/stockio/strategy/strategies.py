@@ -85,11 +85,11 @@ def score_trend(instrument: str, features: dict[str, float],
 
 def score_meanrev(instrument: str, features: dict[str, float],
                   sentiment: float) -> Signal:
-    """Buy oversold in uptrends, sell overbought in downtrends.
+    """Buy oversold, sell overbought — with trend and indicator confirmation.
 
-    Only trades at RSI extremes with Bollinger Band and Stochastic confirmation.
-    The key difference from basic RSI: requires the TREND to support the trade
-    (don't buy oversold in a downtrend — that's a falling knife).
+    Uses RSI extremes with Bollinger Band and Stochastic confirmation.
+    Blocks trades only when the trend is strongly against the trade
+    (don't buy oversold in a strong downtrend — that's a falling knife).
     """
     rsi = features.get("rsi_14", 50)
     bb = features.get("bb_percent_b", 0.5)
@@ -97,17 +97,18 @@ def score_meanrev(instrument: str, features: dict[str, float],
     close_vs_ema = features.get("close_vs_ema_long", 0)
     adx = features.get("adx", 0)
 
-    # RSI must be at extreme
-    if 30 <= rsi <= 70:
+    # RSI must be approaching an extreme
+    if 35 <= rsi <= 65:
         return _make_signal(instrument, Direction.HOLD, 0, features)
 
-    if rsi < 30:
-        # Oversold — only BUY if in an uptrend (don't catch falling knives)
-        if close_vs_ema <= 0:
+    if rsi < 35:
+        # Oversold — block only if strongly trending down
+        if close_vs_ema < -0.002 and adx > 30:
             return _make_signal(instrument, Direction.HOLD, 0, features)
 
         direction = Direction.BUY
-        conf = 0.3  # Base for RSI extreme
+        # More extreme RSI = higher base confidence
+        conf = 0.25 if rsi < 30 else 0.15
 
         # BB confirmation: price near lower band
         if bb < 0.15:
@@ -116,31 +117,35 @@ def score_meanrev(instrument: str, features: dict[str, float],
             conf += 0.1
 
         # Stochastic confirmation
-        if stoch_k < 25:
+        if stoch_k < 30:
             conf += 0.2
 
-        # Trend strength — stronger trend = more confidence in reversion
-        if adx > 20:
+        # Trend alignment bonus (not required, but helps)
+        if close_vs_ema > 0:
             conf += 0.15
+        elif adx > 20:
+            conf += 0.05
 
-    else:  # rsi > 70
-        # Overbought — only SELL if in a downtrend
-        if close_vs_ema >= 0:
+    else:  # rsi > 65
+        # Overbought — block only if strongly trending up
+        if close_vs_ema > 0.002 and adx > 30:
             return _make_signal(instrument, Direction.HOLD, 0, features)
 
         direction = Direction.SELL
-        conf = 0.3
+        conf = 0.25 if rsi > 70 else 0.15
 
         if bb > 0.85:
             conf += 0.25
         elif bb > 0.7:
             conf += 0.1
 
-        if stoch_k > 75:
+        if stoch_k > 70:
             conf += 0.2
 
-        if adx > 20:
+        if close_vs_ema < 0:
             conf += 0.15
+        elif adx > 20:
+            conf += 0.05
 
     return _make_signal(instrument, direction, conf, features)
 
