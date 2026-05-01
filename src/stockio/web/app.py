@@ -11,6 +11,7 @@ from flask import Flask, jsonify, render_template, request
 from stockio import db
 from stockio.config import load_settings
 from stockio.web.bot_manager import (
+    LEADERBOARD_SLOTS,
     STRATEGY_SLOTS,
     get_slot,
     get_slots,
@@ -765,7 +766,7 @@ def api_snapshots_all_strategies():
     limit = request.args.get("limit", 500, type=int)
     settings = load_settings()
     result = {}
-    for name in STRATEGY_SLOTS:
+    for name in LEADERBOARD_SLOTS:
         try:
             db.set_active_db(settings.get_db_path(name))
             snapshots = db.get_snapshots(limit=limit)
@@ -787,7 +788,7 @@ def api_trades_all_strategies():
     limit = request.args.get("limit", 50, type=int)
     settings = load_settings()
     all_trades = []
-    for name in STRATEGY_SLOTS:
+    for name in LEADERBOARD_SLOTS:
         try:
             db.set_active_db(settings.get_db_path(name))
             trades = db.get_trade_history(limit=limit)
@@ -811,7 +812,7 @@ def api_trade_outcomes_all_strategies():
     result = {"strategies": {}, "combined": {
         "total": 0, "wins": 0, "losses": 0, "win_ratio": None,
     }}
-    for name in STRATEGY_SLOTS:
+    for name in LEADERBOARD_SLOTS:
         try:
             db.set_active_db(settings.get_db_path(name))
             pnl = db.get_pnl_summary()
@@ -845,7 +846,7 @@ def api_pnl_all_strategies():
     """P&L by instrument across all strategy accounts."""
     settings = load_settings()
     result = {}  # {strategy: {instrument: {trades, wins, losses, total_pnl}}}
-    for name in STRATEGY_SLOTS:
+    for name in LEADERBOARD_SLOTS:
         try:
             db.set_active_db(settings.get_db_path(name))
             pnl = db.get_pnl_summary()
@@ -871,7 +872,7 @@ def api_pnl_all_strategies():
 def api_leaderboard():
     """Strategy competition leaderboard — balance, P&L, trades for each strategy."""
     results = []
-    for name in STRATEGY_SLOTS:
+    for name in LEADERBOARD_SLOTS:
         slot = get_slot(name)
         if not slot:
             continue

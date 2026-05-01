@@ -893,6 +893,7 @@ async function refreshInstances() {
 }
 
 const _strategyColors = {
+  paper:    { line: '#e0e0e0', fill: 'rgba(224,224,224,0.08)' },
   trend:    { line: '#4fc3f7', fill: 'rgba(79,195,247,0.08)' },
   meanrev:  { line: '#ab47bc', fill: 'rgba(171,71,188,0.08)' },
   momentum: { line: '#ff9800', fill: 'rgba(255,152,0,0.08)' },
@@ -927,7 +928,7 @@ async function refreshChart() {
   });
 
   // Build a dataset per strategy
-  const strategies = ['trend', 'meanrev', 'momentum', 'llm'];
+  const strategies = ['paper', 'trend', 'meanrev', 'momentum', 'llm'];
   const datasets = strategies.map(name => {
     const snaps = allData[name] || [];
     // Index by timestamp for fast lookup
@@ -1086,7 +1087,10 @@ async function refreshSignals() {
 }
 
 const _strategyBadgeColors = {
-  trend: '#4fc3f7', meanrev: '#ab47bc', momentum: '#ff9800', llm: '#4caf50',
+  paper: '#e0e0e0', trend: '#4fc3f7', meanrev: '#ab47bc', momentum: '#ff9800', llm: '#4caf50',
+};
+const _strategyDisplayNames = {
+  paper: 'Paper (ML)', trend: 'Trend', meanrev: 'Meanrev', momentum: 'Momentum', llm: 'LLM',
 };
 
 async function refreshTrades() {
@@ -2023,7 +2027,7 @@ async function refreshPnlByInstrument() {
 
   // Collect all instruments across strategies
   const allInstruments = new Set();
-  const strategyNames = ['trend', 'meanrev', 'momentum', 'llm'];
+  const strategyNames = ['paper', 'trend', 'meanrev', 'momentum', 'llm'];
   for (const name of strategyNames) {
     if (data[name]) Object.keys(data[name]).forEach(i => allInstruments.add(i));
   }
@@ -2219,7 +2223,7 @@ async function refreshLeaderboard() {
 
     return `<tr>
       <td class="${rankCls}">${rankIcon}</td>
-      <td class="strategy-name">${escHtml(s.name)}</td>
+      <td class="strategy-name">${escHtml(_strategyDisplayNames[s.name] || s.name)}</td>
       <td style="text-align:center">${statusDot}</td>
       <td class="num">${fmt(s.balance)}</td>
       <td class="num" style="font-weight:700">${fmt(s.equity)}</td>
@@ -2253,7 +2257,7 @@ async function closeAllStrategy(name) {
 
 async function closeAllStrategies() {
   if (!confirm('Close ALL positions across ALL strategies?')) return;
-  for (const name of ['trend', 'meanrev', 'momentum', 'llm']) {
+  for (const name of ['paper', 'trend', 'meanrev', 'momentum', 'llm']) {
     await fetch('/api/instances/' + name + '/close-all', { method: 'POST' });
   }
   setTimeout(refreshLeaderboard, 2000);

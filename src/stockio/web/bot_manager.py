@@ -57,6 +57,7 @@ _shared_sentiment_analyzer: Any = None
 _shared_sentiment_lock = threading.Lock()
 
 STRATEGY_SLOTS = ("trend", "meanrev", "momentum", "llm")
+LEADERBOARD_SLOTS = ("paper", "trend", "meanrev", "momentum", "llm")
 
 
 def init_slots(settings: Settings) -> None:
