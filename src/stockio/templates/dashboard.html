@@ -511,6 +511,7 @@
       <span id="leaderboardTotal" class="leaderboard-total"></span>
       <span style="margin-left:auto;display:flex;gap:6px">
         <button class="ctrl-btn" style="font-size:0.72rem;padding:3px 10px" onclick="startAllStrategies()">Start All</button>
+        <button class="ctrl-btn" style="font-size:0.72rem;padding:3px 10px;border-color:#ff9800;color:#ff9800" onclick="closeAllStrategies()">Close All</button>
         <button class="ctrl-btn" style="font-size:0.72rem;padding:3px 10px;border-color:var(--red);color:var(--red)" onclick="stopAllStrategies()">Stop All</button>
       </span>
     </div>
@@ -2227,7 +2228,10 @@ async function refreshLeaderboard() {
       <td class="num">${s.total_trades || 0}</td>
       <td class="num">${winRateHtml}</td>
       <td class="num">${s.open_positions}</td>
-      <td><button class="strategy-btn ${btnCls}" onclick="toggleStrategy('${escHtml(s.name)}')">${btnLabel}</button></td>
+      <td style="display:flex;gap:4px">
+        <button class="strategy-btn ${btnCls}" onclick="toggleStrategy('${escHtml(s.name)}')">${btnLabel}</button>
+        ${s.open_positions > 0 ? '<button class="strategy-btn" style="border-color:var(--red);color:var(--red)" onclick="closeAllStrategy(\'' + escHtml(s.name) + '\')">Close</button>' : ''}
+      </td>
     </tr>`;
   }).join('');
 }
@@ -2239,6 +2243,20 @@ async function toggleStrategy(name) {
   const action = strategy && strategy.running ? 'stop' : 'start';
   await fetch(`/api/instances/${name}/${action}`, { method: 'POST' });
   setTimeout(refreshLeaderboard, 1000);
+}
+
+async function closeAllStrategy(name) {
+  if (!confirm('Close all open positions for ' + name + '?')) return;
+  await fetch('/api/instances/' + name + '/close-all', { method: 'POST' });
+  setTimeout(refreshLeaderboard, 1500);
+}
+
+async function closeAllStrategies() {
+  if (!confirm('Close ALL positions across ALL strategies?')) return;
+  for (const name of ['trend', 'meanrev', 'momentum', 'llm']) {
+    await fetch('/api/instances/' + name + '/close-all', { method: 'POST' });
+  }
+  setTimeout(refreshLeaderboard, 2000);
 }
 
 async function startAllStrategies() {
