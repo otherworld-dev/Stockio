@@ -253,6 +253,20 @@ def _run_bot(slot: BotSlot, generation: int) -> None:
             if paper_slot and paper_slot.engine:
                 engine._advisor = paper_slot.engine._advisor
 
+        # Immediately cache account data so the dashboard shows stats
+        # without waiting for the first cycle to complete.
+        try:
+            acct = broker.get_account()
+            slot.last_account = {
+                "balance": round(acct.balance, 2),
+                "equity": round(acct.equity, 2),
+                "unrealized_pnl": round(acct.unrealized_pnl, 2),
+                "open_positions": acct.open_position_count,
+                "currency": getattr(acct, "currency", ""),
+            }
+        except Exception:
+            pass
+
         while not slot.shutdown_event.is_set():
             if slot.generation != generation:
                 break  # Stale thread — a new one was started
