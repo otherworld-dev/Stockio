@@ -890,16 +890,12 @@ def api_leaderboard():
             "total_pnl": 0,
         }
 
-        # Live broker data
-        if slot.engine:
-            try:
-                acct = slot.engine._broker.get_account()
-                entry["balance"] = round(acct.balance, 2)
-                entry["equity"] = round(acct.equity, 2)
-                entry["unrealized_pnl"] = round(acct.unrealized_pnl, 2)
-                entry["open_positions"] = acct.open_position_count
-            except Exception:
-                log.exception("leaderboard_broker_error", strategy=name)
+        # Read cached account data (updated each cycle by the bot thread)
+        if slot.last_account:
+            entry["balance"] = slot.last_account.get("balance", 0)
+            entry["equity"] = slot.last_account.get("equity", 0)
+            entry["unrealized_pnl"] = slot.last_account.get("unrealized_pnl", 0)
+            entry["open_positions"] = slot.last_account.get("open_positions", 0)
 
         # Trade history from DB
         with contextlib.suppress(Exception):

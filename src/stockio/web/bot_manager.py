@@ -42,6 +42,9 @@ class BotSlot:
     last_trump_sentiment: dict[str, float] = field(default_factory=dict)
     sentiment_analyzer: Any = None  # SentimentAnalyzer instance
 
+    # Cached account data (updated each cycle, read by leaderboard)
+    last_account: dict = field(default_factory=dict)
+
 
 # Fixed slots — both can run simultaneously
 _settings: Settings | None = None
@@ -289,8 +292,19 @@ def _run_bot(slot: BotSlot, generation: int) -> None:
                 engine.run_cycle()
                 engine.maybe_daily_summary()
 
-                # Expose latest signals for the dashboard
-                # (read from the engine's last scoring pass)
+                # Cache account data for the dashboard leaderboard
+                # (avoids querying OANDA on every page refresh)
+                try:
+                    acct = broker.get_account()
+                    slot.last_account = {
+                        "balance": round(acct.balance, 2),
+                        "equity": round(acct.equity, 2),
+                        "unrealized_pnl": round(acct.unrealized_pnl, 2),
+                        "open_positions": acct.open_position_count,
+                        "currency": getattr(acct, "currency", ""),
+                    }
+                except Exception:
+                    pass  # Keep last cached value
             except Exception as exc:
                 slot.last_error = str(exc)
                 log.exception("bot_cycle_error", instance=slot.name)
