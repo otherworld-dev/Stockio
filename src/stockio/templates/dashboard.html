@@ -157,22 +157,22 @@
   .log-stat-value { font-family: var(--mono); font-weight: 600; }
 
   /* Leaderboard hero */
-  .leaderboard-hero { margin-bottom: 20px; }
+  .leaderboard-hero { margin-bottom: 20px; overflow-x: auto; }
   .leaderboard-hero .panel-title { font-size: 1.1rem; }
   .leaderboard-total {
     font-size: 0.78rem; color: var(--text-dim); font-weight: 400;
     margin-left: 12px; font-family: var(--mono);
   }
-  .leaderboard-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  .leaderboard-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; min-width: 800px; }
   .leaderboard-table th {
-    text-align: left; padding: 10px 12px; color: var(--text-dim); font-size: 0.72rem;
+    text-align: left; padding: 10px 8px; color: var(--text-dim); font-size: 0.72rem;
     text-transform: uppercase; letter-spacing: 0.5px;
     border-bottom: 2px solid var(--card-border); white-space: nowrap;
   }
   .leaderboard-table th.col-num { text-align: right; }
   .leaderboard-table th.col-rank { width: 36px; text-align: center; }
   .leaderboard-table th.col-status { width: 60px; text-align: center; }
-  .leaderboard-table td { padding: 12px 12px; border-bottom: 1px solid rgba(42,42,94,0.3); }
+  .leaderboard-table td { padding: 10px 8px; border-bottom: 1px solid rgba(42,42,94,0.3); white-space: nowrap; }
   .leaderboard-table tr:last-child td { border-bottom: none; }
   .leaderboard-table tr:hover { background: rgba(79,195,247,0.04); }
   .leaderboard-table .rank {
