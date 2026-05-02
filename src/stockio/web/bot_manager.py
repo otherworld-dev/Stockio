@@ -272,6 +272,20 @@ def _run_bot(slot: BotSlot, generation: int) -> None:
             if slot.generation != generation:
                 break  # Stale thread — a new one was started
             try:
+                # Skip everything when markets are closed — no sentiment,
+                # no LLM calls, no cycles. Saves API costs on weekends.
+                from datetime import UTC, datetime
+                _now = datetime.now(UTC)
+                _day, _hour = _now.weekday(), _now.hour
+                _market_closed = (
+                    _day == 5                      # All Saturday
+                    or (_day == 6 and _hour < 22)  # Sunday before 22:00
+                    or (_day == 4 and _hour >= 22) # Friday after 22:00
+                )
+                if _market_closed:
+                    slot.shutdown_event.wait(timeout=300)  # Check again in 5 min
+                    continue
+
                 if is_strategy:
                     # Read shared sentiment from the paper/primary bot
                     with _shared_sentiment_lock:
