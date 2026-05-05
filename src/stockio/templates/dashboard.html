@@ -156,6 +156,21 @@
   .log-stat-label { color: var(--text-dim); font-size: 0.75rem; }
   .log-stat-value { font-family: var(--mono); font-weight: 600; }
 
+  /* Daily stats strip */
+  .daily-stats {
+    display: flex; flex-wrap: wrap; gap: 20px; align-items: center;
+    padding: 12px 20px; background: var(--card); border: 1px solid var(--card-border);
+    border-radius: 10px; margin-bottom: 16px; font-size: 0.85rem;
+  }
+  .daily-stats .ds-title {
+    font-weight: 700; font-size: 0.78rem; text-transform: uppercase;
+    color: var(--text-dim); letter-spacing: 0.5px; margin-right: 4px;
+  }
+  .daily-stats .ds-item { display: flex; flex-direction: column; align-items: center; min-width: 70px; }
+  .daily-stats .ds-value { font-family: var(--mono); font-weight: 700; font-size: 1.1rem; }
+  .daily-stats .ds-label { font-size: 0.68rem; color: var(--text-dim); text-transform: uppercase; }
+  .daily-stats .ds-sep { width: 1px; height: 32px; background: var(--card-border); }
+
   /* Leaderboard hero */
   .leaderboard-hero { margin-bottom: 20px; overflow-x: auto; }
   .leaderboard-hero .panel-title { font-size: 1.1rem; }
@@ -503,6 +518,22 @@
 
 <!-- Main -->
 <div class="main">
+
+  <!-- Daily Stats -->
+  <div class="daily-stats" id="dailyStats">
+    <span class="ds-title">Today</span>
+    <div class="ds-item"><div class="ds-value" id="dsTrades">--</div><div class="ds-label">Trades</div></div>
+    <div class="ds-sep"></div>
+    <div class="ds-item"><div class="ds-value" id="dsWins" style="color:var(--green)">--</div><div class="ds-label">Wins</div></div>
+    <div class="ds-sep"></div>
+    <div class="ds-item"><div class="ds-value" id="dsLosses" style="color:var(--red)">--</div><div class="ds-label">Losses</div></div>
+    <div class="ds-sep"></div>
+    <div class="ds-item"><div class="ds-value" id="dsOpen" style="color:var(--accent)">--</div><div class="ds-label">Open</div></div>
+    <div class="ds-sep"></div>
+    <div class="ds-item"><div class="ds-value" id="dsPnl">--</div><div class="ds-label">P&amp;L</div></div>
+    <div class="ds-sep"></div>
+    <div class="ds-item"><div class="ds-value" id="dsWinRate">--</div><div class="ds-label">Win Rate</div></div>
+  </div>
 
   <!-- Strategy Competition Leaderboard -->
   <div class="panel leaderboard-hero">
@@ -2182,6 +2213,32 @@ function checkScrollHint() {
 }
 
 /* ── Refresh all ── */
+/* ── Daily Stats ── */
+async function refreshDailyStats() {
+  const data = await fetchJSON('/api/daily-stats');
+  if (!data) return;
+  document.getElementById('dsTrades').textContent = data.total_trades || 0;
+  document.getElementById('dsWins').textContent = data.wins || 0;
+  document.getElementById('dsLosses').textContent = data.losses || 0;
+  document.getElementById('dsOpen').textContent = data.open || 0;
+
+  const pnlEl = document.getElementById('dsPnl');
+  const pnl = data.pnl || 0;
+  pnlEl.textContent = (pnl >= 0 ? '+' : '') + fmt(pnl);
+  pnlEl.style.color = pnl > 0 ? 'var(--green)' : (pnl < 0 ? 'var(--red)' : 'var(--text)');
+
+  const closed = (data.wins || 0) + (data.losses || 0);
+  const wrEl = document.getElementById('dsWinRate');
+  if (closed > 0) {
+    const wr = ((data.wins / closed) * 100).toFixed(1);
+    wrEl.textContent = wr + '%';
+    wrEl.style.color = data.wins >= data.losses ? 'var(--green)' : 'var(--red)';
+  } else {
+    wrEl.textContent = '--';
+    wrEl.style.color = 'var(--text)';
+  }
+}
+
 /* ── Strategy Competition ── */
 async function refreshLeaderboard() {
   const data = await fetchJSON('/api/leaderboard');
@@ -2294,6 +2351,7 @@ function refreshAll() {
   refreshSparklines();
   refreshLLMAdvisor();
   refreshLeaderboard();
+  refreshDailyStats();
   // Summary, alerts, and derived displays depend on cached data.
   setTimeout(() => {
     refreshSummary(); refreshAlertBanner(); refreshHealth();

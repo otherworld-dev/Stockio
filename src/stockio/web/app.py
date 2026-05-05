@@ -868,6 +868,70 @@ def api_pnl_all_strategies():
     return jsonify(result)
 
 
+@app.route("/api/daily-stats")
+def api_daily_stats():
+    """Today's aggregate stats across all strategy accounts."""
+    from datetime import UTC, datetime
+
+    settings = load_settings()
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
+    total_trades = 0
+    wins = 0
+    losses = 0
+    total_pnl = 0.0
+    by_strategy = {}
+
+    for name in LEADERBOARD_SLOTS:
+        try:
+            db.set_active_db(settings.get_db_path(name))
+            trades = db.get_trade_history(limit=200)
+            day_trades = [
+                t for t in trades
+                if t.get("timestamp", "").startswith(today)
+            ]
+            s_wins = sum(
+                1 for t in day_trades
+                if t["status"] == "CLOSED" and t.get("pnl") is not None and t["pnl"] > 0
+            )
+            s_losses = sum(
+                1 for t in day_trades
+                if t["status"] == "CLOSED" and t.get("pnl") is not None and t["pnl"] <= 0
+            )
+            s_pnl = sum(
+                t["pnl"] for t in day_trades
+                if t["status"] == "CLOSED" and t.get("pnl") is not None
+            )
+            s_open = sum(1 for t in day_trades if t["status"] == "OPEN")
+            total_trades += len(day_trades)
+            wins += s_wins
+            losses += s_losses
+            total_pnl += s_pnl
+            if day_trades:
+                by_strategy[name] = {
+                    "trades": len(day_trades),
+                    "wins": s_wins,
+                    "losses": s_losses,
+                    "pnl": round(s_pnl, 2),
+                    "open": s_open,
+                }
+        except Exception:
+            pass
+
+    # Restore DB
+    instance = request.args.get("instance", "paper")
+    db.set_active_db(settings.get_db_path(instance))
+
+    return jsonify({
+        "date": today,
+        "total_trades": total_trades,
+        "wins": wins,
+        "losses": losses,
+        "open": total_trades - wins - losses,
+        "pnl": round(total_pnl, 2),
+        "by_strategy": by_strategy,
+    })
+
+
 @app.route("/api/leaderboard")
 def api_leaderboard():
     """Strategy competition leaderboard — balance, P&L, trades for each strategy."""
