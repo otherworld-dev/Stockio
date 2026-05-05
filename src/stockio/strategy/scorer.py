@@ -71,6 +71,22 @@ class PendingOutcome:
     tp_price: float = 0.0  # Take-profit price for trade-outcome labelling
 
 
+@dataclass
+class ShadowPending:
+    """A vetoed/skipped trade waiting to be resolved — what would have happened?"""
+
+    instrument: str
+    direction: Direction
+    confidence: float
+    entry_price: float
+    atr: float
+    timestamp: datetime
+    horizon_cycle: int
+    sl_price: float = 0.0
+    tp_price: float = 0.0
+    veto_reason: str = ""
+
+
 class OutcomeTracker:
     """Tracks pending predictions and records resolved outcomes to parquet."""
 
@@ -91,6 +107,12 @@ class OutcomeTracker:
         self._recent_outcomes: collections.deque[bool] = collections.deque(
             maxlen=settings.degradation_window
         )
+
+        # Shadow tracking — vetoed trades we want to monitor
+        self._shadow_pending: collections.deque[ShadowPending] = collections.deque(maxlen=200)
+        self._shadow_parquet_path = data_dir / "shadow_outcomes.parquet"
+        self._shadow_write_buffer: list[dict] = []
+        self._recent_shadows: collections.deque[dict] = collections.deque(maxlen=20)
 
         # Restore pending outcomes from DB (survives restarts)
         self._restore_pending()
@@ -217,6 +239,49 @@ class OutcomeTracker:
             )
         )
 
+    def record_shadow(
+        self,
+        instrument: str,
+        direction: Direction,
+        confidence: float,
+        entry_price: float,
+        atr: float,
+        current_cycle: int,
+        veto_reason: str,
+    ) -> None:
+        """Record a vetoed/skipped trade for shadow outcome tracking."""
+        if entry_price <= 0 or atr <= 0:
+            return
+
+        sl_mult = self._settings.stop_loss_atr_mult
+        tp_mult = self._settings.take_profit_atr_mult
+
+        if direction == Direction.BUY:
+            sl_price = entry_price - atr * sl_mult
+            tp_price = entry_price + atr * tp_mult
+        else:
+            sl_price = entry_price + atr * sl_mult
+            tp_price = entry_price - atr * tp_mult
+
+        self._shadow_pending.append(
+            ShadowPending(
+                instrument=instrument,
+                direction=direction,
+                confidence=confidence,
+                entry_price=entry_price,
+                atr=atr,
+                timestamp=datetime.now(UTC),
+                horizon_cycle=current_cycle + self._settings.label_horizon_bars,
+                sl_price=sl_price,
+                tp_price=tp_price,
+                veto_reason=veto_reason,
+            )
+        )
+
+    def get_recent_shadows(self, limit: int = 10) -> list[dict]:
+        """Return recently resolved shadow outcomes for LLM feedback."""
+        return list(self._recent_shadows)[-limit:]
+
     def resolve_outcomes(self, current_cycle: int, get_price_range_fn) -> int:
         """Check pending outcomes — resolve if SL/TP hit or horizon reached.
 
@@ -273,7 +338,76 @@ class OutcomeTracker:
         self._pending.extend(remaining)
         if resolved > 0:
             self._flush_buffer()
+
+        # Also resolve shadow (vetoed) outcomes
+        self._resolve_shadows(current_cycle, get_price_range_fn)
+
         return resolved
+
+    def _resolve_shadows(self, current_cycle: int, get_price_range_fn) -> None:
+        """Resolve shadow outcomes — what would have happened with vetoed trades?"""
+        remaining: list[ShadowPending] = []
+
+        for shadow in self._shadow_pending:
+            try:
+                mid, low, high = get_price_range_fn(shadow.instrument)
+            except Exception:
+                remaining.append(shadow)
+                continue
+
+            hit_tp = False
+            hit_sl = False
+            if shadow.direction == Direction.BUY:
+                if high >= shadow.tp_price:
+                    hit_tp = True
+                if low <= shadow.sl_price:
+                    hit_sl = True
+            else:
+                if low <= shadow.tp_price:
+                    hit_tp = True
+                if high >= shadow.sl_price:
+                    hit_sl = True
+
+            if hit_sl and hit_tp:
+                hit_tp = False  # Conservative: SL takes priority
+
+            if hit_tp or hit_sl or current_cycle >= shadow.horizon_cycle:
+                would_have_won = hit_tp
+                # Estimate P&L
+                if would_have_won:
+                    pnl_pips = abs(shadow.tp_price - shadow.entry_price)
+                else:
+                    pnl_pips = -abs(shadow.sl_price - shadow.entry_price)
+
+                result = {
+                    "instrument": shadow.instrument,
+                    "direction": shadow.direction.value,
+                    "confidence": round(shadow.confidence, 3),
+                    "veto_reason": shadow.veto_reason,
+                    "would_have_won": would_have_won,
+                    "entry_price": shadow.entry_price,
+                    "pnl_pips": round(pnl_pips, 5),
+                    "timestamp": shadow.timestamp.isoformat(),
+                }
+                self._recent_shadows.append(result)
+                self._shadow_write_buffer.append(result)
+
+                if would_have_won:
+                    log.info(
+                        "shadow_missed_opportunity",
+                        instrument=shadow.instrument,
+                        direction=shadow.direction.value,
+                        veto_reason=shadow.veto_reason,
+                        pnl_pips=round(pnl_pips, 5),
+                    )
+            else:
+                remaining.append(shadow)
+
+        self._shadow_pending.clear()
+        self._shadow_pending.extend(remaining)
+
+        if self._shadow_write_buffer:
+            self._flush_shadow_buffer()
 
     def _append_training_row(
         self, outcome: PendingOutcome, exit_price: float, correct: bool
@@ -316,6 +450,24 @@ class OutcomeTracker:
             self._write_buffer.clear()
         except Exception:
             log.exception("parquet_flush_failed")
+
+    def _flush_shadow_buffer(self) -> None:
+        """Write buffered shadow outcomes to parquet."""
+        if not self._shadow_write_buffer:
+            return
+        try:
+            new_rows = pd.DataFrame(self._shadow_write_buffer)
+            if self._shadow_parquet_path.exists():
+                existing = pd.read_parquet(self._shadow_parquet_path)
+                combined = pd.concat([existing, new_rows], ignore_index=True)
+            else:
+                combined = new_rows
+            tmp_path = self._shadow_parquet_path.with_suffix(".tmp")
+            combined.to_parquet(tmp_path, index=False)
+            tmp_path.replace(self._shadow_parquet_path)
+            self._shadow_write_buffer.clear()
+        except Exception:
+            log.exception("shadow_parquet_flush_failed")
 
     def _count_existing_rows(self) -> int:
         """Count rows in existing parquet file (called once at startup)."""

@@ -932,6 +932,33 @@ def api_daily_stats():
     })
 
 
+@app.route("/api/shadow-outcomes")
+def api_shadow_outcomes():
+    """Shadow tracking — what would have happened with vetoed trades."""
+    slot_name = request.args.get("instance", "paper")
+    slot = get_slot(slot_name)
+    if not slot or not slot.engine:
+        return jsonify({"recent": [], "summary": {}})
+
+    shadows = slot.engine._outcome_tracker.get_recent_shadows(limit=20)
+    if not shadows:
+        return jsonify({"recent": [], "summary": {}})
+
+    total = len(shadows)
+    would_have_won = sum(1 for s in shadows if s.get("would_have_won"))
+    would_have_lost = total - would_have_won
+
+    return jsonify({
+        "recent": shadows,
+        "summary": {
+            "total_vetoed": total,
+            "would_have_won": would_have_won,
+            "would_have_lost": would_have_lost,
+            "veto_accuracy": round(would_have_lost / total, 3) if total > 0 else None,
+        },
+    })
+
+
 @app.route("/api/leaderboard")
 def api_leaderboard():
     """Strategy competition leaderboard — balance, P&L, trades for each strategy."""

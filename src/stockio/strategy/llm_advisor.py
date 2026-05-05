@@ -30,6 +30,9 @@ You are a forex trading advisor. Analyze the current market and advise on trades
 ## Pending Signals Above Threshold
 {pending_signals}
 
+## Veto Feedback (how your previous vetoes turned out)
+{shadow_feedback}
+
 ## Task
 Analyze everything above and return a JSON object with:
 
@@ -108,6 +111,7 @@ class LLMAdvisor:
         sentiment_by_instrument: dict[str, float],
         pending_signals: list[dict],
         recent_trades: list[dict],
+        shadow_outcomes: list[dict] | None = None,
     ) -> dict | None:
         """Run the full advisory for this cycle. One LLM call.
 
@@ -116,6 +120,7 @@ class LLMAdvisor:
             sentiment_by_instrument: {instrument: float}
             pending_signals: [{instrument, direction, confidence}, ...] above threshold
             recent_trades: last 10 closed trades from DB
+            shadow_outcomes: recently resolved vetoed trades showing what would have happened
         """
         if not self._enabled:
             return None
@@ -168,11 +173,30 @@ class LLMAdvisor:
                 f"{s['instrument']} {s['direction']} conf={s['confidence']:.1%}"
             )
 
+        # Build shadow feedback (how previous vetoes turned out)
+        shadow_lines = []
+        if shadow_outcomes:
+            wins = sum(1 for s in shadow_outcomes if s.get("would_have_won"))
+            losses = len(shadow_outcomes) - wins
+            for s in shadow_outcomes[-10:]:
+                result = "would have HIT TP (missed profit)" if s.get("would_have_won") else "would have HIT SL (correct veto)"
+                shadow_lines.append(
+                    f"- {s.get('veto_reason', 'vetoed')}: {s.get('instrument', '?')} "
+                    f"{s.get('direction', '?')} conf={s.get('confidence', 0):.1%} → {result}"
+                )
+            if shadow_outcomes:
+                accuracy = losses / len(shadow_outcomes) if shadow_outcomes else 0
+                shadow_lines.append(
+                    f"\nVeto accuracy: {losses}/{len(shadow_outcomes)} vetoes were correct "
+                    f"(prevented losses), {wins}/{len(shadow_outcomes)} were wrong (missed profits)."
+                )
+
         prompt = _CYCLE_PROMPT.format(
             instrument_data="\n".join(inst_lines) or "No data available",
             recent_trades="\n".join(trade_lines) or "No recent trades",
             recent_losses="\n".join(loss_lines) or "No recent losses",
             pending_signals="\n".join(signal_lines) or "No signals above threshold",
+            shadow_feedback="\n".join(shadow_lines) or "No veto feedback yet",
         )
 
         result = self._call_llm_json(prompt)

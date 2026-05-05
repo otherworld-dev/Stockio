@@ -533,6 +533,10 @@
     <div class="ds-item"><div class="ds-value" id="dsPnl">--</div><div class="ds-label">P&amp;L</div></div>
     <div class="ds-sep"></div>
     <div class="ds-item"><div class="ds-value" id="dsWinRate">--</div><div class="ds-label">Win Rate</div></div>
+    <div class="ds-sep"></div>
+    <div class="ds-item"><div class="ds-value" id="dsVetoed" style="color:var(--text-dim)">--</div><div class="ds-label">Vetoed</div></div>
+    <div class="ds-sep"></div>
+    <div class="ds-item"><div class="ds-value" id="dsVetoAccuracy" style="color:var(--text-dim)">--</div><div class="ds-label">Veto Acc.</div></div>
   </div>
 
   <!-- Strategy Competition Leaderboard -->
@@ -2215,27 +2219,47 @@ function checkScrollHint() {
 /* ── Refresh all ── */
 /* ── Daily Stats ── */
 async function refreshDailyStats() {
-  const data = await fetchJSON('/api/daily-stats');
-  if (!data) return;
-  document.getElementById('dsTrades').textContent = data.total_trades || 0;
-  document.getElementById('dsWins').textContent = data.wins || 0;
-  document.getElementById('dsLosses').textContent = data.losses || 0;
-  document.getElementById('dsOpen').textContent = data.open || 0;
+  const [data, shadow] = await Promise.all([
+    fetchJSON('/api/daily-stats'),
+    fetchJSON('/api/shadow-outcomes'),
+  ]);
 
-  const pnlEl = document.getElementById('dsPnl');
-  const pnl = data.pnl || 0;
-  pnlEl.textContent = (pnl >= 0 ? '+' : '') + fmt(pnl);
-  pnlEl.style.color = pnl > 0 ? 'var(--green)' : (pnl < 0 ? 'var(--red)' : 'var(--text)');
+  if (data) {
+    document.getElementById('dsTrades').textContent = data.total_trades || 0;
+    document.getElementById('dsWins').textContent = data.wins || 0;
+    document.getElementById('dsLosses').textContent = data.losses || 0;
+    document.getElementById('dsOpen').textContent = data.open || 0;
 
-  const closed = (data.wins || 0) + (data.losses || 0);
-  const wrEl = document.getElementById('dsWinRate');
-  if (closed > 0) {
-    const wr = ((data.wins / closed) * 100).toFixed(1);
-    wrEl.textContent = wr + '%';
-    wrEl.style.color = data.wins >= data.losses ? 'var(--green)' : 'var(--red)';
+    const pnlEl = document.getElementById('dsPnl');
+    const pnl = data.pnl || 0;
+    pnlEl.textContent = (pnl >= 0 ? '+' : '') + fmt(pnl);
+    pnlEl.style.color = pnl > 0 ? 'var(--green)' : (pnl < 0 ? 'var(--red)' : 'var(--text)');
+
+    const closed = (data.wins || 0) + (data.losses || 0);
+    const wrEl = document.getElementById('dsWinRate');
+    if (closed > 0) {
+      const wr = ((data.wins / closed) * 100).toFixed(1);
+      wrEl.textContent = wr + '%';
+      wrEl.style.color = data.wins >= data.losses ? 'var(--green)' : 'var(--red)';
+    } else {
+      wrEl.textContent = '--';
+      wrEl.style.color = 'var(--text)';
+    }
+  }
+
+  // Shadow/veto stats
+  const vetoedEl = document.getElementById('dsVetoed');
+  const vetoAccEl = document.getElementById('dsVetoAccuracy');
+  if (shadow && shadow.summary && shadow.summary.total_vetoed > 0) {
+    const s = shadow.summary;
+    vetoedEl.textContent = s.total_vetoed;
+    vetoedEl.style.color = 'var(--text-dim)';
+    const acc = (s.veto_accuracy * 100).toFixed(0);
+    vetoAccEl.textContent = acc + '%';
+    vetoAccEl.style.color = s.veto_accuracy >= 0.5 ? 'var(--green)' : 'var(--red)';
   } else {
-    wrEl.textContent = '--';
-    wrEl.style.color = 'var(--text)';
+    vetoedEl.textContent = '--';
+    vetoAccEl.textContent = '--';
   }
 }
 

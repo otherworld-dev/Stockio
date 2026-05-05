@@ -512,11 +512,13 @@ class TradingEngine:
                      "confidence": s.confidence}
                     for s in ranked
                 ]
+                shadow_feedback = self._outcome_tracker.get_recent_shadows(limit=10)
                 self._advisor.advise_cycle(
                     self._latest_features,
                     self._sentiment,
                     pending,
                     recent_trades,
+                    shadow_outcomes=shadow_feedback,
                 )
             except Exception:
                 cycle_log.exception("llm_advisor_failed")
@@ -800,12 +802,20 @@ class TradingEngine:
             open_instruments = set()
 
         for signal in ranked:
+            # Get features and approximate entry price early (for shadow tracking)
+            features = self._latest_features.get(signal.instrument, {})
+            atr = features.get("atr", 0)
+            # Use last candle close as approximate entry price for shadow records
+            _shadow_price = 0.0
+            if signal.instrument in self._candle_cache and self._candle_cache[signal.instrument]:
+                _shadow_price = list(self._candle_cache[signal.instrument])[-1].close
+
             # Skip instruments with existing open positions
             if signal.instrument in open_instruments:
                 cycle_log.debug(
                     "skipped_duplicate", instrument=signal.instrument
                 )
-                continue
+                continue  # Not a missed opportunity — already have exposure
 
             # Skip instruments in stop-loss cooldown
             cooldown_until = self._sl_cooldown.get(signal.instrument, 0)
@@ -815,6 +825,11 @@ class TradingEngine:
                     instrument=signal.instrument,
                     cycles_remaining=cooldown_until - self._cycle_count,
                 )
+                if atr > 0 and _shadow_price > 0:
+                    self._outcome_tracker.record_shadow(
+                        signal.instrument, signal.direction, signal.confidence,
+                        _shadow_price, atr, self._cycle_count, "cooldown",
+                    )
                 continue
 
             # Skip instruments that have lost too many times today
@@ -826,6 +841,11 @@ class TradingEngine:
                     instrument=signal.instrument,
                     losses_today=daily_count,
                 )
+                if atr > 0 and _shadow_price > 0:
+                    self._outcome_tracker.record_shadow(
+                        signal.instrument, signal.direction, signal.confidence,
+                        _shadow_price, atr, self._cycle_count, "daily_limit",
+                    )
                 continue
 
             # Risk check before each trade
@@ -836,6 +856,11 @@ class TradingEngine:
                     reason=reason,
                     instrument=signal.instrument,
                 )
+                if atr > 0 and _shadow_price > 0:
+                    self._outcome_tracker.record_shadow(
+                        signal.instrument, signal.direction, signal.confidence,
+                        _shadow_price, atr, self._cycle_count, "risk_check",
+                    )
                 break  # Stop trying if we hit a portfolio-level limit
 
             # Check LLM advisor decision (skip for llm strategy — Claude already decided)
@@ -848,6 +873,11 @@ class TradingEngine:
                         instrument=signal.instrument,
                         reason=llm_decision.get("reason", "")[:100],
                     )
+                    if atr > 0 and _shadow_price > 0:
+                        self._outcome_tracker.record_shadow(
+                            signal.instrument, signal.direction, signal.confidence,
+                            _shadow_price, atr, self._cycle_count, "llm_vetoed",
+                        )
                     continue
 
                 # Check if LLM regime says avoid trading entirely
@@ -857,10 +887,13 @@ class TradingEngine:
                         "llm_regime_avoid",
                         reason=regime.get("reason", "")[:100],
                     )
+                    if atr > 0 and _shadow_price > 0:
+                        self._outcome_tracker.record_shadow(
+                            signal.instrument, signal.direction, signal.confidence,
+                            _shadow_price, atr, self._cycle_count, "llm_regime_avoid",
+                        )
                     break
 
-            features = self._latest_features.get(signal.instrument, {})
-            atr = features.get("atr", 0)
             if atr <= 0:
                 cycle_log.warning("invalid_atr", instrument=signal.instrument)
                 continue
