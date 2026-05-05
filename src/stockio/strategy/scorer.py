@@ -114,8 +114,9 @@ class OutcomeTracker:
         self._shadow_write_buffer: list[dict] = []
         self._recent_shadows: collections.deque[dict] = collections.deque(maxlen=20)
 
-        # Restore pending outcomes from DB (survives restarts)
+        # Restore state from disk (survives restarts)
         self._restore_pending()
+        self._restore_recent_shadows()
 
     def _restore_pending(self) -> None:
         """Load pending outcomes from DB on startup.
@@ -175,6 +176,22 @@ class OutcomeTracker:
             )
         except Exception:
             log.debug("no_pending_outcomes_to_restore")
+
+    def _restore_recent_shadows(self) -> None:
+        """Reload recent shadow outcomes from parquet so LLM feedback
+        survives restarts."""
+        if not self._shadow_parquet_path.exists():
+            return
+        try:
+            df = pd.read_parquet(self._shadow_parquet_path)
+            if df.empty:
+                return
+            # Take last 20 rows as recent shadows
+            for _, row in df.tail(20).iterrows():
+                self._recent_shadows.append(row.to_dict())
+            log.info("shadow_outcomes_restored", count=len(self._recent_shadows))
+        except Exception:
+            log.debug("no_shadow_outcomes_to_restore")
 
     def persist_pending(self) -> None:
         """Save pending outcomes to DB and flush write buffer to parquet."""
