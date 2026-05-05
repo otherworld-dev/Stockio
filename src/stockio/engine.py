@@ -261,19 +261,16 @@ class TradingEngine:
         self._strategy = strategy
         self._cycle_count = 0
 
-        # LLM trade advisor (disabled for llm strategy — Claude decides directly)
+        # LLM trade advisor — each bot gets its own so veto decisions
+        # are based on its own signals and trade history
         from stockio.strategy.llm_advisor import LLMAdvisor
-        self._advisor = LLMAdvisor(settings) if strategy != "llm" else LLMAdvisor.__new__(LLMAdvisor)
+        self._advisor = LLMAdvisor(settings)
 
-        # LLM scorer for llm strategy
+        # LLM scorer for llm strategy (Claude decides trades directly)
         self._llm_scorer = None
         if strategy == "llm":
             from stockio.strategy.strategies import LLMScorer
             self._llm_scorer = LLMScorer(settings)
-            # Create a minimal advisor that's disabled
-            self._advisor._enabled = False
-            self._advisor._last_advice = None
-            self._advisor._last_advice_time = None
         self._last_signals: dict[str, Signal] = {}  # Cached from last cycle
         self._last_cycle_time: datetime | None = None
         self._scorer = InstrumentScorer(settings, settings.models_dir)

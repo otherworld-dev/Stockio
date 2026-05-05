@@ -247,12 +247,9 @@ def _run_bot(slot: BotSlot, generation: int) -> None:
         )
         slot.engine = engine
 
-        # Strategy bots share the LLM advisor from the paper bot to avoid
-        # duplicate Claude API calls (~80% cost reduction).
-        if is_strategy:
-            paper_slot = _slots.get("paper")
-            if paper_slot and paper_slot.engine:
-                engine._advisor = paper_slot.engine._advisor
+        # Each bot gets its own LLM advisor so veto decisions are based
+        # on its own signals and trades (not another strategy's context).
+        # Sentiment is still shared to save costs.
 
         # Immediately cache account data so the dashboard shows stats
         # without waiting for the first cycle to complete.
@@ -293,11 +290,6 @@ def _run_bot(slot: BotSlot, generation: int) -> None:
                             engine.update_sentiment(_shared_sentiment)
                             slot.last_sentiment = _shared_sentiment
                             slot.last_trump_sentiment = _shared_trump_sentiment or {}
-
-                    # Re-link advisor in case paper bot restarted
-                    paper_slot = _slots.get("paper")
-                    if paper_slot and paper_slot.engine:
-                        engine._advisor = paper_slot.engine._advisor
                 else:
                     # Primary bot: fetch sentiment and share it
                     if sentiment.needs_refresh():
