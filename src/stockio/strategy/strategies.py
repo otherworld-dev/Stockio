@@ -51,6 +51,7 @@ def score_trend(instrument: str, features: dict[str, float],
     close_vs_ema = features.get("close_vs_ema_long", 0)
     adx = features.get("adx", 0)
     macd = features.get("macd_histogram", 0)
+    rsi = features.get("rsi_14", 50)
 
     # All EMAs must agree
     all_bullish = (ema_cross_short_mid > 0 and ema_cross_mid_long > 0
@@ -62,6 +63,12 @@ def score_trend(instrument: str, features: dict[str, float],
         return _make_signal(instrument, Direction.HOLD, 0, features)
 
     direction = Direction.BUY if all_bullish else Direction.SELL
+
+    # RSI guard: don't buy into overbought or sell into oversold
+    if direction == Direction.BUY and rsi > 75:
+        return _make_signal(instrument, Direction.HOLD, 0, features)
+    if direction == Direction.SELL and rsi < 25:
+        return _make_signal(instrument, Direction.HOLD, 0, features)
 
     # Confidence from trend strength (ADX) and MACD confirmation
     conf = 0.0
@@ -198,12 +205,6 @@ def score_momentum(instrument: str, features: dict[str, float],
        (direction == Direction.SELL and close_vs_ema < -0.001):
         conf += 0.15
 
-    # RSI not at extreme opposite (don't buy at RSI 80)
-    if direction == Direction.BUY and rsi > 75:
-        conf *= 0.5
-    elif direction == Direction.SELL and rsi < 25:
-        conf *= 0.5
-
     return _make_signal(instrument, direction, conf, features)
 
 
@@ -233,7 +234,9 @@ Return a JSON object mapping instrument names to decisions:
 }}
 ```
 
-Be selective — only recommend BUY or SELL when you have genuine conviction.
+Be VERY selective — only recommend BUY or SELL for your top 2-3 highest conviction \
+setups. HOLD everything else. If confidence would be below 0.4, use HOLD instead.
+Quality over quantity: fewer trades with high conviction beats many weak trades.
 HOLD is always a valid choice. Return ONLY the JSON, no other text."""
 
 

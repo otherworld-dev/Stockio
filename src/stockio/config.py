@@ -90,13 +90,13 @@ class Settings(BaseSettings):
 
     # --- Strategy (from settings.toml) ---
     granularity: str = "M15"
-    min_confidence: float = 0.20
+    min_confidence: float = 0.30
     lookback_bars: int = 200
 
     # --- Risk ---
     risk_per_trade: float = 0.01
     stop_loss_atr_mult: float = 1.5
-    take_profit_atr_mult: float = 2.0
+    take_profit_atr_mult: float = 3.0
     max_positions: int = 3
     max_leverage: float = 5.0
     daily_loss_limit: float = 0.03
