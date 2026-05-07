@@ -214,6 +214,7 @@ def calculate_stop_take_profit(
     settings: Settings,
     sl_mult_override: float | None = None,
     tp_mult_override: float | None = None,
+    pip_size: float = 0.0001,
 ) -> tuple[float, float]:
     """Calculate stop-loss and take-profit prices."""
     sl_mult = sl_mult_override or db.get_float_setting("stop_loss_atr_mult", settings.stop_loss_atr_mult)
@@ -221,12 +222,17 @@ def calculate_stop_take_profit(
     sl_dist = atr * sl_mult
     tp_dist = atr * tp_mult
 
+    # Derive decimal precision from pip_size (OANDA allows one digit beyond pip)
+    # pip_size 0.0001 → 5 decimals, 0.01 → 3 decimals, 0.001 → 4 decimals
+    import math
+    decimals = max(0, -int(math.floor(math.log10(pip_size))) + 1)
+
     if direction == Direction.BUY:
-        stop_loss = round(price - sl_dist, 5)
-        take_profit = round(price + tp_dist, 5)
+        stop_loss = round(price - sl_dist, decimals)
+        take_profit = round(price + tp_dist, decimals)
     else:
-        stop_loss = round(price + sl_dist, 5)
-        take_profit = round(price - tp_dist, 5)
+        stop_loss = round(price + sl_dist, decimals)
+        take_profit = round(price - tp_dist, decimals)
 
     return stop_loss, take_profit
 
@@ -968,6 +974,7 @@ class TradingEngine:
                 entry_price, signal.direction, atr, self._settings,
                 sl_mult_override=sl_override,
                 tp_mult_override=tp_override,
+                pip_size=instrument_cfg.pip_size,
             )
             if param_source != "default":
                 cycle_log.info(
