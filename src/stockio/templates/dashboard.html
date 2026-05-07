@@ -1235,9 +1235,14 @@ async function refreshEngine() {
 const settingsKeys = ['min_confidence','risk_per_trade','stop_loss_atr_mult','take_profit_atr_mult','max_positions','daily_loss_limit','max_drawdown','max_margin_pct','cycle_seconds','sentiment_refresh_seconds'];
 let _loadedSettings = {};
 
-async function openSettings() {
-  const d = await fetchJSON('/api/settings');
-  const eng = await fetchJSON('/api/engine-status');
+let _settingsInstance = null;  // Which bot's settings are being edited
+
+async function openSettings(instance) {
+  _settingsInstance = instance || activeInstance;
+  const sep = '/api/settings?instance=' + _settingsInstance;
+  const sep2 = '/api/engine-status?instance=' + _settingsInstance;
+  const d = await fetchJSON(sep);
+  const eng = await fetchJSON(sep2);
   if (d) {
     _loadedSettings = { ...d };
     settingsKeys.forEach(k => {
@@ -1248,11 +1253,16 @@ async function openSettings() {
   // Load override toggle from engine status
   const cb = document.getElementById('set_disable_daily_limit');
   if (cb && eng) cb.checked = !!eng.disable_daily_limit;
+  // Show which bot's settings are being edited
+  const title = document.querySelector('#settingsModal .modal-title');
+  const displayName = _strategyDisplayNames[_settingsInstance] || _settingsInstance;
+  title.textContent = 'Settings — ' + displayName;
   document.getElementById('settingsModal').classList.add('open');
 }
 
 function closeSettings() {
   document.getElementById('settingsModal').classList.remove('open');
+  _settingsInstance = null;
 }
 
 async function saveSettings() {
@@ -1274,11 +1284,13 @@ async function saveSettings() {
   if (cb) {
     body.disable_daily_limit = cb.checked ? '1' : '';
   }
+  const inst = _settingsInstance || activeInstance;
+  const displayName = _strategyDisplayNames[inst] || inst;
   if (changes.length > 0) {
-    if (!confirm('Confirm settings changes:\n\n' + changes.join('\n'))) return;
+    if (!confirm('Settings changes for ' + displayName + ':\n\n' + changes.join('\n'))) return;
   }
   try {
-    const r = await fetch(api('/api/settings'), {
+    const r = await fetch('/api/settings?instance=' + inst, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -2313,9 +2325,10 @@ async function refreshLeaderboard() {
       <td class="num">${s.total_trades || 0}</td>
       <td class="num">${winRateHtml}</td>
       <td class="num">${s.open_positions}</td>
-      <td style="display:flex;gap:4px">
+      <td style="display:flex;gap:4px;align-items:center">
         <button class="strategy-btn ${btnCls}" onclick="toggleStrategy('${escHtml(s.name)}')">${btnLabel}</button>
         ${s.open_positions > 0 ? '<button class="strategy-btn" style="border-color:var(--red);color:var(--red)" onclick="closeAllStrategy(\'' + escHtml(s.name) + '\')">Close</button>' : ''}
+        <button class="gear-btn" style="font-size:1rem;padding:2px 4px" onclick="openSettings('${escHtml(s.name)}')" title="Settings for ${escHtml(_strategyDisplayNames[s.name] || s.name)}">&#9881;</button>
       </td>
     </tr>`;
   }).join('');
