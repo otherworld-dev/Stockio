@@ -213,31 +213,41 @@ def score_momentum(instrument: str, features: dict[str, float],
 # ---------------------------------------------------------------------------
 
 _LLM_SCORING_PROMPT = """\
-You are a forex trader. Based on the data below, decide whether to BUY, SELL, \
-or HOLD each instrument, and your confidence level (0.0-1.0).
+You are a disciplined forex trader managing a £1,000 account. Your goal is \
+capital preservation first, profits second. You have been losing money by \
+trading too often with weak signals. From now on, be extremely selective.
 
-Instrument data:
+## Indicator Guide
+- RSI < 30 = oversold (potential BUY), RSI > 70 = overbought (potential SELL)
+- RSI 40-60 = neutral — no trade unless other signals are very strong
+- ADX > 25 = strong trend (trade WITH it), ADX < 20 = weak/ranging (avoid)
+- MACD > 0 = bullish momentum, MACD < 0 = bearish momentum
+- BB%B < 0.2 = near lower band (oversold), BB%B > 0.8 = near upper band (overbought)
+- EMA_cross > 0 = short-term uptrend, < 0 = short-term downtrend
+- trend_vs_ema > 0 = price above long EMA (uptrend), < 0 = below (downtrend)
+- Sentiment: positive = bullish news, negative = bearish news
+
+## Current Market Data
 {instrument_data}
 
-For each instrument, consider:
-- Technical indicators (RSI, MACD, ADX, EMA alignment, Bollinger Bands)
-- News sentiment scores
-- Whether the trend supports the trade
-- Risk (don't trade everything at once — pick only the best setups)
+## Rules (MUST follow)
+1. HOLD everything unless you see 3+ indicators aligned in the same direction
+2. Never trade against a strong trend (ADX > 25 + clear EMA direction)
+3. Maximum 1-2 BUY/SELL recommendations per cycle — HOLD everything else
+4. Confidence must reflect conviction: 0.7+ = strong setup, 0.5-0.7 = moderate
+5. If in doubt, HOLD. Missing a trade costs nothing; a bad trade costs money
+6. Avoid instruments with RSI 40-60 AND ADX < 20 (no signal, no trend)
 
 Return a JSON object mapping instrument names to decisions:
 ```json
 {{
-  "EUR_USD": {{"direction": "SELL", "confidence": 0.65, "reason": "brief reason"}},
-  "GBP_USD": {{"direction": "HOLD", "confidence": 0.0, "reason": "no clear signal"}},
+  "EUR_USD": {{"direction": "HOLD", "confidence": 0.0, "reason": "no clear setup"}},
+  "GBP_USD": {{"direction": "SELL", "confidence": 0.75, "reason": "RSI 72 + bearish MACD + ADX 30"}},
   ...
 }}
 ```
 
-Be VERY selective — only recommend BUY or SELL for your top 2-3 highest conviction \
-setups. HOLD everything else. If confidence would be below 0.4, use HOLD instead.
-Quality over quantity: fewer trades with high conviction beats many weak trades.
-HOLD is always a valid choice. Return ONLY the JSON, no other text."""
+Return ONLY the JSON, no other text."""
 
 
 class LLMScorer:
