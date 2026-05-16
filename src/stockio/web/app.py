@@ -322,12 +322,27 @@ def api_settings():
             "min_confidence", "risk_per_trade", "stop_loss_atr_mult",
             "take_profit_atr_mult", "max_positions", "daily_loss_limit",
             "max_drawdown", "max_margin_pct", "cycle_seconds",
-            "sentiment_refresh_seconds", "disable_daily_limit",
+            "sentiment_refresh_seconds", "disable_daily_limit", "granularity",
         }
         data = request.get_json(silent=True) or {}
         for key, value in data.items():
             if key in allowed:
                 db.set_setting(key, str(value))
+
+        # Sync settings to all strategy bot DBs so they use the same values
+        settings = load_settings()
+        for slot_name in LEADERBOARD_SLOTS:
+            try:
+                db.set_active_db(settings.get_db_path(slot_name))
+                for key, value in data.items():
+                    if key in allowed:
+                        db.set_setting(key, str(value))
+            except Exception:
+                pass
+        # Restore DB to the request's instance
+        instance = request.args.get("instance", "paper")
+        db.set_active_db(settings.get_db_path(instance))
+
         return jsonify({"ok": True})
 
 

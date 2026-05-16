@@ -1204,14 +1204,21 @@ class TradingEngine:
                     instruments=list(optimized.keys()),
                 )
 
+    @property
+    def _granularity(self) -> str:
+        """Read granularity from DB override or config default."""
+        saved = db.get_setting("granularity")
+        return saved if saved else self._settings.granularity
+
     def _update_candles(self, instrument: str) -> None:
         """Fetch and cache candles for a single instrument."""
         cache = self._candle_cache[instrument]
+        gran = self._granularity
 
         if instrument not in self._warmed_up:
             candles = self._broker.get_candles(
                 instrument=instrument,
-                granularity=self._settings.granularity,
+                granularity=gran,
                 count=self._settings.lookback_bars,
             )
             cache.clear()
@@ -1222,7 +1229,7 @@ class TradingEngine:
         else:
             candles = self._broker.get_candles(
                 instrument=instrument,
-                granularity=self._settings.granularity,
+                granularity=gran,
                 count=5,
             )
             if cache:
