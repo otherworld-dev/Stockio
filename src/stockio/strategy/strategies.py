@@ -209,7 +209,38 @@ def score_momentum(instrument: str, features: dict[str, float],
 
 
 # ---------------------------------------------------------------------------
-# Strategy 4: LLM-Only (Claude decides everything)
+# Strategy 4: Consensus (2+ strategies must agree)
+# ---------------------------------------------------------------------------
+
+def score_consensus(instrument: str, features: dict[str, float],
+                    sentiment: float) -> Signal:
+    """Only trade when 2+ strategies independently agree on direction.
+
+    Runs trend, meanrev, and momentum scorers on the same data.
+    BUY/SELL only if 2+ agree with confidence above a minimum threshold.
+    Returns the average confidence of agreeing strategies.
+    """
+    signals = [
+        score_trend(instrument, features, sentiment),
+        score_meanrev(instrument, features, sentiment),
+        score_momentum(instrument, features, sentiment),
+    ]
+
+    buys = [s for s in signals if s.direction == Direction.BUY and s.confidence > 0.15]
+    sells = [s for s in signals if s.direction == Direction.SELL and s.confidence > 0.15]
+
+    if len(buys) >= 2:
+        avg_conf = sum(s.confidence for s in buys) / len(buys)
+        return _make_signal(instrument, Direction.BUY, avg_conf, features)
+    elif len(sells) >= 2:
+        avg_conf = sum(s.confidence for s in sells) / len(sells)
+        return _make_signal(instrument, Direction.SELL, avg_conf, features)
+    else:
+        return _make_signal(instrument, Direction.HOLD, 0, features)
+
+
+# ---------------------------------------------------------------------------
+# Strategy 5: LLM-Only (Claude decides everything)
 # ---------------------------------------------------------------------------
 
 _LLM_SCORING_PROMPT = """\
@@ -354,5 +385,6 @@ STRATEGIES: dict[str, StrategyFn] = {
     "trend": score_trend,
     "meanrev": score_meanrev,
     "momentum": score_momentum,
+    "consensus": score_consensus,
     # "llm" is handled separately via LLMScorer (batch scoring)
 }
