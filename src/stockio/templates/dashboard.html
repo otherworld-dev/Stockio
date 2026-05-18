@@ -550,6 +550,33 @@
     </div>
   </div>
 
+  <!-- Live Portfolio Cards -->
+  <div class="cards" id="liveCards" style="display:none">
+    <div class="card">
+      <div class="card-label">Balance</div>
+      <div class="card-value" id="liveBalance">--</div>
+      <div class="card-sub" id="liveBalanceSub"></div>
+    </div>
+    <div class="card">
+      <div class="card-label">Equity</div>
+      <div class="card-value" id="liveEquity">--</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Unrealized P&amp;L</div>
+      <div class="card-value" id="livePnl">--</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Open Positions</div>
+      <div class="card-value" id="livePositions">--</div>
+    </div>
+  </div>
+
+  <!-- Live Comparison + Session P&L -->
+  <div id="liveComparison" style="display:none;padding:8px 20px;background:var(--card);border:1px solid var(--card-border);border-radius:10px;margin-bottom:16px;font-size:0.82rem;display:none">
+    <span id="liveVsPaper" style="margin-right:20px"></span>
+    <span id="liveSession" style="color:var(--text-dim)"></span>
+  </div>
+
   <!-- Strategy Competition Leaderboard -->
   <div class="panel leaderboard-hero" id="leaderboardPanel">
     <div class="panel-title" style="display:flex;align-items:center">
@@ -864,6 +891,20 @@ function switchInstance(name) {
   const isLive = name === 'live';
   document.getElementById('leaderboardPanel').style.display = isLive ? 'none' : '';
   document.getElementById('liveStrategyPanel').style.display = isLive ? '' : 'none';
+  document.getElementById('liveCards').style.display = isLive ? '' : 'none';
+  document.getElementById('liveComparison').style.display = isLive ? '' : 'none';
+
+  // Reset session tracking on tab switch
+  if (isLive) {
+    _liveSessionStartEquity = null;
+    _liveInitialBalance = null;
+    // Request notification permission
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  } else {
+    document.title = 'Stockio Dashboard';
+  }
 
   refreshAll();
 }
@@ -1787,6 +1828,29 @@ function refreshAlertBanner() {
   }
 }
 
+function playTradeSound() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.frequency.value = 800;
+    gain.gain.value = 0.3;
+    osc.start();
+    osc.stop(ctx.currentTime + 0.15);
+  } catch (e) { /* Audio not available */ }
+}
+
+function sendTradeNotification(text) {
+  if (!('Notification' in window)) return;
+  if (Notification.permission === 'granted') {
+    new Notification('Stockio Live', { body: text, icon: '' });
+  } else if (Notification.permission !== 'denied') {
+    Notification.requestPermission();
+  }
+}
+
 function showBanner(text, type) {
   const banner = document.getElementById('alertBanner');
   banner.textContent = text;
@@ -1795,6 +1859,12 @@ function showBanner(text, type) {
   _alertTimeout = setTimeout(() => {
     banner.classList.remove('visible');
   }, 30000);
+
+  // Sound + browser notification for live trades
+  if (activeInstance === 'live' && type === 'trade') {
+    playTradeSound();
+    sendTradeNotification(text);
+  }
 }
 
 /* ── Market hours ── */
@@ -2292,6 +2362,80 @@ async function refreshDailyStats() {
   }
 }
 
+/* ── Live Portfolio Cards ── */
+let _liveSessionStartEquity = null;
+let _liveInitialBalance = null;
+
+async function refreshLiveCards() {
+  if (activeInstance !== 'live') {
+    document.title = 'Stockio Dashboard';
+    return;
+  }
+  const [status, stratInfo] = await Promise.all([
+    fetchJSON('/api/status'),
+    fetchJSON('/api/live-strategy'),
+  ]);
+
+  if (!status) return;
+  const cur = status.currency || '';
+
+  // Portfolio cards
+  document.getElementById('liveBalance').textContent = fmt(status.balance) + ' ' + cur;
+  const eqEl = document.getElementById('liveEquity');
+  eqEl.textContent = fmt(status.equity) + ' ' + cur;
+
+  const pnlEl = document.getElementById('livePnl');
+  const pnl = status.unrealized_pnl || 0;
+  pnlEl.textContent = (pnl >= 0 ? '+' : '') + fmt(pnl) + ' ' + cur;
+  pnlEl.className = 'card-value ' + pnlClass(pnl);
+
+  document.getElementById('livePositions').textContent = status.open_positions != null ? status.open_positions : '--';
+
+  // Balance return %
+  const balSub = document.getElementById('liveBalanceSub');
+  if (_liveInitialBalance == null && status.balance > 0) _liveInitialBalance = status.balance;
+  if (_liveInitialBalance && status.equity) {
+    const retPct = ((status.equity - _liveInitialBalance) / _liveInitialBalance) * 100;
+    balSub.textContent = (retPct >= 0 ? '+' : '') + retPct.toFixed(2) + '% overall';
+    balSub.className = 'card-sub ' + (retPct >= 0 ? 'positive' : 'negative');
+  }
+
+  // Session P&L tracking
+  if (_liveSessionStartEquity == null && status.equity > 0) {
+    _liveSessionStartEquity = status.equity;
+  }
+  const sessionEl = document.getElementById('liveSession');
+  if (_liveSessionStartEquity != null && status.equity > 0) {
+    const sessionPnl = status.equity - _liveSessionStartEquity;
+    sessionEl.innerHTML = 'Session: <span style="color:' + (sessionPnl >= 0 ? 'var(--green)' : 'var(--red)') +
+      ';font-family:var(--mono);font-weight:600">' + (sessionPnl >= 0 ? '+' : '') + fmt(sessionPnl) + '</span>';
+  }
+
+  // Live vs Paper comparison
+  const compEl = document.getElementById('liveVsPaper');
+  if (stratInfo && stratInfo.best_paper && stratInfo.best_paper.equity > 0 && status.equity > 0) {
+    const paperEq = stratInfo.best_paper.equity;
+    const paperSlot = stratInfo.best_paper.slot || '?';
+    const paperName = _strategyDisplayNames[paperSlot] || paperSlot;
+    const liveRet = (((status.equity - 1000) / 1000) * 100).toFixed(1);
+    const paperRet = (((paperEq - 1000) / 1000) * 100).toFixed(1);
+    const liveColor = liveRet >= 0 ? 'var(--green)' : 'var(--red)';
+    const paperColor = paperRet >= 0 ? 'var(--green)' : 'var(--red)';
+    compEl.innerHTML = 'Live: <span style="color:' + liveColor + ';font-family:var(--mono);font-weight:600">' +
+      fmt(status.equity) + ' (' + (liveRet >= 0 ? '+' : '') + liveRet + '%)</span>' +
+      ' vs ' + escHtml(paperName) + ': <span style="color:' + paperColor + ';font-family:var(--mono);font-weight:600">' +
+      fmt(paperEq) + ' (' + (paperRet >= 0 ? '+' : '') + paperRet + '%)</span>';
+  }
+
+  // Tab title with P&L
+  if (status.equity > 0 && _liveInitialBalance) {
+    const totalPnl = status.equity - _liveInitialBalance;
+    document.title = 'Stockio ' + (totalPnl >= 0 ? '+' : '') + fmt(totalPnl);
+  } else {
+    document.title = 'Stockio Live';
+  }
+}
+
 /* ── Live Strategy Indicator ── */
 async function refreshLiveStrategy() {
   if (activeInstance !== 'live') return;
@@ -2430,6 +2574,7 @@ function refreshAll() {
   refreshLLMAdvisor();
   refreshLeaderboard();
   refreshLiveStrategy();
+  refreshLiveCards();
   refreshDailyStats();
   // Summary, alerts, and derived displays depend on cached data.
   setTimeout(() => {
