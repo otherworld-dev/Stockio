@@ -13,6 +13,7 @@ from stockio.config import load_settings
 from stockio.web.bot_manager import (
     LEADERBOARD_SLOTS,
     STRATEGY_SLOTS,
+    get_best_paper_strategy_display,
     get_slot,
     get_slots,
     init_slots,
@@ -779,7 +780,18 @@ def api_trade_outcomes():
 def api_snapshots_all_strategies():
     """Equity snapshots for all strategy accounts, for the multi-line chart."""
     limit = request.args.get("limit", 500, type=int)
+    instance = request.args.get("instance", "paper")
     settings = load_settings()
+
+    # Live mode: only show live equity
+    if instance == "live":
+        db.set_active_db(settings.get_db_path("live"))
+        snapshots = db.get_snapshots(limit=limit)
+        return jsonify({"live": [
+            {"timestamp": s["timestamp"], "equity": s["equity"]}
+            for s in snapshots
+        ]})
+
     result = {}
     for name in LEADERBOARD_SLOTS:
         try:
@@ -791,8 +803,6 @@ def api_snapshots_all_strategies():
             ]
         except Exception:
             result[name] = []
-    # Restore DB to request instance
-    instance = request.args.get("instance", "paper")
     db.set_active_db(settings.get_db_path(instance))
     return jsonify(result)
 
@@ -801,7 +811,17 @@ def api_snapshots_all_strategies():
 def api_trades_all_strategies():
     """Trade history aggregated from all strategy accounts."""
     limit = request.args.get("limit", 50, type=int)
+    instance = request.args.get("instance", "paper")
     settings = load_settings()
+
+    # Live mode: only show live trades
+    if instance == "live":
+        db.set_active_db(settings.get_db_path("live"))
+        trades = db.get_trade_history(limit=limit)
+        for t in trades:
+            t["strategy"] = "live"
+        return jsonify(trades)
+
     all_trades = []
     for name in LEADERBOARD_SLOTS:
         try:
@@ -812,10 +832,7 @@ def api_trades_all_strategies():
             all_trades.extend(trades)
         except Exception:
             pass
-    # Sort by timestamp descending, take top N
     all_trades.sort(key=lambda t: t.get("timestamp", ""), reverse=True)
-    # Restore DB
-    instance = request.args.get("instance", "paper")
     db.set_active_db(settings.get_db_path(instance))
     return jsonify(all_trades[:limit])
 
@@ -823,7 +840,27 @@ def api_trades_all_strategies():
 @app.route("/api/trade-outcomes/all-strategies")
 def api_trade_outcomes_all_strategies():
     """Trade outcome stats aggregated from all strategy accounts."""
+    instance = request.args.get("instance", "paper")
     settings = load_settings()
+
+    # Live mode: only show live outcomes
+    if instance == "live":
+        db.set_active_db(settings.get_db_path("live"))
+        pnl = db.get_pnl_summary()
+        wins = sum(i["wins"] for i in pnl.get("instruments", {}).values())
+        losses = sum(i["losses"] for i in pnl.get("instruments", {}).values())
+        total = wins + losses
+        return jsonify({
+            "strategies": {"live": {
+                "total": total, "wins": wins, "losses": losses,
+                "win_ratio": round(wins / total, 3) if total > 0 else None,
+            }},
+            "combined": {
+                "total": total, "wins": wins, "losses": losses,
+                "win_ratio": round(wins / total, 3) if total > 0 else None,
+            },
+        })
+
     result = {"strategies": {}, "combined": {
         "total": 0, "wins": 0, "losses": 0, "win_ratio": None,
     }}
@@ -859,8 +896,23 @@ def api_trade_outcomes_all_strategies():
 @app.route("/api/pnl/all-strategies")
 def api_pnl_all_strategies():
     """P&L by instrument across all strategy accounts."""
+    instance = request.args.get("instance", "paper")
     settings = load_settings()
-    result = {}  # {strategy: {instrument: {trades, wins, losses, total_pnl}}}
+
+    # Live mode: only show live P&L
+    if instance == "live":
+        db.set_active_db(settings.get_db_path("live"))
+        pnl = db.get_pnl_summary()
+        live_data = {}
+        for inst, data in pnl.get("instruments", {}).items():
+            if data.get("closed", 0) > 0:
+                live_data[inst] = {
+                    "closed": data["closed"], "wins": data["wins"],
+                    "losses": data["losses"], "total_pnl": data["total_pnl"],
+                }
+        return jsonify({"live": live_data})
+
+    result = {}
     for name in LEADERBOARD_SLOTS:
         try:
             db.set_active_db(settings.get_db_path(name))
@@ -888,6 +940,7 @@ def api_daily_stats():
     """Today's aggregate stats across all strategy accounts."""
     from datetime import UTC, datetime
 
+    instance = request.args.get("instance", "paper")
     settings = load_settings()
     today = datetime.now(UTC).strftime("%Y-%m-%d")
     total_trades = 0
@@ -896,7 +949,10 @@ def api_daily_stats():
     total_pnl = 0.0
     by_strategy = {}
 
-    for name in LEADERBOARD_SLOTS:
+    # Live mode: only query live DB
+    slots_to_query = ["live"] if instance == "live" else LEADERBOARD_SLOTS
+
+    for name in slots_to_query:
         try:
             db.set_active_db(settings.get_db_path(name))
             trades = db.get_trade_history(limit=200)
@@ -971,6 +1027,20 @@ def api_shadow_outcomes():
             "would_have_lost": would_have_lost,
             "veto_accuracy": round(would_have_lost / total, 3) if total > 0 else None,
         },
+    })
+
+
+@app.route("/api/live-strategy")
+def api_live_strategy():
+    """Return which strategy the live bot is using."""
+    slot = get_slot("live")
+    best = get_best_paper_strategy_display()
+    return jsonify({
+        "running": slot.running if slot else False,
+        "active_strategy": (
+            slot.last_account.get("active_strategy") if slot and slot.last_account else None
+        ),
+        "best_paper": best,
     })
 
 

@@ -86,6 +86,45 @@ def get_slots() -> dict[str, BotSlot]:
     return _slots
 
 
+def get_best_paper_strategy() -> str | None:
+    """Return the strategy name of the best-performing paper bot by equity."""
+    best_equity = 0
+    best_name = None
+    for name in STRATEGY_SLOTS:
+        slot = _slots.get(name)
+        if slot and slot.last_account:
+            equity = slot.last_account.get("equity", 0)
+            if equity > best_equity:
+                best_equity = equity
+                best_name = name
+    if not best_name:
+        return None
+    # Map slot names to actual strategy names (e.g. trend → consensus)
+    _STRATEGY_OVERRIDE = {"trend": "consensus"}
+    return _STRATEGY_OVERRIDE.get(best_name, best_name)
+
+
+def get_best_paper_strategy_display() -> dict:
+    """Return info about the best paper strategy for dashboard display."""
+    best_equity = 0
+    best_name = None
+    for name in STRATEGY_SLOTS:
+        slot = _slots.get(name)
+        if slot and slot.last_account:
+            equity = slot.last_account.get("equity", 0)
+            if equity > best_equity:
+                best_equity = equity
+                best_name = name
+    if not best_name:
+        return {"slot": None, "strategy": None, "equity": 0}
+    _STRATEGY_OVERRIDE = {"trend": "consensus"}
+    return {
+        "slot": best_name,
+        "strategy": _STRATEGY_OVERRIDE.get(best_name, best_name),
+        "equity": best_equity,
+    }
+
+
 def get_slot(name: str) -> BotSlot | None:
     return _slots.get(name)
 
@@ -233,6 +272,14 @@ def _run_bot(slot: BotSlot, generation: int) -> None:
         if strategy:
             strategy = _STRATEGY_OVERRIDE.get(strategy, strategy)
 
+        # Live bot: auto-select the best-performing paper strategy
+        if slot.name == "live":
+            best = get_best_paper_strategy()
+            if best:
+                strategy = best
+                log.info("live_auto_strategy", strategy=best)
+            is_strategy = True  # Treat live like a strategy bot for sentiment sharing
+
         # Strategy bots reuse the paper bot's sentiment analyzer to avoid
         # duplicate API calls. Only non-strategy bots create their own.
         if is_strategy:
@@ -315,6 +362,17 @@ def _run_bot(slot: BotSlot, generation: int) -> None:
                 if slot.shutdown_event.is_set():
                     break
 
+                # Live bot: re-check best strategy each cycle
+                if slot.name == "live":
+                    best = get_best_paper_strategy()
+                    if best and best != engine._strategy:
+                        log.info(
+                            "live_strategy_switched",
+                            old=engine._strategy,
+                            new=best,
+                        )
+                        engine._strategy = best
+
                 engine.run_cycle()
                 engine.maybe_daily_summary()
 
@@ -328,6 +386,7 @@ def _run_bot(slot: BotSlot, generation: int) -> None:
                         "unrealized_pnl": round(acct.unrealized_pnl, 2),
                         "open_positions": acct.open_position_count,
                         "currency": getattr(acct, "currency", ""),
+                        "active_strategy": engine._strategy,
                     }
                 except Exception:
                     pass  # Keep last cached value
