@@ -240,7 +240,49 @@ def score_consensus(instrument: str, features: dict[str, float],
 
 
 # ---------------------------------------------------------------------------
-# Strategy 5: LLM-Only (Claude decides everything)
+# Strategy 5: Contrarian (bet against LLM)
+# ---------------------------------------------------------------------------
+
+def score_contrarian(instrument: str, features: dict[str, float],
+                     sentiment: float) -> Signal:
+    """Bet against the LLM's decisions.
+
+    Reads the LLM bot's last decisions and flips BUY→SELL, SELL→BUY.
+    If LLM has a 30% win rate, the contrarian should theoretically
+    win ~70% (minus spread/timing differences).
+    Falls back to HOLD if no LLM data available.
+    """
+    # Import here to avoid circular imports
+    from stockio.web.bot_manager import get_slot
+
+    llm_slot = get_slot("llm")
+    if not llm_slot or not llm_slot.engine:
+        return _make_signal(instrument, Direction.HOLD, 0, features)
+
+    llm_scorer = llm_slot.engine._llm_scorer
+    if not llm_scorer or not llm_scorer.last_decisions:
+        return _make_signal(instrument, Direction.HOLD, 0, features)
+
+    decision = llm_scorer.last_decisions.get(instrument)
+    if not decision:
+        return _make_signal(instrument, Direction.HOLD, 0, features)
+
+    dir_str = decision.get("direction", "HOLD").upper()
+    conf = float(decision.get("confidence", 0))
+
+    # Flip the direction
+    if dir_str == "BUY":
+        direction = Direction.SELL
+    elif dir_str == "SELL":
+        direction = Direction.BUY
+    else:
+        return _make_signal(instrument, Direction.HOLD, 0, features)
+
+    return _make_signal(instrument, direction, conf, features)
+
+
+# ---------------------------------------------------------------------------
+# Strategy 6: LLM-Only (Claude decides everything)
 # ---------------------------------------------------------------------------
 
 _LLM_SCORING_PROMPT = """\
@@ -386,5 +428,6 @@ STRATEGIES: dict[str, StrategyFn] = {
     "meanrev": score_meanrev,
     "momentum": score_momentum,
     "consensus": score_consensus,
+    "contrarian": score_contrarian,
     # "llm" is handled separately via LLMScorer (batch scoring)
 }

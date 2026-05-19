@@ -267,8 +267,8 @@ def _run_bot(slot: BotSlot, generation: int) -> None:
         is_strategy = slot.name in STRATEGY_SLOTS
         strategy = slot.name if is_strategy else None
 
-        # Strategy override: trend slot uses consensus strategy
-        _STRATEGY_OVERRIDE = {"trend": "consensus"}
+        # Strategy overrides: remap slots to different strategies
+        _STRATEGY_OVERRIDE = {"trend": "consensus", "momentum": "contrarian"}
         if strategy:
             strategy = _STRATEGY_OVERRIDE.get(strategy, strategy)
 
