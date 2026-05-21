@@ -243,42 +243,29 @@ def score_consensus(instrument: str, features: dict[str, float],
 # Strategy 5: Contrarian (bet against LLM)
 # ---------------------------------------------------------------------------
 
-def score_contrarian(instrument: str, features: dict[str, float],
-                     sentiment: float) -> Signal:
-    """Bet against the LLM's decisions.
+def score_best_signal(instrument: str, features: dict[str, float],
+                      sentiment: float) -> Signal:
+    """Pick the single highest-confidence signal from all rule-based strategies.
 
-    Reads the LLM bot's last decisions and flips BUY→SELL, SELL→BUY.
-    If LLM has a 30% win rate, the contrarian should theoretically
-    win ~70% (minus spread/timing differences).
-    Falls back to HOLD if no LLM data available.
+    Runs trend, meanrev, and momentum independently. Returns whichever
+    has the strongest conviction. More aggressive than consensus (which
+    requires 2+ to agree) but still benefits from comparing multiple views.
     """
-    # Import here to avoid circular imports
-    from stockio.web.bot_manager import get_slot
+    signals = [
+        score_trend(instrument, features, sentiment),
+        score_meanrev(instrument, features, sentiment),
+        score_momentum(instrument, features, sentiment),
+    ]
 
-    llm_slot = get_slot("llm")
-    if not llm_slot or not llm_slot.engine:
+    # Filter to non-HOLD signals with meaningful confidence
+    active = [s for s in signals if s.direction != Direction.HOLD and s.confidence > 0.2]
+
+    if not active:
         return _make_signal(instrument, Direction.HOLD, 0, features)
 
-    llm_scorer = llm_slot.engine._llm_scorer
-    if not llm_scorer or not llm_scorer.last_decisions:
-        return _make_signal(instrument, Direction.HOLD, 0, features)
-
-    decision = llm_scorer.last_decisions.get(instrument)
-    if not decision:
-        return _make_signal(instrument, Direction.HOLD, 0, features)
-
-    dir_str = decision.get("direction", "HOLD").upper()
-    conf = float(decision.get("confidence", 0))
-
-    # Flip the direction
-    if dir_str == "BUY":
-        direction = Direction.SELL
-    elif dir_str == "SELL":
-        direction = Direction.BUY
-    else:
-        return _make_signal(instrument, Direction.HOLD, 0, features)
-
-    return _make_signal(instrument, direction, conf, features)
+    # Return the highest confidence signal
+    best = max(active, key=lambda s: s.confidence)
+    return _make_signal(instrument, best.direction, best.confidence, features)
 
 
 # ---------------------------------------------------------------------------
@@ -428,6 +415,6 @@ STRATEGIES: dict[str, StrategyFn] = {
     "meanrev": score_meanrev,
     "momentum": score_momentum,
     "consensus": score_consensus,
-    "contrarian": score_contrarian,
+    "best_signal": score_best_signal,
     # "llm" is handled separately via LLMScorer (batch scoring)
 }
