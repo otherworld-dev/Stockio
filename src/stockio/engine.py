@@ -1096,6 +1096,12 @@ class TradingEngine:
         if atr <= 0:
             return
 
+        # Derive decimal precision from instrument pip_size
+        import math
+        instrument_cfg = self._instruments.get(instrument)
+        pip_size = instrument_cfg.pip_size if instrument_cfg else 0.0001
+        decimals = max(0, -int(math.floor(math.log10(pip_size))) + 1)
+
         # Get current price from position's unrealized P&L direction
         try:
             quote = self._broker.get_price(instrument)
@@ -1113,14 +1119,14 @@ class TradingEngine:
             if best - entry_price < atr:
                 return
             # New SL: trail 1x ATR behind best price
-            new_sl = round(best - atr, 5)
+            new_sl = round(best - atr, decimals)
         else:  # SELL
             if best is None or mid < best:
                 self._trailing_best[trade_id] = mid
                 best = mid
             if entry_price - best < atr:
                 return
-            new_sl = round(best + atr, 5)
+            new_sl = round(best + atr, decimals)
 
         # Only update if the new SL is better (tighter) than current
         if direction == "BUY" and new_sl <= current_sl:
