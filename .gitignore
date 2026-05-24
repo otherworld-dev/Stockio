@@ -41,5 +41,7 @@ Thumbs.db
 # Jupyter
 .ipynb_checkpoints/
 
-# Claude
+# Claude Code
 .claude/
+CLAUDE.md
+.claudeignore
