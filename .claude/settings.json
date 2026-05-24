@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s \"http://192.168.0.19:5000/api/leaderboard\")",
+      "Bash(python -m json.tool)",
+      "Bash(curl -s \"http://192.168.0.19:5000/api/daily-stats\")",
+      "Bash(curl -s -X POST 'http://192.168.0.19:5000/api/settings?instance=meanrev' -H 'Content-Type: application/json' -d '{\"risk_per_trade\": 0.03}')",
+      "Bash(curl -s -X POST 'http://192.168.0.19:5000/api/settings?instance=trend' -H 'Content-Type: application/json' -d '{\"risk_per_trade\": 0.02}')",
+      "Bash(curl -s -X POST 'http://192.168.0.19:5000/api/settings?instance=momentum' -H 'Content-Type: application/json' -d '{\"risk_per_trade\": 0.01}')",
+      "Bash(curl -s -X POST 'http://192.168.0.19:5000/api/settings?instance=paper' -H 'Content-Type: application/json' -d '{\"risk_per_trade\": 0.01}')",
+      "Bash(curl -s -X POST 'http://192.168.0.19:5000/api/settings?instance=llm' -H 'Content-Type: application/json' -d '{\"risk_per_trade\": 0.01}')",
+      "Bash(curl -s \"http://stock.server:5000/api/leaderboard\")",
+      "Bash(curl -s \"http://stock.server:5000/api/daily-stats\")",
+      "Bash(curl -s \"http://stock.server:5000/api/trade-outcomes/all-strategies\")"
+    ]
+  }
+}
