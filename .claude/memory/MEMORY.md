@@ -1,0 +1,4 @@
+- [Stockio rebuild context](project_stockio_rebuild.md) — Hybrid LightGBM + Claude Haiku trading bot, collapsing 9 modules to 4
+- [User trading experience](user_trading_experience.md) — New to trading, experienced developer, prefers planning
+- [Deploy process](feedback_deploy_process.md) — Always use `git pull && sudo bash scripts/deploy/update.sh`, never copy files manually
+- [Strategy competition next steps](project_strategy_competition_next.md) — After collecting trade data, use results to improve trading
