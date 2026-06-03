@@ -11,7 +11,8 @@
       "Bash(curl -s -X POST 'http://192.168.0.19:5000/api/settings?instance=llm' -H 'Content-Type: application/json' -d '{\"risk_per_trade\": 0.01}')",
       "Bash(curl -s \"http://stock.server:5000/api/leaderboard\")",
       "Bash(curl -s \"http://stock.server:5000/api/daily-stats\")",
-      "Bash(curl -s \"http://stock.server:5000/api/trade-outcomes/all-strategies\")"
+      "Bash(curl -s \"http://stock.server:5000/api/trade-outcomes/all-strategies\")",
+      "Bash(curl -s \"http://stock.server:5000/api/instances\")"
     ]
   }
 }
