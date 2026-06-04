@@ -1,0 +1,252 @@
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\correlation.py-43-) -> list[Signal]:
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\correlation.py-44-    """Filter out signals that would duplicate exposure to already-taken positions.
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\correlation.py-45-
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\correlation.py:46:    Takes the ranked signal list (highest confidence first) and removes signals
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\correlation.py-47-    that are highly correlated with a higher-ranked signal or an open position.
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\correlation.py-48-    """
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\correlation.py-49-    accepted: list[Signal] = []
+--
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\llm_advisor.py-118-        Args:
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\llm_advisor.py-119-            features_by_instrument: {instrument: {rsi_14, adx, macd_histogram, ...}}
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\llm_advisor.py-120-            sentiment_by_instrument: {instrument: float}
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\llm_advisor.py:121:            pending_signals: [{instrument, direction, confidence}, ...] above threshold
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\llm_advisor.py-122-            recent_trades: last 10 closed trades from DB
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\llm_advisor.py-123-            shadow_outcomes: recently resolved vetoed trades showing what would have happened
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\llm_advisor.py-124-        """
+--
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\llm_advisor.py-170-        signal_lines = []
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\llm_advisor.py-171-        for s in pending_signals:
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\llm_advisor.py-172-            signal_lines.append(
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\llm_advisor.py:173:                f"{s['instrument']} {s['direction']} conf={s['confidence']:.1%}"
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\llm_advisor.py-174-            )
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\llm_advisor.py-175-
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\llm_advisor.py-176-        # Build shadow feedback (how previous vetoes turned out)
+--
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\llm_advisor.py-182-                result = "would have HIT TP (missed profit)" if s.get("would_have_won") else "would have HIT SL (correct veto)"
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\llm_advisor.py-183-                shadow_lines.append(
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\llm_advisor.py-184-                    f"- {s.get('veto_reason', 'vetoed')}: {s.get('instrument', '?')} "
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\llm_advisor.py:185:                    f"{s.get('direction', '?')} conf={s.get('confidence', 0):.1%} → {result}"
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\llm_advisor.py-186-                )
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\llm_advisor.py-187-            if shadow_outcomes:
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\llm_advisor.py-188-                accuracy = losses / len(shadow_outcomes) if shadow_outcomes else 0
+--
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\optimizer.py-272-                    "take_profit": t.get("take_profit"),
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\optimizer.py-273-                    "price": t["price"],
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\optimizer.py-274-                    "units": t["units"],
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\optimizer.py:275:                    "confidence": t.get("confidence", 0),
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\optimizer.py-276-                })
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\optimizer.py-277-
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\optimizer.py-278-        if len(all_trades) < L3_MIN_TOTAL_TRADES:
+--
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\notifier.py-35-            log.exception("telegram_send_failed")
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\notifier.py-36-
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\notifier.py-37-    def notify_trade(self, order: OrderRequest, trade_id: str) -> None:
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\notifier.py:38:        conf = f"{order.signal_confidence:.1%}" if order.signal_confidence is not None else "N/A"
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\notifier.py-39-        self._send(
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\notifier.py-40-            f"*Trade Executed*\n"
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\notifier.py-41-            f"Instrument: `{order.instrument}`\n"
+--
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-62-    instrument: str
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-63-    features: dict[str, float]
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-64-    direction: Direction
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py:65:    confidence: float
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-66-    entry_price: float
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-67-    atr: float
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-68-    timestamp: datetime
+--
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-77-
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-78-    instrument: str
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-79-    direction: Direction
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py:80:    confidence: float
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-81-    entry_price: float
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-82-    atr: float
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-83-    timestamp: datetime
+--
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-160-                        instrument=o["instrument"],
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-161-                        features=o.get("features", {}),
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-162-                        direction=Direction(o["direction"]),
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py:163:                        confidence=o["confidence"],
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-164-                        entry_price=o["entry_price"],
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-165-                        atr=o["atr"],
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-166-                        timestamp=ts,
+--
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-205-                {
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-206-                    "instrument": p.instrument,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-207-                    "direction": p.direction.value,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py:208:                    "confidence": p.confidence,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-209-                    "entry_price": p.entry_price,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-210-                    "atr": p.atr,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-211-                    "features": p.features,
+--
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-225-        instrument: str,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-226-        features: dict[str, float],
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-227-        direction: Direction,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py:228:        confidence: float,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-229-        entry_price: float,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-230-        atr: float,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-231-        current_cycle: int,
+--
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-246-                instrument=instrument,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-247-                features=features,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-248-                direction=direction,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py:249:                confidence=confidence,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-250-                entry_price=entry_price,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-251-                atr=atr,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-252-                timestamp=datetime.now(UTC),
+--
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-260-        self,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-261-        instrument: str,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-262-        direction: Direction,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py:263:        confidence: float,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-264-        entry_price: float,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-265-        atr: float,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-266-        current_cycle: int,
+--
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-284-            ShadowPending(
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-285-                instrument=instrument,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-286-                direction=direction,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py:287:                confidence=confidence,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-288-                entry_price=entry_price,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-289-                atr=atr,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-290-                timestamp=datetime.now(UTC),
+--
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-399-                result = {
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-400-                    "instrument": shadow.instrument,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-401-                    "direction": shadow.direction.value,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py:402:                    "confidence": round(shadow.confidence, 3),
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-403-                    "veto_reason": shadow.veto_reason,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-404-                    "would_have_won": would_have_won,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-405-                    "entry_price": shadow.entry_price,
+--
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-434-            "timestamp": outcome.timestamp.isoformat(),
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-435-            "instrument": outcome.instrument,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-436-            "direction": outcome.direction.value,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py:437:            "confidence": outcome.confidence,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-438-            "entry_price": outcome.entry_price,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-439-            "exit_price": exit_price,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-440-            "atr": outcome.atr,
+--
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-621-
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-622-
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-623-class InstrumentScorer:
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py:624:    """Scores instruments to decide trade direction and confidence."""
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-625-
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-626-    def __init__(self, settings: Settings, models_dir: Path) -> None:
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-627-        self._settings = settings
+--
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-661-        features: dict[str, float],
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-662-        sentiment: float = 0.0,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-663-    ) -> Signal:
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py:664:        """Score a single instrument. Returns a Signal with direction + confidence."""
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-665-        features_with_sentiment = {**features, "sentiment": sentiment}
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-666-
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-667-        if self._model is not None and not self._use_rules_fallback:
+--
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-675-
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-676-        if prediction > 0.5:
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-677-            direction = Direction.BUY
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py:678:            confidence = float(prediction)
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-679-        elif prediction < 0.5:
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-680-            direction = Direction.SELL
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py:681:            confidence = float(1.0 - prediction)
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-682-        else:
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-683-            direction = Direction.HOLD
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py:684:            confidence = 0.0
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-685-
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-686-        return Signal(
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-687-            instrument=instrument,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-688-            direction=direction,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py:689:            confidence=confidence,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-690-            timestamp=datetime.now(UTC),
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-691-            features=features,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-692-        )
+--
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-768-        elif features.get("session_asia", 0) == 1.0 and adx < 25:
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-769-            score *= 0.6
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-770-
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py:771:        # Friday late: reduce confidence (position squaring)
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-772-        if features.get("day_of_week", 0) > 0.9 and features.get("hour_cos", 0) < -0.5:
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-773-            score *= 0.7
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-774-
+--
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-777-            return Signal(
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-778-                instrument=instrument,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-779-                direction=Direction.HOLD,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py:780:                confidence=0.0,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-781-                timestamp=datetime.now(UTC),
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-782-                features=features,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-783-            )
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-784-
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py:785:        # Reduce confidence when event is imminent
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-786-        hours_until = features.get("hours_until_high_event", 1.0)
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-787-        if hours_until < 1.0 / 168:  # Less than 1 hour (normalized)
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-788-            score *= 0.5
+--
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-791-            return Signal(
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-792-                instrument=instrument,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-793-                direction=Direction.HOLD,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py:794:                confidence=0.0,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-795-                timestamp=datetime.now(UTC),
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-796-                features=features,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-797-            )
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-798-
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-799-        normalized = score / max_score
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py:800:        confidence = min(abs(normalized), 1.0)
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-801-
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-802-        if normalized > 0.1:
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-803-            direction = Direction.BUY
+--
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-805-            direction = Direction.SELL
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-806-        else:
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-807-            direction = Direction.HOLD
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py:808:            confidence = 0.0
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-809-
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-810-        return Signal(
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-811-            instrument=instrument,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-812-            direction=direction,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py:813:            confidence=confidence,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-814-            timestamp=datetime.now(UTC),
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-815-            features=features,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-816-        )
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-817-
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-818-    def rank_instruments(self, signals: dict[str, Signal]) -> list[Signal]:
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py:819:        """Rank signals by confidence, filtering out HOLD and low-confidence."""
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py:820:        # Check DB override for min_confidence
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-821-        try:
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-822-            from stockio import db
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-823-
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py:824:            saved = db.get_setting("min_confidence")
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py:825:            threshold = float(saved) if saved else self._settings.min_confidence
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-826-        except Exception:
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py:827:            threshold = self._settings.min_confidence
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-828-
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-829-        tradeable = [
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-830-            s
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-831-            for s in signals.values()
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py:832:            if s.direction != Direction.HOLD and s.confidence >= threshold
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-833-        ]
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py:834:        tradeable.sort(key=lambda s: s.confidence, reverse=True)
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-835-        return tradeable
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-836-
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\scorer.py-837-    def reload_model(self) -> None:
+--
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\strategies.py-23-StrategyFn = Callable[[str, dict[str, float], float], Signal]
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\strategies.py-24-
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\strategies.py-25-
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\strategies.py:26:def _make_signal(instrument: str, direction: Direction, confidence: float,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\strategies.py-27-                 features: dict) -> Signal:
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\strategies.py-28-    return Signal(
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\strategies.py-29-        instrument=instrument,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\strategies.py-30-        direction=direction,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\strategies.py:31:        confidence=min(abs(confidence), 1.0),
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\strategies.py-32-        timestamp=datetime.now(UTC),
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\strategies.py-33-        features=features,
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\strategies.py-34-    )
+--
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\strategies.py-107-            return _make_signal(instrument, Direction.HOLD, 0, features)
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\strategies.py-108-
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\strategies.py-109-        direction = Direction.BUY
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\strategies.py:110:        # More extreme RSI = higher base confidence
+d:\Nextcloud\Projects\Stockio\src\stockio\strategy\strategies.py-111-        conf = 0.25 if rsi < 30 else 0.15
+
+[Showing results with pagination = limit: 250]
