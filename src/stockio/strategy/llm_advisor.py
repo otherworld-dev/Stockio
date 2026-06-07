@@ -2,6 +2,7 @@
 
 Combines regime detection, trade advice, parameter recommendations,
 and loss analysis into one comprehensive prompt per cycle.
+Uses performance feedback to self-adapt over time.
 """
 
 from __future__ import annotations
@@ -17,9 +18,13 @@ log = structlog.get_logger()
 
 _CYCLE_PROMPT = """\
 You are a forex trading advisor. Analyze the current market and advise on trades.
+Your role is quality control — only approve trades with genuinely strong setups.
 
 ## Current Market Data
 {instrument_data}
+
+## Overall Performance
+{performance_stats}
 
 ## Recent Trade History (last 10 closed)
 {recent_trades}
@@ -38,7 +43,7 @@ Analyze everything above and return a JSON object with:
 
 1. **regime** — current market assessment
 2. **trade_decisions** — for each pending signal, whether to take it and with what parameters
-3. **lessons** — what we should learn from recent losses
+3. **lessons** — what we should learn from recent performance
 
 ```json
 {{
@@ -56,7 +61,7 @@ Analyze everything above and return a JSON object with:
       "tp_mult": 2.0
     }}
   }},
-  "lessons": "one paragraph of key takeaways from recent losses, or empty string if no losses"
+  "lessons": "one paragraph of key takeaways, or empty string"
 }}
 ```
 
@@ -66,12 +71,15 @@ Important:
 - Adjust sl_mult (1.0-3.0) and tp_mult (1.0-4.0) based on current volatility
 - In ranging markets, use tighter TP. In trending, let winners run
 - If market is too uncertain, set avoid_trading to true
+- Review your veto feedback: if you've been vetoing too many winners, loosen up.
+  If you've been approving too many losers, tighten up.
+- If overall win rate is below 40%, veto anything below 0.6 confidence
 
 Return ONLY the JSON, no other text."""
 
 
 class LLMAdvisor:
-    """Claude-powered trade reasoning — one call per cycle."""
+    """Claude-powered trade reasoning — one call per cycle with self-adaptation."""
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
@@ -105,6 +113,42 @@ class LLMAdvisor:
         decisions = self._last_advice.get("trade_decisions", {})
         return decisions.get(instrument)
 
+    def _build_performance_stats(self, recent_trades: list[dict]) -> str:
+        """Build aggregate performance stats for the advisor prompt."""
+        if not recent_trades:
+            return "No trade history yet — be conservative with initial trades."
+
+        wins = [t for t in recent_trades if (t.get("pnl") or 0) > 0]
+        losses = [t for t in recent_trades if (t.get("pnl") or 0) < 0]
+        total_pnl = sum(t.get("pnl") or 0 for t in recent_trades)
+        win_rate = len(wins) / len(recent_trades) if recent_trades else 0
+
+        lines = [
+            f"Win rate: {win_rate:.0%} ({len(wins)}W / {len(losses)}L), "
+            f"Net P&L: {total_pnl:.2f}",
+        ]
+
+        if win_rate < 0.4:
+            lines.append(
+                "WARNING: Win rate is below 40%. Be much more selective — "
+                "only approve high-confidence trades with clear multi-indicator alignment."
+            )
+        elif win_rate > 0.55:
+            lines.append(
+                "Win rate is healthy. Maintain current selectivity."
+            )
+
+        # Avg win vs avg loss (expectancy)
+        avg_win = sum(t.get("pnl") or 0 for t in wins) / len(wins) if wins else 0
+        avg_loss = abs(sum(t.get("pnl") or 0 for t in losses) / len(losses)) if losses else 0
+        if avg_loss > 0:
+            rr_ratio = avg_win / avg_loss
+            lines.append(f"Avg win: {avg_win:.2f}, Avg loss: -{avg_loss:.2f} (R:R = {rr_ratio:.1f})")
+            if rr_ratio < 1.0:
+                lines.append("R:R ratio below 1 — prefer wider TP or tighter SL.")
+
+        return "\n".join(lines)
+
     def advise_cycle(
         self,
         features_by_instrument: dict[str, dict],
@@ -113,15 +157,7 @@ class LLMAdvisor:
         recent_trades: list[dict],
         shadow_outcomes: list[dict] | None = None,
     ) -> dict | None:
-        """Run the full advisory for this cycle. One LLM call.
-
-        Args:
-            features_by_instrument: {instrument: {rsi_14, adx, macd_histogram, ...}}
-            sentiment_by_instrument: {instrument: float}
-            pending_signals: [{instrument, direction, confidence}, ...] above threshold
-            recent_trades: last 10 closed trades from DB
-            shadow_outcomes: recently resolved vetoed trades showing what would have happened
-        """
+        """Run the full advisory for this cycle. One LLM call."""
         if not self._enabled:
             return None
 
@@ -145,6 +181,9 @@ class LLMAdvisor:
                 f"MACD={macd:.5f}{macd_label} BB%B={bb:.2f} "
                 f"trend_vs_ema={trend:.4f} ATR={atr:.5f} sentiment={sent:.2f}"
             )
+
+        # Build performance stats
+        performance_stats = self._build_performance_stats(recent_trades)
 
         # Build recent trades summary
         trade_lines = []
@@ -177,29 +216,36 @@ class LLMAdvisor:
         shadow_lines = []
         if shadow_outcomes:
             wins = sum(1 for s in shadow_outcomes if s.get("would_have_won"))
-            losses = len(shadow_outcomes) - wins
+            total = len(shadow_outcomes)
+            correct_vetoes = total - wins
             for s in shadow_outcomes[-10:]:
                 result = "would have HIT TP (missed profit)" if s.get("would_have_won") else "would have HIT SL (correct veto)"
                 shadow_lines.append(
                     f"- {s.get('veto_reason', 'vetoed')}: {s.get('instrument', '?')} "
                     f"{s.get('direction', '?')} conf={s.get('confidence', 0):.1%} → {result}"
                 )
-            if shadow_outcomes:
-                accuracy = losses / len(shadow_outcomes) if shadow_outcomes else 0
+            if total:
                 shadow_lines.append(
-                    f"\nVeto accuracy: {losses}/{len(shadow_outcomes)} vetoes were correct "
-                    f"(prevented losses), {wins}/{len(shadow_outcomes)} were wrong (missed profits)."
+                    f"\nVeto accuracy: {correct_vetoes}/{total} vetoes were correct "
+                    f"(prevented losses), {wins}/{total} were wrong (missed profits)."
                 )
+                if wins > correct_vetoes:
+                    shadow_lines.append(
+                        "Your vetoes are costing more than they save — "
+                        "consider approving more trades."
+                    )
 
         prompt = _CYCLE_PROMPT.format(
             instrument_data="\n".join(inst_lines) or "No data available",
+            performance_stats=performance_stats,
             recent_trades="\n".join(trade_lines) or "No recent trades",
             recent_losses="\n".join(loss_lines) or "No recent losses",
             pending_signals="\n".join(signal_lines) or "No signals above threshold",
             shadow_feedback="\n".join(shadow_lines) or "No veto feedback yet",
         )
 
-        result = self._call_llm_json(prompt)
+        model = self._settings.llm_strategy_model or self._settings.llm_model
+        result = self._call_llm_json(prompt, model)
         if result:
             self._last_advice = result
             self._last_advice_time = datetime.now(UTC)
@@ -211,6 +257,7 @@ class LLMAdvisor:
 
             log.info(
                 "llm_cycle_advice",
+                model=model,
                 regime=regime.get("type"),
                 regime_direction=regime.get("direction"),
                 avoid_trading=regime.get("avoid_trading", False),
@@ -221,13 +268,13 @@ class LLMAdvisor:
             )
         return result
 
-    def _call_llm_json(self, prompt: str) -> dict | None:
+    def _call_llm_json(self, prompt: str, model: str | None = None) -> dict | None:
         """Call Claude and parse a JSON response."""
         text = ""
         try:
             response = self._client.messages.create(
-                model=self._settings.llm_model,
-                max_tokens=800,
+                model=model or self._settings.llm_model,
+                max_tokens=1024,
                 messages=[{"role": "user", "content": prompt}],
             )
             text = response.content[0].text.strip()

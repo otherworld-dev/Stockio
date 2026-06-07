@@ -36,7 +36,7 @@ _STRATEGY_OVERRIDE = {"trend": "consensus", "momentum": "best_signal"}
 Paper bot fetches news sentiment (NewsAPI + RSS + Claude) every hour. Strategy bots read from shared state — no duplicate API calls. This means **paper must be running** for strategies to get sentiment data.
 
 ### LLM Advisor (separate from LLM strategy)
-Each bot has its own LLM advisor (`llm_advisor.py`) that can veto trades based on market regime assessment. The advisor sees shadow outcomes (vetoed trades that would have won/lost) as feedback.
+Each bot has its own LLM advisor (`llm_advisor.py`) that can veto trades based on market regime assessment. The advisor sees shadow outcomes (vetoed trades that would have won/lost) as feedback. Both the LLM scorer and advisor use `llm_strategy_model` (Sonnet 4.6) for better reasoning, while sentiment stays on `llm_model` (Haiku) to keep costs low. Both are self-adapting: they receive their own performance stats (win rate, P&L by instrument, losing streaks) in each prompt.
 
 ### Shadow Tracking
 When trades are vetoed/skipped, phantom outcomes are recorded and resolved later to measure veto accuracy. Results feed back into the LLM advisor prompt. Data persists in `shadow_outcomes.parquet`.

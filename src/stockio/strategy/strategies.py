@@ -331,9 +331,9 @@ def score_best_signal(instrument: str, features: dict[str, float],
 # ---------------------------------------------------------------------------
 
 _LLM_SCORING_PROMPT = """\
-You are a disciplined forex trader managing a £1,000 account. Your goal is \
-capital preservation first, profits second. You have been losing money by \
-trading too often with weak signals. From now on, be extremely selective.
+You are a disciplined forex trader managing a small account. Your goal is \
+capital preservation first, profits second. Be extremely selective — only \
+trade when you see a genuinely compelling setup.
 
 ## Indicator Guide
 - RSI < 30 = oversold (potential BUY), RSI > 70 = overbought (potential SELL)
@@ -348,6 +348,9 @@ trading too often with weak signals. From now on, be extremely selective.
 ## Current Market Data
 {instrument_data}
 
+## Your Recent Performance
+{performance_summary}
+
 ## Rules (MUST follow)
 1. HOLD everything unless you see 3+ indicators aligned in the same direction
 2. Never trade against a strong trend (ADX > 25 + clear EMA direction)
@@ -355,6 +358,7 @@ trading too often with weak signals. From now on, be extremely selective.
 4. Confidence must reflect conviction: 0.7+ = strong setup, 0.5-0.7 = moderate
 5. If in doubt, HOLD. Missing a trade costs nothing; a bad trade costs money
 6. Avoid instruments with RSI 40-60 AND ADX < 20 (no signal, no trend)
+7. Learn from your performance data above — avoid repeating losing patterns
 
 Return a JSON object mapping instrument names to decisions:
 ```json
@@ -369,7 +373,7 @@ Return ONLY the JSON, no other text."""
 
 
 class LLMScorer:
-    """Claude makes all trading decisions. No rules, no ML model."""
+    """Claude makes all trading decisions with self-adapting performance feedback."""
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
@@ -379,6 +383,85 @@ class LLMScorer:
         if settings.anthropic_api_key:
             import anthropic
             self._client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+
+    def _build_performance_summary(self) -> str:
+        """Build a performance summary from recent trade history."""
+        try:
+            from stockio import db
+            trades = db.get_trade_history(limit=50)
+        except Exception:
+            return "No trade history available yet."
+
+        if not trades:
+            return "No trade history available yet."
+
+        wins = [t for t in trades if (t.get("pnl") or 0) > 0]
+        losses = [t for t in trades if (t.get("pnl") or 0) < 0]
+        total_pnl = sum(t.get("pnl") or 0 for t in trades)
+        win_rate = len(wins) / len(trades) if trades else 0
+
+        lines = [
+            f"Last {len(trades)} trades: {len(wins)}W / {len(losses)}L "
+            f"(win rate {win_rate:.0%}), total P&L: {total_pnl:.2f}",
+        ]
+
+        # Per-instrument breakdown
+        inst_stats: dict[str, dict] = {}
+        for t in trades:
+            inst = t.get("instrument", "?")
+            if inst not in inst_stats:
+                inst_stats[inst] = {"wins": 0, "losses": 0, "pnl": 0.0}
+            pnl = t.get("pnl") or 0
+            if pnl > 0:
+                inst_stats[inst]["wins"] += 1
+            elif pnl < 0:
+                inst_stats[inst]["losses"] += 1
+            inst_stats[inst]["pnl"] += pnl
+
+        # Show instruments sorted by P&L
+        sorted_insts = sorted(inst_stats.items(), key=lambda x: x[1]["pnl"])
+        worst = sorted_insts[:3]
+        best = sorted_insts[-3:] if len(sorted_insts) > 3 else []
+
+        if worst:
+            lines.append("Worst instruments: " + ", ".join(
+                f"{inst} ({s['wins']}W/{s['losses']}L, {s['pnl']:.2f})"
+                for inst, s in worst if s["pnl"] < 0
+            ))
+        if best:
+            lines.append("Best instruments: " + ", ".join(
+                f"{inst} ({s['wins']}W/{s['losses']}L, {s['pnl']:+.2f})"
+                for inst, s in best if s["pnl"] > 0
+            ))
+
+        # Recent losing streak detection
+        recent = trades[:10]
+        recent_losses = [t for t in recent if (t.get("pnl") or 0) < 0]
+        if len(recent_losses) >= 7:
+            lines.append(
+                "WARNING: You are on a heavy losing streak "
+                f"({len(recent_losses)}/10 recent trades lost). "
+                "Be extremely cautious — only trade A+ setups."
+            )
+        elif len(recent_losses) >= 5:
+            lines.append(
+                f"CAUTION: {len(recent_losses)}/10 recent trades lost. "
+                "Tighten your criteria."
+            )
+
+        # Pattern analysis: common loss reasons
+        loss_reasons: dict[str, int] = {}
+        for t in losses[:20]:
+            reason = t.get("close_reason", "unknown")
+            loss_reasons[reason] = loss_reasons.get(reason, 0) + 1
+        if loss_reasons:
+            top_reason = max(loss_reasons, key=loss_reasons.get)
+            lines.append(
+                f"Most common loss type: {top_reason} "
+                f"({loss_reasons[top_reason]} times)"
+            )
+
+        return "\n".join(lines)
 
     def score_all(
         self,
@@ -408,14 +491,18 @@ class LLMScorer:
                 f"sentiment={sent:.2f}"
             )
 
+        performance = self._build_performance_summary()
+
         prompt = _LLM_SCORING_PROMPT.format(
-            instrument_data="\n".join(lines)
+            instrument_data="\n".join(lines),
+            performance_summary=performance,
         )
 
+        model = self._settings.llm_strategy_model or self._settings.llm_model
         try:
             response = self._client.messages.create(
-                model=self._settings.llm_model,
-                max_tokens=800,
+                model=model,
+                max_tokens=1024,
                 messages=[{"role": "user", "content": prompt}],
             )
             text = response.content[0].text.strip()

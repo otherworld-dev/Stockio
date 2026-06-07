@@ -47,7 +47,7 @@ FEATURE_NAMES = [
     "events_next_4h",
 ]
 
-MIN_TRAINING_SAMPLES = 200
+MIN_TRAINING_SAMPLES = 500
 
 
 # ---------------------------------------------------------------------------
@@ -581,6 +581,19 @@ def retrain_model(settings: Settings, data_dir: Path, models_dir: Path) -> bool:
             acc = (preds == y_test).mean()
             accuracies.append(acc)
 
+        mean_accuracy = sum(accuracies) / len(accuracies) if accuracies else 0
+
+        # Quality gate: don't deploy a model that's worse than random
+        if mean_accuracy < 0.52:
+            log.warning(
+                "retrain_rejected",
+                reason="CV accuracy below 52% — model has no edge",
+                samples=len(df),
+                mean_accuracy=round(mean_accuracy, 3),
+                cv_accuracies=[round(a, 3) for a in accuracies],
+            )
+            return False
+
         # Train final model on all data
         full_data = lgb.Dataset(
             features, label=labels, feature_name=FEATURE_NAMES
@@ -596,7 +609,7 @@ def retrain_model(settings: Settings, data_dir: Path, models_dir: Path) -> bool:
             "train_date": datetime.now(UTC).isoformat(),
             "samples": len(df),
             "cv_accuracies": accuracies,
-            "mean_accuracy": sum(accuracies) / len(accuracies) if accuracies else 0,
+            "mean_accuracy": mean_accuracy,
             "features": FEATURE_NAMES,
         }
         meta_path = models_dir / "model_meta.json"
@@ -605,7 +618,7 @@ def retrain_model(settings: Settings, data_dir: Path, models_dir: Path) -> bool:
         log.info(
             "retrain_complete",
             samples=len(df),
-            mean_accuracy=round(meta["mean_accuracy"], 3),
+            mean_accuracy=round(mean_accuracy, 3),
             cv_accuracies=[round(a, 3) for a in accuracies],
         )
         return True
@@ -669,19 +682,33 @@ class InstrumentScorer:
         return self._score_rules(instrument, features_with_sentiment)
 
     def _score_ml(self, instrument: str, features: dict[str, float]) -> Signal:
-        """Score using the trained LightGBM model."""
+        """Score using the trained LightGBM model.
+
+        Raw LightGBM probabilities are poorly calibrated — a 0.99 output
+        doesn't mean 99% chance of winning. We rescale the distance from
+        0.5 into a realistic confidence range (0.30–0.75) so position
+        sizing and min_confidence filters work properly.
+        """
         feature_values = [features.get(name, 0.0) for name in FEATURE_NAMES]
         prediction = self._model.predict([feature_values])[0]
 
-        if prediction > 0.5:
+        if prediction > 0.55:
             direction = Direction.BUY
-            confidence = float(prediction)
-        elif prediction < 0.5:
+            raw_edge = float(prediction) - 0.5
+        elif prediction < 0.45:
             direction = Direction.SELL
-            confidence = float(1.0 - prediction)
+            raw_edge = 0.5 - float(prediction)
         else:
             direction = Direction.HOLD
+            raw_edge = 0.0
+
+        if direction == Direction.HOLD:
             confidence = 0.0
+        else:
+            # Map raw_edge (0.05–0.50) → confidence (0.30–0.75)
+            # This prevents the model from ever claiming near-certainty
+            confidence = 0.30 + (raw_edge / 0.50) * 0.45
+            confidence = min(confidence, 0.75)
 
         return Signal(
             instrument=instrument,

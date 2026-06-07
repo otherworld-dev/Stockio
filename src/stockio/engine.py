@@ -1180,16 +1180,21 @@ class TradingEngine:
 
         # Check for model degradation
         if self._outcome_tracker.is_degraded:
-            self._scorer.set_rules_fallback(True)
-            if self._notifier:
-                self._notifier.notify_error(
-                    f"Model degraded (accuracy={self._outcome_tracker.rolling_accuracy:.1%}), "
-                    f"falling back to rules-based scoring"
+            if not self._scorer._use_rules_fallback:
+                self._scorer.set_rules_fallback(True)
+                cycle_log.warning(
+                    "model_degraded",
+                    accuracy=round(self._outcome_tracker.rolling_accuracy, 3),
                 )
+                if self._notifier:
+                    self._notifier.notify_error(
+                        f"Model degraded (accuracy={self._outcome_tracker.rolling_accuracy:.1%}), "
+                        f"falling back to rules-based scoring"
+                    )
 
-        # Retrain if enough new data (every 200 new samples since last retrain)
+        # Retrain if enough new data (every 500 new samples since last retrain)
         current_count = self._outcome_tracker.training_data_count
-        if current_count - self._last_retrain_count >= 200:
+        if current_count - self._last_retrain_count >= 500:
             cycle_log.info("retrain_triggered", samples=current_count)
             success = retrain_model(
                 self._settings, self._settings.data_dir, self._settings.models_dir
@@ -1197,7 +1202,7 @@ class TradingEngine:
             if success:
                 self._scorer.reload_model()
                 self._scorer.set_rules_fallback(False)
-                self._last_retrain_count = current_count
+            self._last_retrain_count = current_count
 
         # Run parameter optimization every 10 cycles
         if self._cycle_count % 10 == 0:
