@@ -232,6 +232,12 @@ class OandaBroker(BrokerBase):
         self._request(req)
         log.info("position_closed", trade_id=trade_id)
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(min=1, max=30),
+        retry=retry_if_exception_type(V20Error),
+        reraise=True,
+    )
     def modify_trade_sl(self, trade_id: str, stop_loss_price: float) -> None:
         """Update the stop-loss on an existing trade (for trailing stops)."""
         data = {"stopLoss": {"price": str(stop_loss_price)}}

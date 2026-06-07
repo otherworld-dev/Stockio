@@ -22,6 +22,27 @@ from stockio.strategy.sentiment import SentimentAnalyzer
 log = structlog.get_logger()
 
 
+def _run_with_timeout(fn, args=(), timeout=120):
+    """Run *fn* in a thread with a timeout. Returns None if it times out."""
+    result = [None]
+    exc_holder = [None]
+
+    def _target():
+        try:
+            result[0] = fn(*args)
+        except Exception as e:
+            exc_holder[0] = e
+
+    t = threading.Thread(target=_target, daemon=True)
+    t.start()
+    t.join(timeout=timeout)
+    if t.is_alive():
+        return None
+    if exc_holder[0]:
+        raise exc_holder[0]
+    return result[0]
+
+
 @dataclass
 class BotSlot:
     """One independently-running bot instance."""
@@ -55,6 +76,11 @@ _shared_sentiment: dict[str, float] | None = None
 _shared_trump_sentiment: dict[str, float] | None = None
 _shared_sentiment_analyzer: Any = None
 _shared_sentiment_lock = threading.Lock()
+
+# Track bots that should be running (for auto-restart)
+_intended_running: set[str] = set()
+_watchdog_thread: threading.Thread | None = None
+_watchdog_stop = threading.Event()
 
 STRATEGY_SLOTS = ("trend", "meanrev", "momentum", "llm")
 LEADERBOARD_SLOTS = ("paper", "trend", "meanrev", "momentum", "llm")
@@ -152,7 +178,9 @@ def start_bot(name: str) -> bool:
             daemon=True,
         )
         slot.thread.start()
+        _intended_running.add(name)
         log.info("bot_started", instance=name, generation=gen)
+        _ensure_watchdog()
         return True
 
 
@@ -161,6 +189,8 @@ def stop_bot(name: str) -> bool:
     slot = _slots.get(name)
     if not slot:
         return False
+
+    _intended_running.discard(name)
 
     with slot.lock:
         if not slot.running:
@@ -184,6 +214,40 @@ def stop_bot(name: str) -> bool:
             slot.engine = None
 
     return True
+
+
+def _ensure_watchdog() -> None:
+    """Start the watchdog thread if not already running."""
+    global _watchdog_thread
+    if _watchdog_thread and _watchdog_thread.is_alive():
+        return
+    _watchdog_stop.clear()
+    _watchdog_thread = threading.Thread(
+        target=_watchdog_loop, name="stockio-watchdog", daemon=True
+    )
+    _watchdog_thread.start()
+
+
+def _watchdog_loop() -> None:
+    """Periodically check for crashed bots and restart them."""
+    import time
+
+    while not _watchdog_stop.is_set():
+        _watchdog_stop.wait(timeout=30)
+        if _watchdog_stop.is_set():
+            break
+        for name in list(_intended_running):
+            slot = _slots.get(name)
+            if not slot:
+                continue
+            if not slot.running:
+                log.warning(
+                    "watchdog_restarting",
+                    instance=name,
+                    last_error=slot.last_error,
+                )
+                time.sleep(5)
+                start_bot(name)
 
 
 def _create_broker_for_slot(slot_name: str, settings: Settings):
@@ -345,19 +409,24 @@ def _run_bot(slot: BotSlot, generation: int) -> None:
                 else:
                     # Primary bot: fetch sentiment and share it
                     if sentiment.needs_refresh():
-                        scores = sentiment.refresh_all(instruments)
-                        if slot.shutdown_event.is_set():
-                            break
-                        engine.update_sentiment(scores)
-                        slot.last_sentiment = scores
-                        slot.last_trump_sentiment = {
-                            k: sentiment.get_trump_sentiment(k)
-                            for k in instruments
-                        }
-                        # Publish to shared state for strategy bots
-                        with _shared_sentiment_lock:
-                            _shared_sentiment = scores
-                            _shared_trump_sentiment = slot.last_trump_sentiment
+                        scores = _run_with_timeout(
+                            sentiment.refresh_all, (instruments,), timeout=120
+                        )
+                        if scores is None:
+                            log.warning("sentiment_refresh_timeout", instance=slot.name)
+                        else:
+                            if slot.shutdown_event.is_set():
+                                break
+                            engine.update_sentiment(scores)
+                            slot.last_sentiment = scores
+                            slot.last_trump_sentiment = {
+                                k: sentiment.get_trump_sentiment(k)
+                                for k in instruments
+                            }
+                            # Publish to shared state for strategy bots
+                            with _shared_sentiment_lock:
+                                _shared_sentiment = scores
+                                _shared_trump_sentiment = slot.last_trump_sentiment
 
                 if slot.shutdown_event.is_set():
                     break

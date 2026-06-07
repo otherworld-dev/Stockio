@@ -374,7 +374,8 @@ class SentimentAnalyzer:
 
         for feed_url in feeds:
             try:
-                feed = feedparser.parse(feed_url)
+                resp = httpx.get(feed_url, timeout=10, follow_redirects=True)
+                feed = feedparser.parse(resp.text)
                 for entry in feed.get("entries", []):
                     title = entry.get("title", "")
                     title_lower = title.lower()

@@ -65,23 +65,49 @@ def score_trend(instrument: str, features: dict[str, float],
     direction = Direction.BUY if all_bullish else Direction.SELL
 
     # RSI guard: don't buy into overbought or sell into oversold
-    if direction == Direction.BUY and rsi > 75:
+    if direction == Direction.BUY and rsi > 70:
         return _make_signal(instrument, Direction.HOLD, 0, features)
-    if direction == Direction.SELL and rsi < 25:
+    if direction == Direction.SELL and rsi < 30:
         return _make_signal(instrument, Direction.HOLD, 0, features)
 
-    # Confidence from trend strength (ADX) and MACD confirmation
+    # Confidence built from multiple independent signals
     conf = 0.0
-    # ADX contribution (0-0.5)
-    conf += min(adx / 60, 0.5)
-    # MACD confirmation (0-0.3)
+
+    # ADX contribution — scaled continuously (0-0.30)
+    conf += min(adx / 80, 0.30)
+
+    # MACD confirmation — scaled by magnitude (0-0.25)
+    macd_abs = abs(macd)
     if (direction == Direction.BUY and macd > 0) or \
        (direction == Direction.SELL and macd < 0):
-        conf += 0.3
-    # Sentiment alignment (0-0.2)
+        if macd_abs > 0.002:
+            conf += 0.25
+        elif macd_abs > 0.001:
+            conf += 0.18
+        elif macd_abs > 0.0003:
+            conf += 0.10
+        else:
+            conf += 0.05
+
+    # EMA separation strength — how far price is from long EMA (0-0.20)
+    ema_dist = abs(close_vs_ema)
+    if ema_dist > 0.005:
+        conf += 0.20
+    elif ema_dist > 0.002:
+        conf += 0.12
+    elif ema_dist > 0.001:
+        conf += 0.06
+
+    # RSI momentum alignment (0-0.15)
+    if direction == Direction.BUY and rsi > 55:
+        conf += min((rsi - 55) / 100, 0.15)
+    elif direction == Direction.SELL and rsi < 45:
+        conf += min((45 - rsi) / 100, 0.15)
+
+    # Sentiment alignment (0-0.10)
     if (direction == Direction.BUY and sentiment > 0.1) or \
        (direction == Direction.SELL and sentiment < -0.1):
-        conf += 0.2
+        conf += 0.10
 
     return _make_signal(instrument, direction, conf, features)
 
@@ -104,54 +130,67 @@ def score_meanrev(instrument: str, features: dict[str, float],
     close_vs_ema = features.get("close_vs_ema_long", 0)
     adx = features.get("adx", 0)
 
-    # RSI must be approaching an extreme
-    if 35 <= rsi <= 65:
+    # RSI must be at a genuine extreme — tightened from 35/65
+    if 30 <= rsi <= 70:
         return _make_signal(instrument, Direction.HOLD, 0, features)
 
-    if rsi < 35:
-        # Oversold — block only if strongly trending down
+    if rsi < 30:
+        # Oversold — block if strongly trending down (falling knife)
         if close_vs_ema < -0.002 and adx > 30:
             return _make_signal(instrument, Direction.HOLD, 0, features)
 
         direction = Direction.BUY
-        # More extreme RSI = higher base confidence
-        conf = 0.25 if rsi < 30 else 0.15
+        # Continuous RSI scaling — more extreme = more confidence
+        # RSI 30 → 0.10, RSI 20 → 0.30, RSI 10 → 0.50
+        conf = min((30 - rsi) / 50, 0.50)
 
-        # BB confirmation: price near lower band
-        if bb < 0.15:
-            conf += 0.25
-        elif bb < 0.3:
-            conf += 0.1
-
-        # Stochastic confirmation
-        if stoch_k < 30:
-            conf += 0.2
-
-        # Trend alignment bonus (not required, but helps)
-        if close_vs_ema > 0:
+        # BB confirmation — continuous scaling (0-0.20)
+        if bb < 0.05:
+            conf += 0.20
+        elif bb < 0.15:
             conf += 0.15
-        elif adx > 20:
+        elif bb < 0.30:
+            conf += 0.08
+
+        # Stochastic confirmation — continuous scaling (0-0.15)
+        if stoch_k < 15:
+            conf += 0.15
+        elif stoch_k < 25:
+            conf += 0.10
+        elif stoch_k < 35:
             conf += 0.05
 
-    else:  # rsi > 65
-        # Overbought — block only if strongly trending up
+        # Trend alignment (0-0.10)
+        if close_vs_ema > 0:
+            conf += 0.10
+        elif close_vs_ema > -0.001:
+            conf += 0.05
+
+    else:  # rsi > 70
+        # Overbought — block if strongly trending up
         if close_vs_ema > 0.002 and adx > 30:
             return _make_signal(instrument, Direction.HOLD, 0, features)
 
         direction = Direction.SELL
-        conf = 0.25 if rsi > 70 else 0.15
+        conf = min((rsi - 70) / 50, 0.50)
 
-        if bb > 0.85:
-            conf += 0.25
-        elif bb > 0.7:
-            conf += 0.1
+        if bb > 0.95:
+            conf += 0.20
+        elif bb > 0.85:
+            conf += 0.15
+        elif bb > 0.70:
+            conf += 0.08
 
-        if stoch_k > 70:
-            conf += 0.2
+        if stoch_k > 85:
+            conf += 0.15
+        elif stoch_k > 75:
+            conf += 0.10
+        elif stoch_k > 65:
+            conf += 0.05
 
         if close_vs_ema < 0:
-            conf += 0.15
-        elif adx > 20:
+            conf += 0.10
+        elif close_vs_ema < 0.001:
             conf += 0.05
 
     return _make_signal(instrument, direction, conf, features)
@@ -165,8 +204,8 @@ def score_momentum(instrument: str, features: dict[str, float],
                    sentiment: float) -> Signal:
     """Only trade when there's strong momentum. Sit out weak markets.
 
-    Gate: ADX must be > 25 (strong trend required).
-    Uses MACD direction + EMA cross for signal.
+    Gate: ADX must be > 30 (strong trend required).
+    Uses MACD direction + EMA cross for signal. RSI must confirm direction.
     """
     adx = features.get("adx", 0)
     macd = features.get("macd_histogram", 0)
@@ -174,8 +213,8 @@ def score_momentum(instrument: str, features: dict[str, float],
     close_vs_ema = features.get("close_vs_ema_long", 0)
     rsi = features.get("rsi_14", 50)
 
-    # Hard gate: no trading in weak/ranging markets
-    if adx < 25:
+    # Hard gate: raised from 25 to 30 — only strong trends
+    if adx < 30:
         return _make_signal(instrument, Direction.HOLD, 0, features)
 
     # Direction from MACD + EMA cross agreement
@@ -187,23 +226,42 @@ def score_momentum(instrument: str, features: dict[str, float],
     elif not macd_bullish and not ema_bullish:
         direction = Direction.SELL
     else:
-        # MACD and EMA disagree — no clear momentum
         return _make_signal(instrument, Direction.HOLD, 0, features)
 
-    # Confidence from ADX strength (stronger trend = more confident)
-    conf = min((adx - 25) / 35, 0.5)  # 25→0, 60→0.5
+    # RSI must confirm — don't buy if RSI is weak, don't sell if RSI is strong
+    if direction == Direction.BUY and rsi < 45:
+        return _make_signal(instrument, Direction.HOLD, 0, features)
+    if direction == Direction.SELL and rsi > 55:
+        return _make_signal(instrument, Direction.HOLD, 0, features)
 
-    # MACD magnitude boost
+    # Confidence from ADX strength — continuous (0-0.30)
+    conf = min((adx - 30) / 50, 0.30)
+
+    # MACD magnitude — continuous scaling (0-0.25)
     macd_abs = abs(macd)
-    if macd_abs > 0.001:
-        conf += 0.2
+    if macd_abs > 0.002:
+        conf += 0.25
+    elif macd_abs > 0.001:
+        conf += 0.18
     elif macd_abs > 0.0005:
-        conf += 0.1
+        conf += 0.10
+    else:
+        conf += 0.04
 
-    # Trend alignment boost
-    if (direction == Direction.BUY and close_vs_ema > 0.001) or \
-       (direction == Direction.SELL and close_vs_ema < -0.001):
-        conf += 0.15
+    # EMA separation — how far into the trend (0-0.20)
+    ema_dist = abs(close_vs_ema)
+    if ema_dist > 0.003:
+        conf += 0.20
+    elif ema_dist > 0.001:
+        conf += 0.12
+    elif ema_dist > 0.0005:
+        conf += 0.06
+
+    # RSI strength bonus (0-0.15)
+    if direction == Direction.BUY:
+        conf += min(max(rsi - 50, 0) / 133, 0.15)
+    else:
+        conf += min(max(50 - rsi, 0) / 133, 0.15)
 
     return _make_signal(instrument, direction, conf, features)
 
@@ -226,8 +284,8 @@ def score_consensus(instrument: str, features: dict[str, float],
         score_momentum(instrument, features, sentiment),
     ]
 
-    buys = [s for s in signals if s.direction == Direction.BUY and s.confidence > 0.15]
-    sells = [s for s in signals if s.direction == Direction.SELL and s.confidence > 0.15]
+    buys = [s for s in signals if s.direction == Direction.BUY and s.confidence > 0.20]
+    sells = [s for s in signals if s.direction == Direction.SELL and s.confidence > 0.20]
 
     if len(buys) >= 2:
         avg_conf = sum(s.confidence for s in buys) / len(buys)
