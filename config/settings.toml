@@ -39,7 +39,7 @@ degradation_threshold = 0.40  # Alert if rolling accuracy drops below this
 
 [sentiment]
 llm_model = "claude-haiku-4-5-20251001"
-llm_strategy_model = "claude-sonnet-4-6"
+llm_strategy_model = "claude-opus-4-8"
 max_headlines = 10
 news_lookback_hours = 24
 rss_feeds = [

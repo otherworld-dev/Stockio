@@ -1126,4 +1126,10 @@ def create_app() -> Flask:
     settings = load_settings()
     init_slots(settings)
     db.set_default_db(settings.get_db_path())
+
+    # Auto-start paper + all strategy bots so deploys don't leave them dead
+    for name in ("paper", *STRATEGY_SLOTS):
+        start_bot(name)
+        log.info("auto_started", instance=name)
+
     return app

@@ -133,7 +133,7 @@ class Settings(BaseSettings):
 
     # --- Sentiment / LLM ---
     llm_model: str = "claude-haiku-4-5-20251001"
-    llm_strategy_model: str = "claude-sonnet-4-6"
+    llm_strategy_model: str = "claude-opus-4-8"
     max_headlines: int = 10
     news_lookback_hours: int = 24
     rss_feeds: list[str] = Field(default_factory=lambda: [

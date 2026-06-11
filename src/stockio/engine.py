@@ -509,8 +509,10 @@ class TradingEngine:
         else:
             cycle_log.info("no_tradeable_signals")
 
-        # Step 3b: Get LLM advice for this cycle
-        if self._advisor.enabled:
+        # Step 3b: Get LLM advice for this cycle.
+        # Skipped when there are no pending signals — there's nothing to
+        # veto, and these no-op calls were ~70% of total advisor spend.
+        if self._advisor.enabled and ranked:
             try:
                 recent_trades = db.get_trade_history(limit=10)
                 pending = [
