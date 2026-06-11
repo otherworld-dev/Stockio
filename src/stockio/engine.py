@@ -483,6 +483,30 @@ class TradingEngine:
         # Cache scored signals for the dashboard API
         self._last_signals = signals
 
+        # Record a training observation for EVERY scored instrument — not
+        # just executed trades. Only the primary ML bot does this (strategy
+        # bots share the same parquet and would write duplicates). This is
+        # what feeds the model: ~14 instruments/hour instead of ~2 trades/day.
+        if self._strategy is None:
+            for name, sig in signals.items():
+                feats = self._latest_features.get(name)
+                if not feats or feats.get("atr", 0) <= 0:
+                    continue
+                if self._outcome_tracker.has_pending(name):
+                    continue
+                cache = self._candle_cache.get(name)
+                if not cache:
+                    continue
+                self._outcome_tracker.record_pending(
+                    instrument=name,
+                    features=feats,
+                    direction=sig.direction,
+                    confidence=sig.confidence,
+                    entry_price=cache[-1].close,
+                    atr=feats["atr"],
+                    current_cycle=self._cycle_count,
+                )
+
         # Step 3: Rank instruments and filter correlated pairs
         from stockio.strategy.correlation import filter_correlated_signals
 

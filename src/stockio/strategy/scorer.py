@@ -220,6 +220,10 @@ class OutcomeTracker:
         except Exception:
             log.exception("persist_pending_failed")
 
+    def has_pending(self, instrument: str) -> bool:
+        """True if an unresolved outcome already exists for this instrument."""
+        return any(p.instrument == instrument for p in self._pending)
+
     def record_pending(
         self,
         instrument: str,
@@ -230,17 +234,15 @@ class OutcomeTracker:
         atr: float,
         current_cycle: int,
     ) -> None:
-        """Record a new prediction to be resolved later."""
-        sl_mult = self._settings.stop_loss_atr_mult
-        tp_mult = self._settings.take_profit_atr_mult
+        """Record a market observation to be labelled later.
 
-        if direction == Direction.BUY:
-            sl_price = entry_price - atr * sl_mult
-            tp_price = entry_price + atr * tp_mult
-        else:
-            sl_price = entry_price + atr * sl_mult
-            tp_price = entry_price - atr * tp_mult
-
+        Labels are direction-based (triple-barrier): tp_price is the UP
+        barrier and sl_price the DOWN barrier, both at entry ± label_atr_mult
+        × ATR regardless of trade direction. The resolved label is 1 if price
+        hits the up barrier first, 0 if down first — i.e. the model learns to
+        predict price direction, matching how _score_ml interprets its output.
+        """
+        barrier = atr * self._settings.label_atr_mult
         self._pending.append(
             PendingOutcome(
                 instrument=instrument,
@@ -251,8 +253,8 @@ class OutcomeTracker:
                 atr=atr,
                 timestamp=datetime.now(UTC),
                 horizon_cycle=current_cycle + self._settings.label_horizon_bars,
-                sl_price=sl_price,
-                tp_price=tp_price,
+                sl_price=entry_price - barrier,
+                tp_price=entry_price + barrier,
             )
         )
 
@@ -300,11 +302,12 @@ class OutcomeTracker:
         return list(self._recent_shadows)[-limit:]
 
     def resolve_outcomes(self, current_cycle: int, get_price_range_fn) -> int:
-        """Check pending outcomes — resolve if SL/TP hit or horizon reached.
+        """Check pending outcomes — resolve when a barrier is hit or horizon reached.
 
-        Labels are based on trade profitability: did the price reach the
-        take-profit level before hitting the stop-loss?  Uses candle
-        high/low ranges to catch intra-bar touches (matching backtest).
+        Direction labelling: label = 1 if price hit the UP barrier first,
+        0 if the DOWN barrier first. If both barriers were touched in the
+        same window the order is unknowable — the sample is dropped. At
+        horizon timeout the label is the sign of the net move.
 
         get_price_range_fn(instrument) -> (mid, low, high) from recent candles.
         Returns number of outcomes resolved.
@@ -320,36 +323,35 @@ class OutcomeTracker:
                 remaining.append(outcome)
                 continue
 
-            # Check if SL or TP has been touched using candle range
-            hit_tp = False
-            hit_sl = False
-            if outcome.direction == Direction.BUY:
-                if high >= outcome.tp_price:
-                    hit_tp = True
-                if low <= outcome.sl_price:
-                    hit_sl = True
-            else:  # SELL
-                if low <= outcome.tp_price:
-                    hit_tp = True
-                if high >= outcome.sl_price:
-                    hit_sl = True
+            hit_up = high >= outcome.tp_price
+            hit_down = low <= outcome.sl_price
 
-            # If both hit in the same range, SL takes priority (conservative)
-            if hit_sl and hit_tp:
-                hit_tp = False
-
-            if hit_tp or hit_sl:
-                trade_won = hit_tp
-                self._recent_outcomes.append(trade_won)
-                self._append_training_row(outcome, mid, trade_won)
+            label: bool | None = None
+            if hit_up and hit_down:
+                # Both barriers touched in one window — direction ambiguous.
+                # Drop the sample rather than poison training with noise.
                 resolved += 1
+                continue
+            elif hit_up:
+                label = True
+            elif hit_down:
+                label = False
             elif current_cycle >= outcome.horizon_cycle:
-                # Horizon reached without hitting either — label as loss
-                self._recent_outcomes.append(False)
-                self._append_training_row(outcome, mid, False)
-                resolved += 1
+                label = mid > outcome.entry_price
             else:
                 remaining.append(outcome)
+                continue
+
+            # Rolling accuracy = did the predicted direction match the label?
+            # Only meaningful for actual BUY/SELL predictions, not HOLD
+            # observations recorded purely for training data.
+            if outcome.direction == Direction.BUY:
+                self._recent_outcomes.append(label)
+            elif outcome.direction == Direction.SELL:
+                self._recent_outcomes.append(not label)
+
+            self._append_training_row(outcome, mid, label)
+            resolved += 1
 
         self._pending.clear()
         self._pending.extend(remaining)
@@ -427,7 +429,7 @@ class OutcomeTracker:
             self._flush_shadow_buffer()
 
     def _append_training_row(
-        self, outcome: PendingOutcome, exit_price: float, correct: bool
+        self, outcome: PendingOutcome, exit_price: float, label_up: bool
     ) -> None:
         """Buffer a resolved outcome. Flushes to parquet when buffer is full."""
         row = {
@@ -438,7 +440,7 @@ class OutcomeTracker:
             "entry_price": outcome.entry_price,
             "exit_price": exit_price,
             "atr": outcome.atr,
-            "label": int(correct),
+            "label": int(label_up),
         }
         for name in FEATURE_NAMES:
             row[name] = outcome.features.get(name, 0.0)
@@ -539,6 +541,7 @@ def retrain_model(settings: Settings, data_dir: Path, models_dir: Path) -> bool:
 
     try:
         import lightgbm as lgb
+        from sklearn.metrics import roc_auc_score
         from sklearn.model_selection import TimeSeriesSplit
 
         features = df[FEATURE_NAMES].fillna(0).values
@@ -546,8 +549,23 @@ def retrain_model(settings: Settings, data_dir: Path, models_dir: Path) -> bool:
 
         tscv = TimeSeriesSplit(n_splits=settings.n_splits, gap=settings.gap_bars)
         accuracies = []
+        aucs = []
 
-        model = None
+        # Conservative params — the dataset is small and noisy, so prefer
+        # a model that underfits slightly over one that memorizes.
+        params = {
+            "objective": "binary",
+            "metric": "auc",
+            "verbosity": -1,
+            "num_threads": 2,
+            "learning_rate": 0.05,
+            "num_leaves": 15,
+            "min_data_in_leaf": 40,
+            "feature_fraction": 0.8,
+            "bagging_fraction": 0.8,
+            "bagging_freq": 1,
+        }
+
         for train_idx, test_idx in tscv.split(features):
             x_train, x_test = features[train_idx], features[test_idx]
             y_train, y_test = labels[train_idx], labels[test_idx]
@@ -559,16 +577,6 @@ def retrain_model(settings: Settings, data_dir: Path, models_dir: Path) -> bool:
                 x_test, label=y_test, feature_name=FEATURE_NAMES
             )
 
-            params = {
-                "objective": "binary",
-                "metric": "binary_logloss",
-                "verbosity": -1,
-                "num_threads": 2,
-                "learning_rate": 0.05,
-                "num_leaves": 31,
-                "min_data_in_leaf": 20,
-            }
-
             model = lgb.train(
                 params,
                 train_data,
@@ -577,20 +585,25 @@ def retrain_model(settings: Settings, data_dir: Path, models_dir: Path) -> bool:
                 callbacks=[lgb.early_stopping(20, verbose=False)],
             )
 
-            preds = (model.predict(x_test) > 0.5).astype(int)
-            acc = (preds == y_test).mean()
-            accuracies.append(acc)
+            raw_preds = model.predict(x_test)
+            preds = (raw_preds > 0.5).astype(int)
+            accuracies.append((preds == y_test).mean())
+            # AUC needs both classes present in the test fold
+            if len(set(y_test)) > 1:
+                aucs.append(roc_auc_score(y_test, raw_preds))
 
         mean_accuracy = sum(accuracies) / len(accuracies) if accuracies else 0
+        mean_auc = sum(aucs) / len(aucs) if aucs else 0
 
-        # Quality gate: don't deploy a model that's worse than random
-        if mean_accuracy < 0.52:
+        # Quality gate on AUC, not accuracy — with imbalanced labels a
+        # majority-class predictor scores high accuracy but AUC 0.5.
+        if mean_auc < 0.53:
             log.warning(
                 "retrain_rejected",
-                reason="CV accuracy below 52% — model has no edge",
+                reason="CV AUC below 0.53 — model has no edge over random",
                 samples=len(df),
+                mean_auc=round(mean_auc, 3),
                 mean_accuracy=round(mean_accuracy, 3),
-                cv_accuracies=[round(a, 3) for a in accuracies],
             )
             return False
 
@@ -610,6 +623,8 @@ def retrain_model(settings: Settings, data_dir: Path, models_dir: Path) -> bool:
             "samples": len(df),
             "cv_accuracies": accuracies,
             "mean_accuracy": mean_accuracy,
+            "cv_aucs": aucs,
+            "mean_auc": mean_auc,
             "features": FEATURE_NAMES,
         }
         meta_path = models_dir / "model_meta.json"
@@ -618,8 +633,8 @@ def retrain_model(settings: Settings, data_dir: Path, models_dir: Path) -> bool:
         log.info(
             "retrain_complete",
             samples=len(df),
+            mean_auc=round(mean_auc, 3),
             mean_accuracy=round(mean_accuracy, 3),
-            cv_accuracies=[round(a, 3) for a in accuracies],
         )
         return True
 

@@ -10,6 +10,7 @@ echo "=== Updating Stockio ==="
 # Copy updated files
 cp -r "$REPO_DIR/src" "$APP_DIR/"
 cp -r "$REPO_DIR/config" "$APP_DIR/"
+cp -r "$REPO_DIR/scripts" "$APP_DIR/"
 cp "$REPO_DIR/pyproject.toml" "$APP_DIR/"
 
 # Update dependencies

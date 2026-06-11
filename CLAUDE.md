@@ -41,6 +41,9 @@ Each bot has its own LLM advisor (`llm_advisor.py`) that can veto trades based o
 ### Shadow Tracking
 When trades are vetoed/skipped, phantom outcomes are recorded and resolved later to measure veto accuracy. Results feed back into the LLM advisor prompt. Data persists in `shadow_outcomes.parquet`.
 
+### ML Training Pipeline
+The LightGBM model predicts **price direction** (label 1 = price hit +1 ATR before −1 ATR within `label_horizon_bars`; sign-of-move at timeout; ambiguous bars dropped). The paper bot records a training observation for *every* scored instrument each cycle, not just executed trades (~300 samples/day). Retrains every 500 new samples, gated on CV AUC ≥ 0.53 (accuracy is misleading under class imbalance). `scripts/backfill_training_data.py [days]` bootstraps the dataset from historical OANDA candles (default 180 days) — run it on the server after major label-logic changes, then restart stockio-web.
+
 ## Project Structure
 ```
 config/
