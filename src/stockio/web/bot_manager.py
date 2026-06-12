@@ -410,7 +410,7 @@ def _run_bot(slot: BotSlot, generation: int) -> None:
                     # Primary bot: fetch sentiment and share it
                     if sentiment.needs_refresh():
                         scores = _run_with_timeout(
-                            sentiment.refresh_all, (instruments,), timeout=120
+                            sentiment.refresh_all, (instruments,), timeout=300
                         )
                         if scores is None:
                             log.warning("sentiment_refresh_timeout", instance=slot.name)

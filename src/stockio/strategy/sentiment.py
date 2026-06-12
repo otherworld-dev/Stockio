@@ -176,16 +176,33 @@ class SentimentAnalyzer:
         if not self._enabled:
             return {}
 
+        started = datetime.now(UTC)
+
         # Fetch Trump headlines once (shared across all instruments)
         trump_headlines = self._fetch_trump_headlines()
         if trump_headlines:
             log.info("trump_headlines_fetched", count=len(trump_headlines))
 
+        # Prefetch all shared feeds ONCE — previously these were re-fetched
+        # for every instrument (~290 HTTP requests per refresh), which blew
+        # past the 120s refresh timeout and left sentiment permanently empty.
+        rss_titles = self._prefetch_rss(
+            list(self._settings.rss_feeds) + _BUILTIN_FEEDS
+        )
+        reddit_titles = self._prefetch_reddit()
+        log.info(
+            "feeds_prefetched",
+            rss_titles=len(rss_titles),
+            reddit_titles=len(reddit_titles),
+        )
+
         results: dict[str, float] = {}
         for name, cfg in instruments.items():
             try:
-                # Regular sentiment
-                headlines = self._fetch_headlines(cfg.news_keywords)
+                # Regular sentiment — NewsAPI per instrument, shared feeds filtered
+                headlines = self._fetch_headlines(
+                    cfg.news_keywords, rss_titles, reddit_titles
+                )
                 news_score = (
                     self._analyze(name, cfg.display_name, headlines)
                     if headlines
@@ -223,6 +240,11 @@ class SentimentAnalyzer:
         self._last_trump_headlines = trump_headlines
         self._cache = results
         self._cache_time = datetime.now(UTC)
+        log.info(
+            "sentiment_refresh_complete",
+            instruments=len(results),
+            elapsed_seconds=round((datetime.now(UTC) - started).total_seconds(), 1),
+        )
         return results
 
     # ------------------------------------------------------------------
@@ -254,19 +276,28 @@ class SentimentAnalyzer:
     # Headline fetching
     # ------------------------------------------------------------------
 
-    def _fetch_headlines(self, keywords: list[str]) -> list[str]:
-        """Fetch headlines from NewsAPI + Reddit + built-in RSS."""
+    def _fetch_headlines(
+        self,
+        keywords: list[str],
+        rss_titles: list[str],
+        reddit_titles: list[str],
+    ) -> list[str]:
+        """Combine NewsAPI results with keyword-filtered prefetched feeds."""
+        keywords_lower = [kw.lower() for kw in keywords]
         headlines: list[str] = []
 
-        # NewsAPI (if key available)
+        # NewsAPI (if key available) — query is per-instrument
         headlines.extend(self._fetch_newsapi(keywords))
 
-        # Reddit (free, no auth)
-        headlines.extend(self._fetch_reddit(keywords))
-
-        # Built-in RSS feeds (always included for consistent baseline)
-        headlines.extend(self._fetch_rss(keywords, self._settings.rss_feeds))
-        headlines.extend(self._fetch_rss(keywords, _BUILTIN_FEEDS))
+        # Prefetched Reddit + RSS titles, filtered by this instrument's keywords
+        headlines.extend(
+            t for t in reddit_titles
+            if any(kw in t.lower() for kw in keywords_lower)
+        )
+        headlines.extend(
+            t for t in rss_titles
+            if any(kw in t.lower() for kw in keywords_lower)
+        )
 
         # Deduplicate
         seen = set()
@@ -336,18 +367,16 @@ class SentimentAnalyzer:
             log.exception("newsapi_fetch_failed")
             return []
 
-    def _fetch_reddit(self, keywords: list[str]) -> list[str]:
-        """Fetch from Reddit's free JSON API (no auth needed)."""
-        headlines: list[str] = []
-        keywords_lower = [kw.lower() for kw in keywords]
-
+    def _prefetch_reddit(self) -> list[str]:
+        """Fetch all subreddit hot posts once. Returns unfiltered titles."""
+        titles: list[str] = []
         for subreddit in _REDDIT_SUBREDDITS:
             try:
                 resp = httpx.get(
                     f"https://www.reddit.com/r/{subreddit}/hot.json",
                     params={"limit": 15, "raw_json": 1},
                     headers={"User-Agent": _REDDIT_USER_AGENT},
-                    timeout=10,
+                    timeout=8,
                 )
                 resp.raise_for_status()
                 data = resp.json()
@@ -356,35 +385,26 @@ class SentimentAnalyzer:
                     if post.get("stickied"):
                         continue
                     title = post.get("title", "")
-                    title_lower = title.lower()
-                    # Match by keywords
-                    if any(kw in title_lower for kw in keywords_lower):
-                        headlines.append(f"[r/{subreddit}] {title}")
+                    if title:
+                        titles.append(f"[r/{subreddit}] {title}")
             except Exception:
                 log.debug("reddit_fetch_failed", subreddit=subreddit)
+        return titles
 
-        if headlines:
-            log.info("reddit_headlines_fetched", count=len(headlines))
-        return headlines
-
-    def _fetch_rss(self, keywords: list[str], feeds: list[str]) -> list[str]:
-        """Fetch from RSS feeds, filtered by keywords."""
-        headlines: list[str] = []
-        keywords_lower = [kw.lower() for kw in keywords]
-
+    def _prefetch_rss(self, feeds: list[str]) -> list[str]:
+        """Fetch all RSS feeds once. Returns unfiltered titles."""
+        titles: list[str] = []
         for feed_url in feeds:
             try:
-                resp = httpx.get(feed_url, timeout=10, follow_redirects=True)
+                resp = httpx.get(feed_url, timeout=5, follow_redirects=True)
                 feed = feedparser.parse(resp.text)
                 for entry in feed.get("entries", []):
                     title = entry.get("title", "")
-                    title_lower = title.lower()
-                    if any(kw in title_lower for kw in keywords_lower):
-                        headlines.append(title)
+                    if title:
+                        titles.append(title)
             except Exception:
                 log.debug("rss_fetch_failed", feed=feed_url)
-
-        return headlines
+        return titles
 
     # ------------------------------------------------------------------
     # LLM analysis

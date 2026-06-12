@@ -137,8 +137,8 @@ class Settings(BaseSettings):
     max_headlines: int = 10
     news_lookback_hours: int = 24
     rss_feeds: list[str] = Field(default_factory=lambda: [
-        "https://feeds.reuters.com/reuters/businessNews",
-        "https://feeds.reuters.com/reuters/topNews",
+        "https://www.cnbc.com/id/100003114/device/rss/rss.html",  # CNBC Top News
+        "https://www.cnbc.com/id/20910258/device/rss/rss.html",   # CNBC World Markets
     ])
 
     # --- Monitoring ---
