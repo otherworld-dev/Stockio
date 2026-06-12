@@ -137,10 +137,12 @@ def _build_feature_frame(df: pd.DataFrame, settings) -> pd.DataFrame:
     return feat
 
 
-def _label_rows(df: pd.DataFrame, settings) -> tuple[np.ndarray, np.ndarray]:
+def _label_rows(
+    df: pd.DataFrame, horizon: int, mult: float
+) -> tuple[np.ndarray, np.ndarray]:
     """Label each row with direction outcome. Returns (labels, exit_prices).
 
-    label 1 = price hit +label_atr_mult*ATR before -label_atr_mult*ATR
+    label 1 = price hit +mult*ATR before -mult*ATR within horizon bars
     label 0 = the reverse
     label -1 = ambiguous (both barriers in one bar) or unresolvable — drop
     """
@@ -149,8 +151,6 @@ def _label_rows(df: pd.DataFrame, settings) -> tuple[np.ndarray, np.ndarray]:
     low = df["low"].to_numpy()
     atr = df["atr"].to_numpy()
     n = len(df)
-    horizon = settings.label_horizon_bars
-    mult = settings.label_atr_mult
 
     labels = np.full(n, -1, dtype=np.int8)
     exit_prices = np.zeros(n)
@@ -206,7 +206,9 @@ def main() -> None:
 
         df = compute_indicators(candles, settings)
         feat = _build_feature_frame(df, settings)
-        labels, exit_prices = _label_rows(df, settings)
+        labels, exit_prices = _label_rows(
+            df, settings.label_horizon_bars, settings.label_atr_mult
+        )
 
         keep = labels >= 0
         rows = feat[keep].copy()
