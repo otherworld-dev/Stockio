@@ -244,7 +244,7 @@ class LLMAdvisor:
             shadow_feedback="\n".join(shadow_lines) or "No veto feedback yet",
         )
 
-        model = self._settings.llm_strategy_model or self._settings.llm_model
+        model = self._settings.llm_advisor_model or self._settings.llm_model
         result = self._call_llm_json(prompt, model)
         if result:
             self._last_advice = result

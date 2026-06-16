@@ -132,8 +132,12 @@ class Settings(BaseSettings):
     sentiment_refresh_seconds: int = 3600
 
     # --- Sentiment / LLM ---
+    # llm_model        — sentiment (hourly, paper bot only): cheap/high-volume
+    # llm_strategy_model — LLM scorer (1 bot, decides trades): reasoning matters
+    # llm_advisor_model  — veto advisor (all 5 bots, every cycle): high-volume, keep cheap
     llm_model: str = "claude-haiku-4-5-20251001"
     llm_strategy_model: str = "claude-opus-4-8"
+    llm_advisor_model: str = "claude-haiku-4-5-20251001"
     max_headlines: int = 10
     news_lookback_hours: int = 24
     rss_feeds: list[str] = Field(default_factory=lambda: [
